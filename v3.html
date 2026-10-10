@@ -81,7 +81,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.3</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.4</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -118,10 +118,10 @@
         <span id="terrainOpacityValue">72%</span>
       </div>
       <div class="row">
-        <button id="terrainFit" class="secondary">定位到 70 km 范围</button>
+        <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
       </div>
       <div class="terrainMeta">
-        Environment Agency LiDAR Composite DTM 1 m · Full-viewport WMS · EPSG:3857 · Open Government Licence
+        Environment Agency LiDAR Composite DTM 1 m · Viewport-follow WMS · 70 km only for navigation · Open Government Licence
       </div>
 
       <div class="row">
@@ -132,7 +132,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        渐进模式：滚轮缩放时先快速加载轻量预览；停止约 320 ms 后自动替换为高清 WMS，Google 与 OSM 同步。</div>
+        渐进模式：地形始终跟随当前可视窗口，不再裁剪到 70 km；滚轮时先预览，停止后自动换高清图。</div>
     </div>
   </div>
 
@@ -294,23 +294,37 @@
     return 6378137*Math.log(Math.tan(Math.PI/4+rad/2));
   }
 
-  function clipToTerrainBounds(b){
-    const clipped={
-      west:Math.max(b.west,TERRAIN_BOUNDS.west),
-      south:Math.max(b.south,TERRAIN_BOUNDS.south),
-      east:Math.min(b.east,TERRAIN_BOUNDS.east),
-      north:Math.min(b.north,TERRAIN_BOUNDS.north)
+  function normalizeViewportBounds(b){
+    if(!b)return null;
+
+    // Keep latitude inside Web Mercator's valid range.
+    const south=Math.max(-85.05112878,b.south);
+    const north=Math.min(85.05112878,b.north);
+
+    if(!Number.isFinite(b.west) || !Number.isFinite(b.east) ||
+       !Number.isFinite(south) || !Number.isFinite(north) ||
+       south>=north){
+      return null;
+    }
+
+    return {
+      west:b.west,
+      south,
+      east:b.east,
+      north
     };
-    if(clipped.west>=clipped.east || clipped.south>=clipped.north)return null;
-    return clipped;
   }
 
   function expandBounds(b,factor=1.35){
-    const cx=(b.west+b.east)/2;
-    const cy=(b.south+b.north)/2;
-    const halfW=(b.east-b.west)*factor/2;
-    const halfH=(b.north-b.south)*factor/2;
-    return clipToTerrainBounds({
+    const valid=normalizeViewportBounds(b);
+    if(!valid)return null;
+
+    const cx=(valid.west+valid.east)/2;
+    const cy=(valid.south+valid.north)/2;
+    const halfW=(valid.east-valid.west)*factor/2;
+    const halfH=(valid.north-valid.south)*factor/2;
+
+    return normalizeViewportBounds({
       west:cx-halfW,
       east:cx+halfW,
       south:cy-halfH,
