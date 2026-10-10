@@ -18,7 +18,8 @@
       overflow:hidden;background:#dbe5ef
     }
     #googleMap,#osmMap{position:absolute;inset:0}
-    #osmMap{display:none}
+    #googleMap{display:none}
+    #osmMap{display:block}
     #terrainScreenOverlay{
       position:absolute;inset:0;z-index:6;display:none!important;
       pointer-events:none;overflow:hidden
@@ -103,6 +104,8 @@
       padding:0;cursor:pointer;width:auto
     }
     .statsReset:hover{color:#fff}
+    .googleOnly{display:none!important}
+
 
     .focusActive{box-shadow:0 0 0 1px rgba(96,165,250,.55) inset}
     @media(max-width:600px){
@@ -121,8 +124,8 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.4</div>
-        <div class="providerBadge" id="providerBadge">Google Maps</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.9.5</div>
+        <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
     </div>
@@ -131,15 +134,16 @@
       <div class="divider"></div>
 
       <div class="section">地图来源</div>
-      <select id="provider">
-        <option value="google">Google Maps</option>
-        <option value="osm">OpenStreetMap / OpenFreeMap</option>
+      <div class="layerRow">
+        <span>OpenStreetMap / OpenFreeMap</span>
+        <span style="font-size:9px;color:#9fb0c4">开发模式</span>
+      </div>
+
+      <select id="provider" class="googleOnly">
+        <option value="osm" selected>OpenStreetMap / OpenFreeMap</option>
       </select>
 
-      <div class="divider"></div>
-
-      <div class="section">Google 地图类型</div>
-      <select id="mapType">
+      <select id="mapType" class="googleOnly">
         <option value="roadmap">道路图 Roadmap</option>
         <option value="satellite">卫星图 Satellite</option>
         <option value="hybrid">混合图 Hybrid</option>
@@ -167,7 +171,7 @@
         <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
       </div>
       <div class="terrainMeta">
-        EA LiDAR DTM 1 m · georeferenced ground overlay · EPSG:3857 · Google/OSM
+        EA LiDAR DTM 1 m · georeferenced ground overlay · EPSG:3857 · OpenStreetMap
       </div>
 
       <div class="row">
@@ -176,7 +180,7 @@
         <button id="resetBtn" class="secondary">重置</button>
       </div>
 
-      <div class="apiStats">
+      <div class="apiStats googleOnly">
         <div class="apiStatsTitle">
           <span>Google API 加载统计</span>
           <button id="resetApiStats" class="statsReset" type="button">清零</button>
@@ -206,7 +210,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        地面配准模式：EA WMS 直接铺到真实地图地理坐标；Google 3D 倾斜和 OSM pitch/rotation 时会随地面一起变形。</div>
+        开发阶段仅启用 OpenStreetMap / OpenFreeMap；EA WMS 按真实地理坐标叠加。Google Maps 暂停加载。</div>
     </div>
   </div>
 
@@ -332,7 +336,7 @@
   let googleMarker=null;
   let osmMarker=null;
   let googleLoading=false;
-  let currentProvider='google';
+  let currentProvider='osm';
   let terrainEnabled=true;
   let terrainOpacity=0.72;
   let terrainRefreshTimer=null;
@@ -444,12 +448,10 @@
   }
 
   function syncBadge(){
-    $('providerBadge').textContent =
-      currentProvider==='google' ? 'Google Maps' : 'OpenStreetMap · no API key';
-    $('mapType').disabled = currentProvider!=='google';
-    $('note').textContent = currentProvider==='google'
-      ? 'Google Maps 使用标准 Maps JavaScript API Key；成功完成一次地图加载后，本地统计器记 1 次。'
-      : 'OpenStreetMap 模式使用 OpenFreeMap 矢量瓦片 + MapLibre GL JS，不需要 API Key。';
+    $('providerBadge').textContent='OpenStreetMap · no API key';
+    $('mapType').disabled=true;
+    $('note').textContent=
+      '开发阶段仅启用 OpenStreetMap / OpenFreeMap；不会加载 Google Maps API。';
   }
 
   window.gm_authFailure=()=>{
@@ -1001,7 +1003,7 @@
       ensureOsmFocus70();
       if(currentProvider==='osm'){
         updateTerrainLayers();
-        say('OpenStreetMap 已连接；真实位置精确配准模式已启用。');
+        say('OpenStreetMap 已连接；Google Maps 已暂停，EA 地形配准已启用。');
       }
     });
     osmMap.on('mousemove',e=>{
@@ -1112,6 +1114,10 @@
   }
 
   async function switchProvider(provider){
+    if(provider==='google'){
+      console.info('Google Maps is disabled during app development.');
+      provider='osm';
+    }
     if(provider===currentProvider){
       syncBadge();
       return;
@@ -1251,7 +1257,9 @@
   };
 
   syncBadge();
-  initGoogle();
+  $('googleMap').style.display='none';
+  $('osmMap').style.display='block';
+  initOSM();
 </script>
 </body>
 </html>
