@@ -148,7 +148,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.0</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.1</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -306,8 +306,24 @@
     east:0.9205558158055206,
     north:52.14861630136811
   };
-  const DRAINAGE_CHUNK_COUNT=10;
-  const DRAINAGE_CHUNK_BASE='assets/drainage_b64/';
+  const DRAINAGE_FILES=[
+    'assets/drainage_b64/0a.txt',
+    'assets/drainage_b64/0b.txt',
+    'assets/drainage_b64/0c.txt',
+    'assets/drainage_b64/1.txt',
+    'assets/drainage_b64/2.txt',
+    'assets/drainage_b64/3a.txt',
+    'assets/drainage_b64/3b.txt',
+    'assets/drainage_b64/3c.txt',
+    'assets/drainage_b64/4a.txt',
+    'assets/drainage_b64/4b.txt',
+    'assets/drainage_b64/4c.txt',
+    'assets/drainage_b64/5.txt',
+    'assets/drainage_b64/6.txt',
+    'assets/drainage_b64/7.txt',
+    'assets/drainage_b64/8.txt',
+    'assets/drainage_b64/9.txt'
+  ];
   const DRAINAGE_SOURCE_ID='drainage-contributing-area-source';
   const DRAINAGE_LAYER_ID='drainage-contributing-area-layer';
 
@@ -890,10 +906,10 @@
 
     drainageLoadingPromise=(async()=>{
       const parts=await Promise.all(
-        Array.from({length:DRAINAGE_CHUNK_COUNT},(_,i)=>
-          fetch(DRAINAGE_CHUNK_BASE+i+'.txt',{cache:'force-cache'})
+        DRAINAGE_FILES.map(path=>
+          fetch(path,{cache:'force-cache'})
             .then(r=>{
-              if(!r.ok)throw new Error('Drainage asset '+i+' load failed: '+r.status);
+              if(!r.ok)throw new Error('Drainage asset load failed: '+path+' · '+r.status);
               return r.text();
             })
         )
