@@ -69,7 +69,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3</div>
+        <div class="sub">Google Maps + OpenStreetMap / Satellite Hybrid · v4</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -86,13 +86,23 @@
 
       <div class="divider"></div>
 
-      <div class="section">Google 地图类型</div>
-      <select id="mapType">
-        <option value="roadmap">道路图 Roadmap</option>
-        <option value="satellite">卫星图 Satellite</option>
-        <option value="hybrid">混合图 Hybrid</option>
-        <option value="terrain">地形图 Terrain</option>
-      </select>
+      <div id="googleOptions">
+        <div class="section">Google 地图类型</div>
+        <select id="mapType">
+          <option value="roadmap">道路图 Roadmap</option>
+          <option value="satellite">卫星图 Satellite</option>
+          <option value="hybrid">卫星 + 道路 Hybrid</option>
+          <option value="terrain">地形图 Terrain</option>
+        </select>
+      </div>
+
+      <div id="osmOptions" style="display:none">
+        <div class="section">OpenStreetMap 底图</div>
+        <select id="osmBase">
+          <option value="street">OSM 街道图</option>
+          <option value="satellite">卫星 + OSM 路网 / 标注</option>
+        </select>
+      </div>
 
       <div class="row">
         <button id="londonBtn" class="secondary">伦敦</button>
@@ -122,6 +132,7 @@
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='google';
+  let osmBaseMode='street';
 
   const $=id=>document.getElementById(id);
   const say=(m,e=false)=>{
@@ -131,11 +142,16 @@
 
   function syncBadge(){
     $('providerBadge').textContent =
-      currentProvider==='google' ? 'Google Maps' : 'OpenStreetMap · no API key';
-    $('mapType').disabled = currentProvider!=='google';
+      currentProvider==='google'
+        ? 'Google Maps'
+        : (osmBaseMode==='satellite' ? 'OSM + Satellite Hybrid' : 'OpenStreetMap · no API key');
+    $('googleOptions').style.display = currentProvider==='google' ? 'block' : 'none';
+    $('osmOptions').style.display = currentProvider==='osm' ? 'block' : 'none';
     $('note').textContent = currentProvider==='google'
-      ? 'Google Maps 使用内置 Demo Key。卫星图 / 混合图 / 地形图从这里切换。'
-      : 'OpenStreetMap 模式使用 OpenFreeMap 矢量瓦片 + MapLibre GL JS，不需要 API Key。';
+      ? 'Google Maps 使用内置 Demo Key。可切换道路、卫星、Hybrid 和地形图。'
+      : (osmBaseMode==='satellite'
+          ? '卫星混合模式使用 EOX Sentinel-2 影像作为底层，OpenStreetMap/OpenFreeMap 路网与标注叠加在上方。'
+          : 'OpenStreetMap 模式使用 OpenFreeMap 矢量瓦片 + MapLibre GL JS，不需要 API Key。');
   }
 
   window.gm_authFailure=()=>{
@@ -197,6 +213,54 @@
     }
   }
 
+  function applyOSMStyle(mode){
+    if(!osmMap)return;
+    osmBaseMode=mode;
+    syncBadge();
+
+    if(mode==='street'){
+      osmMap.setStyle('https://tiles.openfreemap.org/styles/liberty');
+      if(currentProvider==='osm')say('OpenStreetMap 街道图已加载。');
+      return;
+    }
+
+    osmMap.setStyle('https://tiles.openfreemap.org/styles/bright', {
+      transformStyle: (previousStyle, nextStyle) => {
+        nextStyle.sources = {
+          ...nextStyle.sources,
+          satelliteSource: {
+            type: 'raster',
+            tiles: [
+              'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg'
+            ],
+            tileSize: 256,
+            attribution: 'Sentinel-2 cloudless © EOX, contains modified Copernicus Sentinel data'
+          }
+        };
+
+        const firstRoadLayer = nextStyle.layers.find(
+          layer => layer['source-layer'] === 'transportation'
+        );
+        const satelliteLayer = {
+          id: 'satellite-underlay',
+          type: 'raster',
+          source: 'satelliteSource',
+          layout: {visibility:'visible'},
+          paint: {'raster-opacity': 1}
+        };
+
+        if(firstRoadLayer){
+          nextStyle.layers.splice(nextStyle.layers.indexOf(firstRoadLayer), 0, satelliteLayer);
+        }else{
+          nextStyle.layers.unshift(satelliteLayer);
+        }
+        return nextStyle;
+      }
+    });
+
+    if(currentProvider==='osm')say('卫星影像 + OpenStreetMap 路网 / 标注已加载。');
+  }
+
   function initOSM(){
     if(osmMap)return;
     say('正在加载 OpenStreetMap…');
@@ -243,7 +307,9 @@
       syncBadge();
       initOSM();
       setTimeout(()=>{if(osmMap)osmMap.resize();},100);
-      if(osmMap&&osmMap.loaded())say('OpenStreetMap 模式，无需 API Key。');
+      if(osmMap&&osmMap.loaded()){
+        applyOSMStyle($('osmBase').value);
+      }
     }
   }
 
@@ -251,6 +317,11 @@
 
   $('mapType').addEventListener('change',e=>{
     if(googleMap)googleMap.setMapTypeId(e.target.value);
+  });
+
+  $('osmBase').addEventListener('change',e=>{
+    initOSM();
+    applyOSMStyle(e.target.value);
   });
 
   $('londonBtn').onclick=()=>{
