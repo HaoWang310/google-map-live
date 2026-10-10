@@ -81,7 +81,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -132,7 +132,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        高速模式：仅请求 70 km 研究区内可见的 EA 1 m LiDAR；远景不请求，放大后自动加载高清细节。
+        高速模式：优先使用 EA 官方 WMTS 缓存瓦片；仅请求 70 km 研究区，WMTS 不可用时自动回退 WMS。
       </div>
     </div>
   </div>
@@ -150,6 +150,159 @@
   // Dynamic WMS: requests a fresh raster tile for every zoom level.
   const EA_WMS_BASE='https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wms';
   const EA_WMS_LAYER='Lidar_Composite_DTM_1m';
+
+  // Prefer the official cached WMTS service. WMS remains an automatic fallback.
+  const EA_WMTS_CAPABILITIES=
+    'https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wmts'+
+    '?request=GetCapabilities&service=WMTS&version=1.0.0';
+
+  let eaWmts=null;
+  let eaRasterMode='WMS fallback';
+
+  function textOf(el,localName){
+    if(!el)return '';
+    const node=[...el.getElementsByTagName('*')].find(n=>n.localName===localName);
+    return node?.textContent?.trim()||'';
+  }
+
+  async function loadEaWmtsConfig(){
+    try{
+      const response=await fetch(EA_WMTS_CAPABILITIES,{cache:'force-cache'});
+      if(!response.ok)throw new Error('WMTS capabilities HTTP '+response.status);
+      const xmlText=await response.text();
+      const xml=new DOMParser().parseFromString(xmlText,'application/xml');
+      if(xml.querySelector('parsererror'))throw new Error('WMTS capabilities XML parse failed');
+
+      const layers=[...xml.getElementsByTagName('*')].filter(n=>n.localName==='Layer');
+      const layer=layers.find(n=>{
+        const id=textOf(n,'Identifier').toLowerCase();
+        return id.includes('dtm') && id.includes('1m');
+      }) || layers[0];
+      if(!layer)throw new Error('WMTS layer not found');
+
+      const layerId=textOf(layer,'Identifier');
+      const styleEls=[...layer.getElementsByTagName('*')].filter(n=>n.localName==='Style');
+      const defaultStyle=styleEls.find(s=>s.getAttribute('isDefault')==='true') || styleEls[0];
+      const styleId=textOf(defaultStyle,'Identifier');
+
+      const links=[...layer.getElementsByTagName('*')].filter(n=>n.localName==='TileMatrixSetLink');
+      const matrixSets=[...xml.getElementsByTagName('*')].filter(n=>n.localName==='TileMatrixSet');
+
+      let chosenSet=null;
+      for(const link of links){
+        const id=textOf(link,'TileMatrixSet');
+        const set=matrixSets.find(s=>textOf(s,'Identifier')===id);
+        const crs=textOf(set,'SupportedCRS').toLowerCase();
+        if(crs.includes('3857') || crs.includes('900913')){
+          chosenSet=set; break;
+        }
+      }
+      if(!chosenSet){
+        chosenSet=matrixSets.find(s=>{
+          const crs=textOf(s,'SupportedCRS').toLowerCase();
+          return crs.includes('3857') || crs.includes('900913');
+        });
+      }
+      if(!chosenSet)throw new Error('EPSG:3857 WMTS matrix set not found');
+
+      const matrixSetId=textOf(chosenSet,'Identifier');
+      const matrices=[...chosenSet.getElementsByTagName('*')]
+        .filter(n=>n.localName==='TileMatrix')
+        .map(m=>textOf(m,'Identifier'))
+        .filter(Boolean);
+
+      const resourceUrls=[...layer.getElementsByTagName('*')]
+        .filter(n=>n.localName==='ResourceURL');
+      const resource=resourceUrls.find(n=>{
+        const f=(n.getAttribute('format')||'').toLowerCase();
+        const t=(n.getAttribute('resourceType')||'').toLowerCase();
+        return t==='tile' && (f.includes('png') || f.includes('jpeg') || f.includes('jpg'));
+      });
+
+      const template=resource?.getAttribute('template')||'';
+      const format=resource?.getAttribute('format') || 'image/png';
+
+      // Work out how matrix identifiers map to normal web-map zoom numbers.
+      const matrixByZoom={};
+      for(const id of matrices){
+        const m=id.match(/(\d+)$/);
+        if(m)matrixByZoom[Number(m[1])]=id;
+      }
+
+      if(!Object.keys(matrixByZoom).length){
+        throw new Error('WMTS zoom matrix mapping not recognized');
+      }
+
+      // Build a MapLibre-compatible template if matrix identifiers end with the zoom number.
+      const sampleZoom=Object.keys(matrixByZoom).map(Number).sort((a,b)=>a-b)[0];
+      const sampleId=matrixByZoom[sampleZoom];
+      const prefix=sampleId.slice(0,sampleId.length-String(sampleZoom).length);
+      const matrixTemplate=prefix+'{z}';
+
+      let mapLibreTemplate='';
+      if(template){
+        mapLibreTemplate=template
+          .replaceAll('{Style}',encodeURIComponent(styleId))
+          .replaceAll('{TileMatrixSet}',encodeURIComponent(matrixSetId))
+          .replaceAll('{TileMatrix}',matrixTemplate)
+          .replaceAll('{TileRow}','{y}')
+          .replaceAll('{TileCol}','{x}');
+      }else{
+        const base='https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wmts';
+        mapLibreTemplate=
+          base+'?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0'+
+          '&LAYER='+encodeURIComponent(layerId)+
+          '&STYLE='+encodeURIComponent(styleId)+
+          '&FORMAT='+encodeURIComponent(format)+
+          '&TILEMATRIXSET='+encodeURIComponent(matrixSetId)+
+          '&TILEMATRIX='+matrixTemplate+
+          '&TILEROW={y}&TILECOL={x}';
+      }
+
+      eaWmts={
+        layerId,styleId,matrixSetId,format,template,
+        matrixByZoom,mapLibreTemplate
+      };
+      eaRasterMode='WMTS cache';
+      console.info('EA WMTS ready',eaWmts);
+      return true;
+    }catch(err){
+      console.warn('EA WMTS unavailable; falling back to WMS',err);
+      eaWmts=null;
+      eaRasterMode='WMS fallback';
+      return false;
+    }
+  }
+
+  function eaWmtsUrlForGoogle(coord,zoom){
+    if(!eaWmts)return null;
+    const matrix=eaWmts.matrixByZoom[zoom];
+    if(!matrix)return null;
+
+    if(eaWmts.template){
+      return eaWmts.template
+        .replaceAll('{Style}',encodeURIComponent(eaWmts.styleId))
+        .replaceAll('{TileMatrixSet}',encodeURIComponent(eaWmts.matrixSetId))
+        .replaceAll('{TileMatrix}',encodeURIComponent(matrix))
+        .replaceAll('{TileRow}',String(coord.y))
+        .replaceAll('{TileCol}',String(coord.x));
+    }
+
+    const base='https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wmts';
+    const q=new URLSearchParams({
+      SERVICE:'WMTS',
+      REQUEST:'GetTile',
+      VERSION:'1.0.0',
+      LAYER:eaWmts.layerId,
+      STYLE:eaWmts.styleId,
+      FORMAT:eaWmts.format,
+      TILEMATRIXSET:eaWmts.matrixSetId,
+      TILEMATRIX:matrix,
+      TILEROW:String(coord.y),
+      TILECOL:String(coord.x)
+    });
+    return base+'?'+q.toString();
+  }
 
   // Original 70 km study extent centred on Charing Cross E530037 N180373.
   const TERRAIN_BOUNDS={
@@ -191,14 +344,16 @@
   const EMPTY_TILE=
     'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 
-  function eaWmsUrlForGoogle(coord,zoom){
-    // Do not request 1 m LiDAR when zoomed far out.
+  function eaTileUrlForGoogle(coord,zoom){
     if(zoom<8)return EMPTY_TILE;
 
-    // Only request tiles intersecting the original 70 km London study area.
     const ll=tileBoundsLngLat(coord.x,coord.y,zoom);
     if(!intersectsTerrainBounds(ll))return EMPTY_TILE;
 
+    const wmts=eaWmtsUrlForGoogle(coord,zoom);
+    if(wmts)return wmts;
+
+    // Fallback only when WMTS discovery fails.
     const bbox=tileBBox3857(coord.x,coord.y,zoom);
     const q=new URLSearchParams({
       SERVICE:'WMS',
@@ -292,7 +447,7 @@
 
     if(!googleTerrainMapType){
       googleTerrainMapType=new google.maps.ImageMapType({
-        getTileUrl:eaWmsUrlForGoogle,
+        getTileUrl:eaTileUrlForGoogle,
         tileSize:new google.maps.Size(256,256),
         minZoom:8,
         maxZoom:19,
@@ -315,9 +470,10 @@
     if(!osmMap || !osmMap.loaded())return;
 
     if(!osmMap.getSource('ea-lidar-dtm-1m')){
+      const fastTiles=eaWmts?.mapLibreTemplate || EA_WMS_MAPLIBRE;
       osmMap.addSource('ea-lidar-dtm-1m',{
         type:'raster',
-        tiles:[EA_WMS_MAPLIBRE],
+        tiles:[fastTiles],
         tileSize:256,
         minzoom:8,
         maxzoom:19,
@@ -397,7 +553,7 @@
           ' / Lng '+c.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
       });
       updateGoogleTerrain();
-      if(currentProvider==='google')say('Google Maps 已加载；EA 1 m LiDAR 已启用高速按需加载。');
+      if(currentProvider==='google')say('Google Maps 已加载；EA 1 m LiDAR：'+eaRasterMode+'。');
     }catch(err){
       console.error(err);
       say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
@@ -529,7 +685,7 @@
           applySharedView('google');
         },50);
         updateGoogleTerrain();
-        say('Google Maps 模式；地形图层按需加载。');
+        say('Google Maps 模式；地形：'+eaRasterMode+'。');
       }
     }else{
       $('googleMap').style.display='none';
@@ -545,7 +701,7 @@
       }
       if(osmMap&&osmMap.loaded()){
         updateOsmTerrain();
-        say('OpenStreetMap 模式；地形图层按需加载。');
+        say('OpenStreetMap 模式；地形：'+eaRasterMode+'。');
       }
     }
   }
@@ -632,8 +788,13 @@
     },100);
   };
 
-  syncBadge();
-  initGoogle();
+  async function boot(){
+    syncBadge();
+    say('正在连接 EA 高速 WMTS…');
+    await loadEaWmtsConfig();
+    await initGoogle();
+  }
+  boot();
 </script>
 </body>
 </html>
