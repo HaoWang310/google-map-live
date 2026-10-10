@@ -82,7 +82,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.6</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.7</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -128,7 +128,7 @@
         <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
       </div>
       <div class="terrainMeta">
-        Environment Agency LiDAR Composite DTM 1 m · Persistent overview + HD viewport · Optional 70 km focus
+        EA LiDAR DTM 1 m · exact EPSG:3857 viewport registration · overview + HD · optional 70 km focus
       </div>
 
       <div class="row">
@@ -139,7 +139,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        自由模式：英格兰概览地形常驻底层，当前窗口高清图在上层刷新；开启 70 KM 聚焦后只显示研究范围。</div>
+        自由模式：概览层常驻，缩放/平移时立即请求覆盖整个当前窗口；旧局部矩形会自动移除，停止后精确刷新高清图。</div>
     </div>
   </div>
 
@@ -278,10 +278,12 @@
   let googleTerrainOverviewOverlay=null;
   let googleTerrainOverviewReady=false;
   let googleTerrainOverlay=null;
+  let googleTerrainOverlayBounds=null;
   let googleTerrainRefreshTimer=null;
   let googleTerrainRequestId=0;
 
   let osmTerrainOverviewReady=false;
+  let osmTerrainCurrentBounds=null;
   let osmTerrainRefreshTimer=null;
   let osmTerrainRequestId=0;
   let osmTerrainActiveSlot='a';
@@ -418,6 +420,34 @@
     };
   }
 
+  function boundsContain(outer,inner,pad=0){
+    if(!outer || !inner)return false;
+    return (
+      outer.west <= inner.west + pad &&
+      outer.east >= inner.east - pad &&
+      outer.south <= inner.south + pad &&
+      outer.north >= inner.north - pad
+    );
+  }
+
+  function boundsArea(b){
+    if(!b)return 0;
+    return Math.max(0,(b.east-b.west)*(b.north-b.south));
+  }
+
+  function shouldDropOldOverlay(oldBounds,newView){
+    if(!oldBounds || !newView)return false;
+    if(!boundsContain(oldBounds,newView))return true;
+
+    const oldArea=boundsArea(oldBounds);
+    const newArea=boundsArea(newView);
+    if(!oldArea || !newArea)return false;
+
+    // If the map has zoomed out enough that the old image now covers
+    // less than 70% of the visible area, remove it immediately.
+    return oldArea/newArea < 0.70;
+  }
+
   function eaViewportWmsUrl(bounds,width,height){
     const bbox=[
       mercatorX(bounds.west),
@@ -477,7 +507,7 @@
   async function ensureGoogleTerrainOverview(){
     if(!googleMap || !terrainEnabled || focus70Enabled)return;
     if(googleTerrainOverviewReady && googleTerrainOverviewOverlay){
-      googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.58));
+      googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.42));
       googleTerrainOverviewOverlay.setMap(googleMap);
       return;
     }
@@ -495,7 +525,7 @@
       googleTerrainOverviewOverlay=new google.maps.GroundOverlay(
         url,
         ENGLAND_OVERVIEW_BOUNDS,
-        {opacity:Math.min(terrainOpacity,0.58),clickable:false}
+        {opacity:Math.min(terrainOpacity,0.42),clickable:false}
       );
       googleTerrainOverviewOverlay.setMap(googleMap);
       googleTerrainOverviewReady=true;
@@ -518,7 +548,7 @@
 
     if(osmMap.getLayer(layerId)){
       osmMap.setLayoutProperty(layerId,'visibility','visible');
-      osmMap.setPaintProperty(layerId,'raster-opacity',Math.min(terrainOpacity,0.58));
+      osmMap.setPaintProperty(layerId,'raster-opacity',Math.min(terrainOpacity,0.42));
       osmTerrainOverviewReady=true;
       return;
     }
@@ -551,7 +581,7 @@
         type:'raster',
         source:sourceId,
         paint:{
-          'raster-opacity':Math.min(terrainOpacity,0.58),
+          'raster-opacity':Math.min(terrainOpacity,0.42),
           'raster-fade-duration':0,
           'raster-resampling':'linear'
         }
@@ -584,8 +614,10 @@
     if(!googleMap || !terrainEnabled)return;
 
     const visible=googleVisibleBounds();
-    const overscan=quality==='preview' ? 1.18 : 1.35;
-    const clipped=visible ? expandBounds(visible,overscan) : null;
+    const factor=focus70Enabled
+      ? (quality==='preview' ? 1.08 : 1.00)
+      : (quality==='preview' ? 1.06 : 1.00);
+    const clipped=visible ? expandBounds(visible,factor) : null;
 
     if(!clipped){
       if(googleTerrainOverlay){
@@ -612,6 +644,7 @@
 
       const previous=googleTerrainOverlay;
       googleTerrainOverlay=next;
+      googleTerrainOverlayBounds={...clipped};
       if(previous)previous.setMap(null);
 
       if(currentProvider==='google'){
@@ -635,6 +668,7 @@
       googleTerrainOverlay.setMap(null);
       googleTerrainOverlay=null;
     }
+    googleTerrainOverlayBounds=null;
   }
 
   function updateGoogleTerrain(){
@@ -716,8 +750,10 @@
     if(!osmMap || !osmMap.loaded() || !terrainEnabled)return;
 
     const visible=osmVisibleBounds();
-    const overscan=quality==='preview' ? 1.18 : 1.35;
-    const clipped=visible ? expandBounds(visible,overscan) : null;
+    const factor=focus70Enabled
+      ? (quality==='preview' ? 1.08 : 1.00)
+      : (quality==='preview' ? 1.06 : 1.00);
+    const clipped=visible ? expandBounds(visible,factor) : null;
 
     if(!clipped){
       removeOsmTerrainSlot('a');
@@ -741,6 +777,7 @@
       // Then remove the old image, producing an atomic visual swap.
       removeOsmTerrainSlot(osmTerrainActiveSlot);
       osmTerrainActiveSlot=nextSlot;
+      osmTerrainCurrentBounds={...clipped};
 
       if(currentProvider==='osm'){
         say(quality==='preview'
@@ -761,6 +798,7 @@
     osmTerrainRequestId++;
     removeOsmTerrainSlot('a');
     removeOsmTerrainSlot('b');
+    osmTerrainCurrentBounds=null;
   }
 
   function updateOsmTerrain(){
@@ -908,6 +946,38 @@
     updateTerrainLayers();
   }
 
+  function handleGoogleTerrainCameraChange(){
+    if(!googleMap || !terrainEnabled || currentProvider!=='google')return;
+
+    const view=googleVisibleBounds();
+    if(!focus70Enabled &&
+       googleTerrainOverlay &&
+       shouldDropOldOverlay(googleTerrainOverlayBounds,view)){
+      googleTerrainOverlay.setMap(null);
+      googleTerrainOverlay=null;
+      googleTerrainOverlayBounds=null;
+    }
+
+    googleTerrainRequestId++;
+    scheduleGoogleTerrainRefresh(20,'preview');
+  }
+
+  function handleOsmTerrainCameraChange(){
+    if(!osmMap || !terrainEnabled || currentProvider!=='osm')return;
+
+    const view=osmVisibleBounds();
+    if(!focus70Enabled &&
+       osmTerrainCurrentBounds &&
+       shouldDropOldOverlay(osmTerrainCurrentBounds,view)){
+      removeOsmTerrainSlot('a');
+      removeOsmTerrainSlot('b');
+      osmTerrainCurrentBounds=null;
+    }
+
+    osmTerrainRequestId++;
+    scheduleOsmTerrainRefresh(20,'preview');
+  }
+
   function updateTerrainLayers(){
     if(currentProvider==='google'){
       updateGoogleTerrain();
@@ -945,16 +1015,21 @@
           ' / Lng '+center.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
 
         if(terrainEnabled){
-          // Invalidate a slow request from the previous wheel position.
-          googleTerrainRequestId++;
-          scheduleGoogleTerrainRefresh(80,'preview');
+          handleGoogleTerrainCameraChange();
+        }
+      });
+
+      googleMap.addListener('center_changed',()=>{
+        if(currentProvider==='google' && terrainEnabled){
+          clearTimeout(googleTerrainRefreshTimer);
+          scheduleGoogleTerrainRefresh(50,'preview');
         }
       });
 
       googleMap.addListener('idle',()=>{
         if(currentProvider==='google' && terrainEnabled){
           // Final HD pass only after the wheel/pan interaction has settled.
-          scheduleGoogleTerrainRefresh(320,'final');
+          scheduleGoogleTerrainRefresh(220,'final');
         }
       });
 
@@ -1010,14 +1085,20 @@
 
     osmMap.on('zoom',()=>{
       if(currentProvider==='osm' && terrainEnabled){
-        osmTerrainRequestId++;
-        scheduleOsmTerrainRefresh(80,'preview');
+        handleOsmTerrainCameraChange();
+      }
+    });
+
+    osmMap.on('move',()=>{
+      if(currentProvider==='osm' && terrainEnabled){
+        clearTimeout(osmTerrainRefreshTimer);
+        scheduleOsmTerrainRefresh(50,'preview');
       }
     });
 
     osmMap.on('moveend',()=>{
       if(currentProvider==='osm' && terrainEnabled){
-        scheduleOsmTerrainRefresh(320,'final');
+        scheduleOsmTerrainRefresh(220,'final');
       }
     });
     osmMap.on('error',e=>{
@@ -1159,14 +1240,14 @@
     if(currentProvider==='google'){
       if(googleTerrainOverlay)googleTerrainOverlay.setOpacity(terrainOpacity);
       if(googleTerrainOverviewOverlay){
-        googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.58));
+        googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.42));
       }
     }else if(osmMap){
       if(osmMap.getLayer('ea-overview-layer')){
         osmMap.setPaintProperty(
           'ea-overview-layer',
           'raster-opacity',
-          Math.min(terrainOpacity,0.58)
+          Math.min(terrainOpacity,0.42)
         );
       }
       for(const key of ['a','b']){
