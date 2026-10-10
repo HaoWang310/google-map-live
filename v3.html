@@ -68,6 +68,7 @@
     }
     .rangeRow input[type=range]{width:100%}
     .terrainMeta{font-size:9px;line-height:1.45;color:#8fa0b5;margin-top:7px}
+    .focusActive{box-shadow:0 0 0 1px rgba(96,165,250,.55) inset}
     @media(max-width:600px){
       .panel{top:8px;left:8px;width:calc(100vw - 16px);padding:12px}
     }
@@ -81,7 +82,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.4</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.5</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -117,11 +118,17 @@
         <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.72">
         <span id="terrainOpacityValue">72%</span>
       </div>
+      <div class="divider"></div>
+      <div class="section">70 KM 研究圆</div>
+      <label class="layerRow">
+        <span>70 KM 圆形聚焦模式</span>
+        <input id="focus70Toggle" type="checkbox">
+      </label>
       <div class="row">
         <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
       </div>
       <div class="terrainMeta">
-        Environment Agency LiDAR Composite DTM 1 m · Viewport-follow WMS · 70 km only for navigation · Open Government Licence
+        Environment Agency LiDAR Composite DTM 1 m · Viewport WMS · Optional 70 km focus · Open Government Licence
       </div>
 
       <div class="row">
@@ -132,7 +139,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        渐进模式：地形始终跟随当前可视窗口，不再裁剪到 70 km；滚轮时先预览，停止后自动换高清图。</div>
+        自由模式：地形跟随当前窗口；开启“70 KM 圆形聚焦模式”后，仅聚焦并加载研究范围内的地形。</div>
     </div>
   </div>
 
@@ -157,6 +164,36 @@
     east:0.9210948646196429,
     north:52.14838885409756
   };
+
+  const FOCUS70_CENTER={lat:51.50733434456047,lng:-0.12768375058439654};
+  const FOCUS70_RADIUS_M=70000;
+
+  function makeCircleGeoJson(center,radiusM,steps=180){
+    const coords=[];
+    const R=6378137;
+    const lat1=center.lat*Math.PI/180;
+    const lon1=center.lng*Math.PI/180;
+    const d=radiusM/R;
+
+    for(let i=0;i<=steps;i++){
+      const brng=2*Math.PI*i/steps;
+      const lat2=Math.asin(
+        Math.sin(lat1)*Math.cos(d)+
+        Math.cos(lat1)*Math.sin(d)*Math.cos(brng)
+      );
+      const lon2=lon1+Math.atan2(
+        Math.sin(brng)*Math.sin(d)*Math.cos(lat1),
+        Math.cos(d)-Math.sin(lat1)*Math.sin(lat2)
+      );
+      coords.push([lon2*180/Math.PI,lat2*180/Math.PI]);
+    }
+
+    return {
+      type:'Feature',
+      properties:{name:'London 70 km research circle'},
+      geometry:{type:'Polygon',coordinates:[coords]}
+    };
+  }
 
   function tileBBox3857(x,y,z){
     const origin=20037508.342789244;
@@ -242,6 +279,11 @@
   };
   let terrainEnabled=true;
   let terrainOpacity=0.72;
+
+  let focus70Enabled=false;
+  let googleFocusCircle=null;
+  let osmFocusReady=false;
+
   let sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM,source:currentProvider};
 
   const $=id=>document.getElementById(id);
@@ -324,12 +366,24 @@
     const halfW=(valid.east-valid.west)*factor/2;
     const halfH=(valid.north-valid.south)*factor/2;
 
-    return normalizeViewportBounds({
+    let out=normalizeViewportBounds({
       west:cx-halfW,
       east:cx+halfW,
       south:cy-halfH,
       north:cy+halfH
     });
+
+    if(focus70Enabled && out){
+      out={
+        west:Math.max(out.west,TERRAIN_BOUNDS.west),
+        south:Math.max(out.south,TERRAIN_BOUNDS.south),
+        east:Math.min(out.east,TERRAIN_BOUNDS.east),
+        north:Math.min(out.north,TERRAIN_BOUNDS.north)
+      };
+      if(out.west>=out.east || out.south>=out.north)return null;
+    }
+
+    return out;
   }
 
   function googleVisibleBounds(){
@@ -612,6 +666,117 @@
     scheduleOsmTerrainRefresh(60,'final');
   }
 
+  function fitGoogleTo70(){
+    if(!googleMap)return;
+    googleMap.fitBounds(TERRAIN_BOUNDS,0);
+  }
+
+  function fitOsmTo70(){
+    if(!osmMap)return;
+    osmMap.fitBounds([
+      [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.south],
+      [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.north]
+    ],{padding:20,duration:450});
+  }
+
+  function updateGoogleFocus70(){
+    if(!googleMap || !window.google?.maps)return;
+
+    if(!googleFocusCircle){
+      googleFocusCircle=new google.maps.Circle({
+        center:FOCUS70_CENTER,
+        radius:FOCUS70_RADIUS_M,
+        strokeColor:'#2563eb',
+        strokeOpacity:0.95,
+        strokeWeight:2,
+        fillColor:'#60a5fa',
+        fillOpacity:0.08,
+        clickable:false
+      });
+    }
+
+    googleFocusCircle.setMap(focus70Enabled ? googleMap : null);
+
+    googleMap.setOptions({
+      restriction: focus70Enabled ? {
+        latLngBounds:TERRAIN_BOUNDS,
+        strictBounds:true
+      } : null
+    });
+
+    if(focus70Enabled){
+      fitGoogleTo70();
+    }
+  }
+
+  function ensureOsmFocus70(){
+    if(!osmMap || !osmMap.loaded())return;
+
+    const sourceId='focus70-circle-source';
+    const fillId='focus70-circle-fill';
+    const lineId='focus70-circle-line';
+
+    if(!osmMap.getSource(sourceId)){
+      osmMap.addSource(sourceId,{
+        type:'geojson',
+        data:makeCircleGeoJson(FOCUS70_CENTER,FOCUS70_RADIUS_M)
+      });
+    }
+
+    if(!osmMap.getLayer(fillId)){
+      osmMap.addLayer({
+        id:fillId,
+        type:'fill',
+        source:sourceId,
+        paint:{
+          'fill-color':'#60a5fa',
+          'fill-opacity':0.08
+        }
+      });
+    }
+
+    if(!osmMap.getLayer(lineId)){
+      osmMap.addLayer({
+        id:lineId,
+        type:'line',
+        source:sourceId,
+        paint:{
+          'line-color':'#2563eb',
+          'line-width':2.5,
+          'line-opacity':0.95
+        }
+      });
+    }
+
+    osmFocusReady=true;
+    const visibility=focus70Enabled?'visible':'none';
+    osmMap.setLayoutProperty(fillId,'visibility',visibility);
+    osmMap.setLayoutProperty(lineId,'visibility',visibility);
+
+    if(focus70Enabled){
+      osmMap.setMaxBounds([
+        [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.south],
+        [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.north]
+      ]);
+      fitOsmTo70();
+    }else{
+      osmMap.setMaxBounds(null);
+    }
+  }
+
+  function updateFocus70(){
+    updateGoogleFocus70();
+    ensureOsmFocus70();
+
+    if(focus70Enabled){
+      say('70 KM 聚焦模式已开启：视图与地形请求限制在研究范围内。');
+    }else{
+      say('70 KM 聚焦模式已关闭：恢复自由浏览。');
+    }
+
+    updateTerrainLayers();
+  }
+
   function updateTerrainLayers(){
     if(currentProvider==='google'){
       updateGoogleTerrain();
@@ -668,6 +833,7 @@
       });
 
       updateGoogleTerrain();
+      updateGoogleFocus70();
       if(currentProvider==='google')say('Google Maps 已加载；完整窗口地形模式已启用。');
     }catch(err){
       console.error(err);
@@ -692,6 +858,7 @@
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
     osmMap.on('load',()=>{
+      ensureOsmFocus70();
       if(currentProvider==='osm'){
         updateOsmTerrain();
         say('OpenStreetMap 已连接；完整窗口地形模式已启用。');
@@ -817,6 +984,7 @@
           google.maps.event.trigger(googleMap,'resize');
           applySharedView('google');
         },50);
+        updateGoogleFocus70();
         updateGoogleTerrain();
         say('Google Maps 模式；正在刷新完整地形图。');
       }
@@ -833,6 +1001,7 @@
         },100);
       }
       if(osmMap&&osmMap.loaded()){
+        ensureOsmFocus70();
         updateOsmTerrain();
         say('OpenStreetMap 模式；正在刷新完整地形图。');
       }
@@ -866,14 +1035,17 @@
     }
   });
 
+  $('focus70Toggle').addEventListener('change',e=>{
+    focus70Enabled=e.target.checked;
+    e.target.closest('.layerRow')?.classList.toggle('focusActive',focus70Enabled);
+    updateFocus70();
+  });
+
   $('terrainFit').onclick=()=>{
     if(currentProvider==='google' && googleMap){
-      googleMap.fitBounds(TERRAIN_BOUNDS,0);
+      fitGoogleTo70();
     }else if(currentProvider==='osm' && osmMap){
-      osmMap.fitBounds([
-        [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.south],
-        [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.north]
-      ],{padding:20,duration:500});
+      fitOsmTo70();
     }
   };
 
