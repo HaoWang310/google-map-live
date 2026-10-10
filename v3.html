@@ -69,7 +69,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.1</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.2</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -122,7 +122,9 @@
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='google';
-  let sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM};
+  let sharedBounds=null;
+  let sharedBounds=null;
+      sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM};
 
   const $=id=>document.getElementById(id);
   const say=(m,e=false)=>{
@@ -228,22 +230,77 @@
   }
 
   function captureCurrentView(){
+    sharedBounds=null;
+
     if(currentProvider==='google' && googleMap){
       const center=googleMap.getCenter();
       const zoom=googleMap.getZoom();
+      const bounds=googleMap.getBounds();
+
       if(center && Number.isFinite(zoom)){
         sharedView={lat:center.lat(),lng:center.lng(),zoom};
+      }
+
+      if(bounds){
+        const ne=bounds.getNorthEast();
+        const sw=bounds.getSouthWest();
+        sharedBounds={
+          north:ne.lat(),
+          east:ne.lng(),
+          south:sw.lat(),
+          west:sw.lng()
+        };
       }
     }else if(currentProvider==='osm' && osmMap){
       const center=osmMap.getCenter();
       const zoom=osmMap.getZoom();
+      const bounds=osmMap.getBounds();
+
       if(center && Number.isFinite(zoom)){
         sharedView={lat:center.lat,lng:center.lng,zoom};
+      }
+
+      if(bounds){
+        sharedBounds={
+          north:bounds.getNorth(),
+          east:bounds.getEast(),
+          south:bounds.getSouth(),
+          west:bounds.getWest()
+        };
       }
     }
   }
 
   function applySharedView(provider){
+    if(sharedBounds){
+      if(provider==='google' && googleMap){
+        googleMap.fitBounds({
+          north:sharedBounds.north,
+          east:sharedBounds.east,
+          south:sharedBounds.south,
+          west:sharedBounds.west
+        }, 0);
+        return;
+      }
+
+      if(provider==='osm' && osmMap){
+        osmMap.fitBounds(
+          [
+            [sharedBounds.west, sharedBounds.south],
+            [sharedBounds.east, sharedBounds.north]
+          ],
+          {
+            padding:0,
+            duration:0,
+            pitch:0,
+            bearing:0
+          }
+        );
+        return;
+      }
+    }
+
+    // Fallback for first load if bounds are not available yet.
     if(provider==='google' && googleMap){
       googleMap.setCenter({lat:sharedView.lat,lng:sharedView.lng});
       googleMap.setZoom(sharedView.zoom);
@@ -276,7 +333,7 @@
           google.maps.event.trigger(googleMap,'resize');
           applySharedView('google');
         },50);
-        say('Google Maps 模式，位置与缩放已保持。');
+        say('Google Maps 模式，当前可视地理范围已保持。');
       }
     }else{
       $('googleMap').style.display='none';
@@ -290,7 +347,7 @@
           applySharedView('osm');
         },100);
       }
-      if(osmMap&&osmMap.loaded())say('OpenStreetMap 模式，位置与缩放已保持。');
+      if(osmMap&&osmMap.loaded())say('OpenStreetMap 模式，当前可视地理范围已保持。');
     }
   }
 
@@ -303,9 +360,11 @@
   $('londonBtn').onclick=()=>{
     if(currentProvider==='google'&&googleMap){
       googleMap.setCenter(CENTER);googleMap.setZoom(10);
+      sharedBounds=null;
       sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:10};
     }else if(currentProvider==='osm'&&osmMap){
       osmMap.flyTo({center:[CENTER.lng,CENTER.lat],zoom:10,pitch:0,bearing:0});
+      sharedBounds=null;
       sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:10};
     }
   };
@@ -313,10 +372,12 @@
   $('resetBtn').onclick=()=>{
     if(currentProvider==='google'&&googleMap){
       googleMap.setCenter(CENTER);googleMap.setZoom(ZOOM);
+      sharedBounds=null;
       sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM};
       googleMap.setMapTypeId('roadmap');$('mapType').value='roadmap';
     }else if(currentProvider==='osm'&&osmMap){
       osmMap.jumpTo({center:[CENTER.lng,CENTER.lat],zoom:ZOOM,pitch:0,bearing:0});
+      sharedBounds=null;
       sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM};
     }
   };
@@ -330,12 +391,14 @@
         await initGoogle();
         if(!googleMap)return;
         googleMap.panTo(p);googleMap.setZoom(15);
+        sharedBounds=null;
         sharedView={lat:p.lat,lng:p.lng,zoom:15};
         if(googleMarker)googleMarker.setMap(null);
         googleMarker=new google.maps.Marker({position:p,map:googleMap,title:'当前位置'});
       }else{
         initOSM();
         osmMap.flyTo({center:[p.lng,p.lat],zoom:15});
+        sharedBounds=null;
         sharedView={lat:p.lat,lng:p.lng,zoom:15};
         if(osmMarker)osmMarker.remove();
         osmMarker=new maplibregl.Marker().setLngLat([p.lng,p.lat]).addTo(osmMap);
