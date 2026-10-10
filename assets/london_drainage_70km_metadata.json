@@ -1,0 +1,29 @@
+{
+  "name": "London Drainage 70 km Contributing Area",
+  "source_file": "London_Drainage_70km_contributing_area_km2(2).tif",
+  "derived_product": true,
+  "source_crs": "EPSG:27700",
+  "source_resolution_m": 50,
+  "cell_area_km2": 0.0025,
+  "value_units": "km² contributing area",
+  "min_value_km2": 0.0024999999441206455,
+  "max_value_km2": 7924.00732421875,
+  "raster_size": [
+    2801,
+    2801
+  ],
+  "bng_bounds": [
+    460012,
+    110348,
+    600062,
+    250398
+  ],
+  "wgs84_bounds": {
+    "west": -1.1481715260135703,
+    "south": 50.858029428267514,
+    "east": 0.9205558158055206,
+    "north": 52.14861630136811
+  },
+  "provenance": "Derived from Environment Agency LiDAR Composite DTM; hydrological contributing-area analysis at 50 m resolution. © Environment Agency, Open Government Licence.",
+  "display_note": "The browser overlay is an optimized preview derived from the 50 m analytical GeoTIFF. The source raster remains the analytical reference."
+}

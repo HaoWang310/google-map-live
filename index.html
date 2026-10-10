@@ -66,6 +66,30 @@
       display:inline-flex;align-items:center;gap:6px;margin-top:7px;
       padding:4px 7px;border-radius:999px;background:#334155;color:#dbeafe;font-size:10px
     }
+    .layerList{display:flex;flex-direction:column;gap:8px}
+    .layerItem{
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:10px;background:rgba(43,53,71,.62);overflow:hidden
+    }
+    .layerItem .layerRow{
+      border:0;border-radius:0;background:transparent;padding:9px 10px 6px
+    }
+    .layerItem .rangeRow{padding:0 10px 8px}
+    .layerMeta{
+      padding:0 10px 9px;font-size:8px;line-height:1.45;color:#8fa0b5
+    }
+    .layerName{display:flex;flex-direction:column;gap:2px}
+    .layerName strong{font-size:11px;color:#edf3fb;font-weight:700}
+    .layerName small{font-size:8px;color:#92a3b8;font-weight:500}
+    .layerLegend{
+      display:flex;align-items:center;gap:7px;padding:0 10px 9px;
+      font-size:8px;color:#9fb0c4
+    }
+    .layerLegendBar{
+      flex:1;height:6px;border-radius:999px;
+      background:linear-gradient(90deg,#153f70,#168aaa,#68d0c6,#e1da76);
+      border:1px solid rgba(255,255,255,.14)
+    }
     .layerRow{
       display:flex;align-items:center;justify-content:space-between;gap:12px;
       padding:9px 10px;border-radius:9px;background:#2b3547;
@@ -124,7 +148,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.9.5</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -151,27 +175,62 @@
       </select>
 
       <div class="divider"></div>
-      <div class="section">真实地形图层</div>
-      <label class="layerRow">
-        <span>EA LiDAR DTM 1 m · HD</span>
-        <input id="terrainToggle" type="checkbox" checked>
-      </label>
-      <div class="rangeRow">
-        <span>透明度</span>
-        <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.72">
-        <span id="terrainOpacityValue">72%</span>
+      <div class="section">地图图层</div>
+      <div class="layerList">
+
+        <div class="layerItem">
+          <label class="layerRow">
+            <span class="layerName">
+              <strong>EA LiDAR DTM 1 m</strong>
+              <small>裸地地形高程 · Environment Agency</small>
+            </span>
+            <input id="terrainToggle" type="checkbox" checked>
+          </label>
+          <div class="rangeRow">
+            <span>透明度</span>
+            <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.72">
+            <span id="terrainOpacityValue">72%</span>
+          </div>
+          <div class="layerMeta">
+            LiDAR Composite DTM 1 m · WMS · EPSG:3857 · Open Government Licence
+          </div>
+        </div>
+
+        <div class="layerItem">
+          <label class="layerRow">
+            <span class="layerName">
+              <strong>汇水贡献面积 · Contributing Area</strong>
+              <small>源栅格 50 m · 单位 km²</small>
+            </span>
+            <input id="drainageToggle" type="checkbox">
+          </label>
+          <div class="rangeRow">
+            <span>透明度</span>
+            <input id="drainageOpacity" type="range" min="0" max="1" step="0.05" value="0.68">
+            <span id="drainageOpacityValue">68%</span>
+          </div>
+          <div class="layerLegend">
+            <span>0.0025</span><span class="layerLegendBar"></span><span>7924 km²</span>
+          </div>
+          <div class="layerMeta">
+            50 m × 50 m = 0.0025 km² / cell。Derived from Environment Agency LiDAR Composite DTM; hydrological contributing-area analysis at 50 m resolution. Browser display uses an optimized preview of the analytical GeoTIFF.
+          </div>
+        </div>
+
+        <div class="layerItem">
+          <label class="layerRow">
+            <span class="layerName">
+              <strong>70 KM 研究范围</strong>
+              <small>Charing Cross 中心 · 开启后聚焦研究区</small>
+            </span>
+            <input id="focus70Toggle" type="checkbox">
+          </label>
+        </div>
+
       </div>
-      <div class="divider"></div>
-      <div class="section">70 KM 研究圆</div>
-      <label class="layerRow">
-        <span>70 KM 圆形聚焦模式</span>
-        <input id="focus70Toggle" type="checkbox">
-      </label>
+
       <div class="row">
         <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
-      </div>
-      <div class="terrainMeta">
-        EA LiDAR DTM 1 m · georeferenced ground overlay · EPSG:3857 · OpenStreetMap
       </div>
 
       <div class="row">
@@ -210,7 +269,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        开发阶段仅启用 OpenStreetMap / OpenFreeMap；EA WMS 按真实地理坐标叠加。Google Maps 暂停加载。</div>
+        开发阶段仅启用 OpenStreetMap / OpenFreeMap。所有分析图层在“地图图层”列表中独立开关，并按真实地理坐标配准。</div>
     </div>
   </div>
 
@@ -238,6 +297,19 @@
 
   const FOCUS70_CENTER={lat:51.50733434456047,lng:-0.12768375058439654};
   const FOCUS70_RADIUS_M=70000;
+
+  // Hydrological contributing-area raster.
+  // Analytical source: EPSG:27700 GeoTIFF, 50 m cells, values in km².
+  const DRAINAGE_BOUNDS={
+    west:-1.1481715260135703,
+    south:50.858029428267514,
+    east:0.9205558158055206,
+    north:52.14861630136811
+  };
+  const DRAINAGE_CHUNK_COUNT=10;
+  const DRAINAGE_CHUNK_BASE='assets/drainage_b64/';
+  const DRAINAGE_SOURCE_ID='drainage-contributing-area-source';
+  const DRAINAGE_LAYER_ID='drainage-contributing-area-layer';
 
   function makeCircleGeoJson(center,radiusM,steps=180){
     const coords=[];
@@ -351,6 +423,11 @@
     a:{source:'ea-ground-a-source',layer:'ea-ground-a-layer'},
     b:{source:'ea-ground-b-source',layer:'ea-ground-b-layer'}
   };
+
+  let drainageEnabled=false;
+  let drainageOpacity=0.68;
+  let drainageImageUrl=null;
+  let drainageLoadingPromise=null;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -708,6 +785,8 @@
         'raster-resampling':'linear'
       }
     },firstSymbol);
+
+    keepDrainageAboveTerrain();
   }
 
   async function refreshOsmTerrainGround(quality='final'){
@@ -798,6 +877,117 @@
 
     applyTerrainOpacity();
     terrainCameraChanged();
+  }
+
+  function getFirstSymbolLayerId(){
+    if(!osmMap)return undefined;
+    return (osmMap.getStyle()?.layers||[]).find(layer=>layer.type==='symbol')?.id;
+  }
+
+  async function getDrainageImageUrl(){
+    if(drainageImageUrl)return drainageImageUrl;
+    if(drainageLoadingPromise)return drainageLoadingPromise;
+
+    drainageLoadingPromise=(async()=>{
+      const parts=await Promise.all(
+        Array.from({length:DRAINAGE_CHUNK_COUNT},(_,i)=>
+          fetch(DRAINAGE_CHUNK_BASE+i+'.txt',{cache:'force-cache'})
+            .then(r=>{
+              if(!r.ok)throw new Error('Drainage asset '+i+' load failed: '+r.status);
+              return r.text();
+            })
+        )
+      );
+
+      // trim() also protects against harmless whitespace in repository chunks.
+      const b64=parts.map(s=>s.trim()).join('');
+      const binary=atob(b64);
+      const bytes=new Uint8Array(binary.length);
+      for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+
+      return URL.createObjectURL(
+        new Blob([bytes],{type:'image/webp'})
+      );
+    })();
+
+    try{
+      drainageImageUrl=await drainageLoadingPromise;
+      return drainageImageUrl;
+    }finally{
+      drainageLoadingPromise=null;
+    }
+  }
+
+  function removeDrainageLayer(){
+    if(!osmMap)return;
+    if(osmMap.getLayer(DRAINAGE_LAYER_ID)){
+      osmMap.removeLayer(DRAINAGE_LAYER_ID);
+    }
+    if(osmMap.getSource(DRAINAGE_SOURCE_ID)){
+      osmMap.removeSource(DRAINAGE_SOURCE_ID);
+    }
+  }
+
+  function keepDrainageAboveTerrain(){
+    if(!osmMap||!osmMap.loaded()||!drainageEnabled)return;
+    if(!osmMap.getLayer(DRAINAGE_LAYER_ID))return;
+
+    const firstSymbol=getFirstSymbolLayerId();
+    try{
+      if(firstSymbol)osmMap.moveLayer(DRAINAGE_LAYER_ID,firstSymbol);
+    }catch(err){
+      console.warn('Could not reorder drainage layer',err);
+    }
+  }
+
+  async function updateDrainageLayer(){
+    if(!osmMap||!osmMap.loaded())return;
+
+    if(!drainageEnabled){
+      removeDrainageLayer();
+      return;
+    }
+
+    say('正在加载 50 m 汇水贡献面积图层…');
+
+    try{
+      const url=await getDrainageImageUrl();
+      if(!drainageEnabled||!osmMap||!osmMap.loaded())return;
+
+      removeDrainageLayer();
+
+      const coords=[
+        [DRAINAGE_BOUNDS.west,DRAINAGE_BOUNDS.north],
+        [DRAINAGE_BOUNDS.east,DRAINAGE_BOUNDS.north],
+        [DRAINAGE_BOUNDS.east,DRAINAGE_BOUNDS.south],
+        [DRAINAGE_BOUNDS.west,DRAINAGE_BOUNDS.south]
+      ];
+
+      osmMap.addSource(DRAINAGE_SOURCE_ID,{
+        type:'image',
+        url,
+        coordinates:coords
+      });
+
+      const firstSymbol=getFirstSymbolLayerId();
+      osmMap.addLayer({
+        id:DRAINAGE_LAYER_ID,
+        type:'raster',
+        source:DRAINAGE_SOURCE_ID,
+        paint:{
+          'raster-opacity':drainageOpacity,
+          'raster-fade-duration':0,
+          'raster-resampling':'linear'
+        }
+      },firstSymbol);
+
+      keepDrainageAboveTerrain();
+      say('汇水贡献面积图层已按 GeoTIFF 实际地理范围配准。');
+    }catch(err){
+      console.error(err);
+      removeDrainageLayer();
+      say('汇水贡献面积图层加载失败。',true);
+    }
   }
 
   function fitGoogleTo70(){
@@ -1001,6 +1191,7 @@
 
     osmMap.on('load',()=>{
       ensureOsmFocus70();
+      updateDrainageLayer();
       if(currentProvider==='osm'){
         updateTerrainLayers();
         say('OpenStreetMap 已连接；Google Maps 已暂停，EA 地形配准已启用。');
@@ -1186,9 +1377,23 @@
     applyTerrainOpacity();
   });
 
+  $('drainageToggle').addEventListener('change',async e=>{
+    drainageEnabled=e.target.checked;
+    e.target.closest('.layerItem')?.classList.toggle('focusActive',drainageEnabled);
+    await updateDrainageLayer();
+  });
+
+  $('drainageOpacity').addEventListener('input',e=>{
+    drainageOpacity=Number(e.target.value);
+    $('drainageOpacityValue').textContent=Math.round(drainageOpacity*100)+'%';
+    if(osmMap&&osmMap.getLayer(DRAINAGE_LAYER_ID)){
+      osmMap.setPaintProperty(DRAINAGE_LAYER_ID,'raster-opacity',drainageOpacity);
+    }
+  });
+
   $('focus70Toggle').addEventListener('change',e=>{
     focus70Enabled=e.target.checked;
-    e.target.closest('.layerRow')?.classList.toggle('focusActive',focus70Enabled);
+    e.target.closest('.layerItem')?.classList.toggle('focusActive',focus70Enabled);
     updateFocus70();
   });
 
