@@ -77,6 +77,33 @@
     }
     .rangeRow input[type=range]{width:100%}
     .terrainMeta{font-size:9px;line-height:1.45;color:#8fa0b5;margin-top:7px}
+    .apiStats{
+      margin-top:10px;padding:10px;border:1px solid #445269;border-radius:10px;
+      background:rgba(15,23,42,.34)
+    }
+    .apiStatsTitle{
+      display:flex;justify-content:space-between;align-items:center;
+      gap:8px;font-size:11px;font-weight:700;color:#dce7f5;margin-bottom:8px
+    }
+    .apiStatsGrid{
+      display:grid;grid-template-columns:repeat(4,1fr);gap:6px
+    }
+    .apiStat{
+      padding:7px 5px;border-radius:7px;background:#334155;text-align:center
+    }
+    .apiStatValue{
+      display:block;font-size:15px;font-weight:800;line-height:1.15;color:#fff
+    }
+    .apiStatLabel{
+      display:block;margin-top:3px;font-size:8px;color:#aab7c7;white-space:nowrap
+    }
+    .apiStatsNote{margin-top:7px;font-size:8px;line-height:1.4;color:#8fa0b5}
+    .statsReset{
+      border:0;background:transparent;color:#9db0c7;font-size:9px;
+      padding:0;cursor:pointer;width:auto
+    }
+    .statsReset:hover{color:#fff}
+
     .focusActive{box-shadow:0 0 0 1px rgba(96,165,250,.55) inset}
     @media(max-width:600px){
       .panel{top:8px;left:8px;width:calc(100vw - 16px);padding:12px}
@@ -94,7 +121,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.2</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.3</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -147,6 +174,34 @@
         <button id="londonBtn" class="secondary">伦敦</button>
         <button id="locateBtn" class="secondary">定位我</button>
         <button id="resetBtn" class="secondary">重置</button>
+      </div>
+
+      <div class="apiStats">
+        <div class="apiStatsTitle">
+          <span>Google API 加载统计</span>
+          <button id="resetApiStats" class="statsReset" type="button">清零</button>
+        </div>
+        <div class="apiStatsGrid">
+          <div class="apiStat">
+            <span id="apiStatSession" class="apiStatValue">0</span>
+            <span class="apiStatLabel">本次会话</span>
+          </div>
+          <div class="apiStat">
+            <span id="apiStatToday" class="apiStatValue">0</span>
+            <span class="apiStatLabel">今天</span>
+          </div>
+          <div class="apiStat">
+            <span id="apiStatMonth" class="apiStatValue">0</span>
+            <span class="apiStatLabel">本月</span>
+          </div>
+          <div class="apiStat">
+            <span id="apiStatTotal" class="apiStatValue">0</span>
+            <span class="apiStatLabel">累计</span>
+          </div>
+        </div>
+        <div class="apiStatsNote">
+          仅统计此浏览器成功创建并完成加载的 Google Maps 实例；切换到 OSM 不计数。
+        </div>
       </div>
 
       <div id="status" class="status">正在初始化地图…</div>
@@ -297,12 +352,95 @@
     $('status').className='status'+(e?' error':'');
   };
 
+  const API_STATS_KEY='googleMapLive.apiLoadStats.v1';
+  let apiSessionLoads=0;
+
+  function localDateKey(d=new Date()){
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,'0');
+    const day=String(d.getDate()).padStart(2,'0');
+    return y+'-'+m+'-'+day;
+  }
+
+  function localMonthKey(d=new Date()){
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,'0');
+    return y+'-'+m;
+  }
+
+  function readApiStats(){
+    try{
+      const raw=localStorage.getItem(API_STATS_KEY);
+      if(!raw)return {total:0,days:{}};
+      const parsed=JSON.parse(raw);
+      return {
+        total:Number(parsed.total)||0,
+        days:parsed.days&&typeof parsed.days==='object'?parsed.days:{}
+      };
+    }catch(err){
+      console.warn('API stats read failed',err);
+      return {total:0,days:{}};
+    }
+  }
+
+  function writeApiStats(stats){
+    try{
+      localStorage.setItem(API_STATS_KEY,JSON.stringify(stats));
+    }catch(err){
+      console.warn('API stats write failed',err);
+    }
+  }
+
+  function pruneApiStats(stats){
+    const cutoff=new Date();
+    cutoff.setDate(cutoff.getDate()-400);
+    const cutoffKey=localDateKey(cutoff);
+    for(const key of Object.keys(stats.days)){
+      if(key<cutoffKey)delete stats.days[key];
+    }
+    return stats;
+  }
+
+  function renderApiStats(){
+    const stats=readApiStats();
+    const today=localDateKey();
+    const month=localMonthKey();
+
+    let monthTotal=0;
+    for(const [day,count] of Object.entries(stats.days)){
+      if(day.startsWith(month))monthTotal+=Number(count)||0;
+    }
+
+    $('apiStatSession').textContent=String(apiSessionLoads);
+    $('apiStatToday').textContent=String(Number(stats.days[today])||0);
+    $('apiStatMonth').textContent=String(monthTotal);
+    $('apiStatTotal').textContent=String(Number(stats.total)||0);
+  }
+
+  function recordGoogleMapLoad(){
+    const stats=pruneApiStats(readApiStats());
+    const today=localDateKey();
+
+    apiSessionLoads+=1;
+    stats.total=(Number(stats.total)||0)+1;
+    stats.days[today]=(Number(stats.days[today])||0)+1;
+
+    writeApiStats(stats);
+    renderApiStats();
+  }
+
+  function resetApiStats(){
+    localStorage.removeItem(API_STATS_KEY);
+    apiSessionLoads=0;
+    renderApiStats();
+  }
+
   function syncBadge(){
     $('providerBadge').textContent =
       currentProvider==='google' ? 'Google Maps' : 'OpenStreetMap · no API key';
     $('mapType').disabled = currentProvider!=='google';
     $('note').textContent = currentProvider==='google'
-      ? 'Google Maps 需要有效的标准 Maps JavaScript API Key；认证失败时自动切回 OpenStreetMap。'
+      ? 'Google Maps 使用标准 Maps JavaScript API Key；成功完成一次地图加载后，本地统计器记 1 次。'
       : 'OpenStreetMap 模式使用 OpenFreeMap 矢量瓦片 + MapLibre GL JS，不需要 API Key。';
   }
 
@@ -658,6 +796,13 @@
         tilt:0,
         heading:0
       });
+      let countedGoogleMapLoad=false;
+      googleMap.addListener('tilesloaded',()=>{
+        if(countedGoogleMapLoad)return;
+        countedGoogleMapLoad=true;
+        recordGoogleMapLoad();
+      });
+
       googleMap.addListener('mousemove',e=>{
         if(currentProvider!=='google')return;
         $('coords').textContent='Lat '+e.latLng.lat().toFixed(5)+
@@ -868,6 +1013,14 @@
   $('mapType').addEventListener('change',e=>{
     if(googleMap)googleMap.setMapTypeId(e.target.value);
   });
+
+  $('resetApiStats').addEventListener('click',()=>{
+    if(confirm('确定清除当前浏览器保存的 Google API 加载统计吗？')){
+      resetApiStats();
+    }
+  });
+
+  renderApiStats();
 
   $('terrainToggle').addEventListener('change',e=>{
     terrainEnabled=e.target.checked;
