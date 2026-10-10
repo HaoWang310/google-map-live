@@ -82,7 +82,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.5</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.6</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -128,7 +128,7 @@
         <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
       </div>
       <div class="terrainMeta">
-        Environment Agency LiDAR Composite DTM 1 m · Viewport WMS · Optional 70 km focus · Open Government Licence
+        Environment Agency LiDAR Composite DTM 1 m · Persistent overview + HD viewport · Optional 70 km focus
       </div>
 
       <div class="row">
@@ -139,7 +139,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        自由模式：地形跟随当前窗口；开启“70 KM 圆形聚焦模式”后，仅聚焦并加载研究范围内的地形。</div>
+        自由模式：英格兰概览地形常驻底层，当前窗口高清图在上层刷新；开启 70 KM 聚焦后只显示研究范围。</div>
     </div>
   </div>
 
@@ -163,6 +163,15 @@
     south:50.858309108610484,
     east:0.9210948646196429,
     north:52.14838885409756
+  };
+
+  // Persistent low-resolution overview behind the dynamic HD overlay.
+  // EA LiDAR primarily covers England; outside data coverage remains transparent.
+  const ENGLAND_OVERVIEW_BOUNDS={
+    west:-6.6,
+    south:49.8,
+    east:2.2,
+    north:56.1
   };
 
   const FOCUS70_CENTER={lat:51.50733434456047,lng:-0.12768375058439654};
@@ -266,10 +275,13 @@
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='google';
+  let googleTerrainOverviewOverlay=null;
+  let googleTerrainOverviewReady=false;
   let googleTerrainOverlay=null;
   let googleTerrainRefreshTimer=null;
   let googleTerrainRequestId=0;
 
+  let osmTerrainOverviewReady=false;
   let osmTerrainRefreshTimer=null;
   let osmTerrainRequestId=0;
   let osmTerrainActiveSlot='a';
@@ -462,6 +474,103 @@
     });
   }
 
+  async function ensureGoogleTerrainOverview(){
+    if(!googleMap || !terrainEnabled || focus70Enabled)return;
+    if(googleTerrainOverviewReady && googleTerrainOverviewOverlay){
+      googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.58));
+      googleTerrainOverviewOverlay.setMap(googleMap);
+      return;
+    }
+
+    const url=eaViewportWmsUrl(ENGLAND_OVERVIEW_BOUNDS,900,1000);
+
+    try{
+      await preloadImage(url);
+      if(!terrainEnabled || focus70Enabled)return;
+
+      if(googleTerrainOverviewOverlay){
+        googleTerrainOverviewOverlay.setMap(null);
+      }
+
+      googleTerrainOverviewOverlay=new google.maps.GroundOverlay(
+        url,
+        ENGLAND_OVERVIEW_BOUNDS,
+        {opacity:Math.min(terrainOpacity,0.58),clickable:false}
+      );
+      googleTerrainOverviewOverlay.setMap(googleMap);
+      googleTerrainOverviewReady=true;
+    }catch(err){
+      console.warn('EA overview preload failed',err);
+    }
+  }
+
+  function hideGoogleTerrainOverview(){
+    if(googleTerrainOverviewOverlay){
+      googleTerrainOverviewOverlay.setMap(null);
+    }
+  }
+
+  async function ensureOsmTerrainOverview(){
+    if(!osmMap || !osmMap.loaded() || !terrainEnabled || focus70Enabled)return;
+
+    const sourceId='ea-overview-source';
+    const layerId='ea-overview-layer';
+
+    if(osmMap.getLayer(layerId)){
+      osmMap.setLayoutProperty(layerId,'visibility','visible');
+      osmMap.setPaintProperty(layerId,'raster-opacity',Math.min(terrainOpacity,0.58));
+      osmTerrainOverviewReady=true;
+      return;
+    }
+
+    const url=eaViewportWmsUrl(ENGLAND_OVERVIEW_BOUNDS,900,1000);
+    try{
+      await preloadImage(url);
+      if(!terrainEnabled || focus70Enabled)return;
+
+      if(osmMap.getSource(sourceId)){
+        osmMap.removeSource(sourceId);
+      }
+
+      osmMap.addSource(sourceId,{
+        type:'image',
+        url,
+        coordinates:[
+          [ENGLAND_OVERVIEW_BOUNDS.west,ENGLAND_OVERVIEW_BOUNDS.north],
+          [ENGLAND_OVERVIEW_BOUNDS.east,ENGLAND_OVERVIEW_BOUNDS.north],
+          [ENGLAND_OVERVIEW_BOUNDS.east,ENGLAND_OVERVIEW_BOUNDS.south],
+          [ENGLAND_OVERVIEW_BOUNDS.west,ENGLAND_OVERVIEW_BOUNDS.south]
+        ]
+      });
+
+      const layers=osmMap.getStyle()?.layers||[];
+      const firstLabels=layers.find(layer=>layer.type==='symbol')?.id;
+
+      osmMap.addLayer({
+        id:layerId,
+        type:'raster',
+        source:sourceId,
+        paint:{
+          'raster-opacity':Math.min(terrainOpacity,0.58),
+          'raster-fade-duration':0,
+          'raster-resampling':'linear'
+        }
+      },firstLabels);
+
+      osmTerrainOverviewReady=true;
+    }catch(err){
+      console.warn('EA OSM overview preload failed',err);
+    }
+  }
+
+  function hideOsmTerrainOverview(){
+    if(!osmMap)return;
+    const layerId='ea-overview-layer';
+    if(osmMap.getLayer(layerId)){
+      osmMap.setLayoutProperty(layerId,'visibility','none');
+    }
+  }
+
   function scheduleGoogleTerrainRefresh(delay=220,quality='final'){
     if(!googleMap || !terrainEnabled)return;
     clearTimeout(googleTerrainRefreshTimer);
@@ -533,7 +642,14 @@
 
     if(!terrainEnabled){
       detachGoogleTerrain();
+      hideGoogleTerrainOverview();
       return;
+    }
+
+    if(focus70Enabled){
+      hideGoogleTerrainOverview();
+    }else{
+      void ensureGoogleTerrainOverview();
     }
 
     if(googleTerrainOverlay){
@@ -652,7 +768,14 @@
 
     if(!terrainEnabled){
       detachOsmTerrain();
+      hideOsmTerrainOverview();
       return;
+    }
+
+    if(focus70Enabled){
+      hideOsmTerrainOverview();
+    }else{
+      void ensureOsmTerrainOverview();
     }
 
     for(const key of ['a','b']){
@@ -769,6 +892,14 @@
     ensureOsmFocus70();
 
     if(focus70Enabled){
+      hideGoogleTerrainOverview();
+      hideOsmTerrainOverview();
+    }else{
+      if(currentProvider==='google') void ensureGoogleTerrainOverview();
+      if(currentProvider==='osm') void ensureOsmTerrainOverview();
+    }
+
+    if(focus70Enabled){
       say('70 KM 聚焦模式已开启：视图与地形请求限制在研究范围内。');
     }else{
       say('70 KM 聚焦模式已关闭：恢复自由浏览。');
@@ -832,6 +963,7 @@
         googleTerrainRequestId++;
       });
 
+      void ensureGoogleTerrainOverview();
       updateGoogleTerrain();
       updateGoogleFocus70();
       if(currentProvider==='google')say('Google Maps 已加载；完整窗口地形模式已启用。');
@@ -859,6 +991,7 @@
 
     osmMap.on('load',()=>{
       ensureOsmFocus70();
+      void ensureOsmTerrainOverview();
       if(currentProvider==='osm'){
         updateOsmTerrain();
         say('OpenStreetMap 已连接；完整窗口地形模式已启用。');
@@ -1025,7 +1158,17 @@
 
     if(currentProvider==='google'){
       if(googleTerrainOverlay)googleTerrainOverlay.setOpacity(terrainOpacity);
+      if(googleTerrainOverviewOverlay){
+        googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.58));
+      }
     }else if(osmMap){
+      if(osmMap.getLayer('ea-overview-layer')){
+        osmMap.setPaintProperty(
+          'ea-overview-layer',
+          'raster-opacity',
+          Math.min(terrainOpacity,0.58)
+        );
+      }
       for(const key of ['a','b']){
         const layer=osmTerrainSlots[key].layer;
         if(osmMap.getLayer(layer)){
