@@ -19,6 +19,15 @@
     }
     #googleMap,#osmMap{position:absolute;inset:0}
     #osmMap{display:none}
+    #terrainScreenOverlay{
+      position:absolute;inset:0;z-index:6;display:none;
+      pointer-events:none;overflow:hidden
+    }
+    #terrainScreenImage{
+      display:block;width:100%;height:100%;
+      object-fit:fill;opacity:.72;
+      pointer-events:none;user-select:none
+    }
     .panel{
       position:absolute;z-index:20;top:14px;left:14px;
       width:min(370px,calc(100vw - 28px));padding:14px;border-radius:14px;
@@ -77,12 +86,15 @@
 <body>
   <div id="googleMap"></div>
   <div id="osmMap"></div>
+  <div id="terrainScreenOverlay" aria-hidden="true">
+    <img id="terrainScreenImage" alt="">
+  </div>
 
   <div class="panel" id="panel">
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.7</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.0</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -128,7 +140,7 @@
         <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
       </div>
       <div class="terrainMeta">
-        EA LiDAR DTM 1 m · exact EPSG:3857 viewport registration · overview + HD · optional 70 km focus
+        EA LiDAR DTM 1 m · exact viewport registration · EPSG:3857 · Google/OSM shared alignment
       </div>
 
       <div class="row">
@@ -139,7 +151,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        自由模式：概览层常驻，缩放/平移时立即请求覆盖整个当前窗口；旧局部矩形会自动移除，停止后精确刷新高清图。</div>
+        真实位置模式：EA WMS 按当前屏幕真实经纬度范围生成，并按同一屏幕像素 1:1 覆盖；旧位置图不会残留。</div>
     </div>
   </div>
 
@@ -163,15 +175,6 @@
     south:50.858309108610484,
     east:0.9210948646196429,
     north:52.14838885409756
-  };
-
-  // Persistent low-resolution overview behind the dynamic HD overlay.
-  // EA LiDAR primarily covers England; outside data coverage remains transparent.
-  const ENGLAND_OVERVIEW_BOUNDS={
-    west:-6.6,
-    south:49.8,
-    east:2.2,
-    north:56.1
   };
 
   const FOCUS70_CENTER={lat:51.50733434456047,lng:-0.12768375058439654};
@@ -275,24 +278,12 @@
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='google';
-  let googleTerrainOverviewOverlay=null;
-  let googleTerrainOverviewReady=false;
-  let googleTerrainOverlay=null;
-  let googleTerrainOverlayBounds=null;
-  let googleTerrainRefreshTimer=null;
-  let googleTerrainRequestId=0;
-
-  let osmTerrainOverviewReady=false;
-  let osmTerrainCurrentBounds=null;
-  let osmTerrainRefreshTimer=null;
-  let osmTerrainRequestId=0;
-  let osmTerrainActiveSlot='a';
-  let osmTerrainSlots={
-    a:{source:'ea-terrain-a-source',layer:'ea-terrain-a-layer'},
-    b:{source:'ea-terrain-b-source',layer:'ea-terrain-b-layer'}
-  };
   let terrainEnabled=true;
   let terrainOpacity=0.72;
+  let terrainRefreshTimer=null;
+  let terrainRequestId=0;
+  let terrainDisplayedBounds=null;
+  let terrainDisplayedProvider=null;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -352,52 +343,14 @@
 
   function normalizeViewportBounds(b){
     if(!b)return null;
-
-    // Keep latitude inside Web Mercator's valid range.
     const south=Math.max(-85.05112878,b.south);
     const north=Math.min(85.05112878,b.north);
-
-    if(!Number.isFinite(b.west) || !Number.isFinite(b.east) ||
-       !Number.isFinite(south) || !Number.isFinite(north) ||
-       south>=north){
+    if(!Number.isFinite(b.west)||!Number.isFinite(b.east)||
+       !Number.isFinite(south)||!Number.isFinite(north)||
+       b.west>=b.east||south>=north){
       return null;
     }
-
-    return {
-      west:b.west,
-      south,
-      east:b.east,
-      north
-    };
-  }
-
-  function expandBounds(b,factor=1.35){
-    const valid=normalizeViewportBounds(b);
-    if(!valid)return null;
-
-    const cx=(valid.west+valid.east)/2;
-    const cy=(valid.south+valid.north)/2;
-    const halfW=(valid.east-valid.west)*factor/2;
-    const halfH=(valid.north-valid.south)*factor/2;
-
-    let out=normalizeViewportBounds({
-      west:cx-halfW,
-      east:cx+halfW,
-      south:cy-halfH,
-      north:cy+halfH
-    });
-
-    if(focus70Enabled && out){
-      out={
-        west:Math.max(out.west,TERRAIN_BOUNDS.west),
-        south:Math.max(out.south,TERRAIN_BOUNDS.south),
-        east:Math.min(out.east,TERRAIN_BOUNDS.east),
-        north:Math.min(out.north,TERRAIN_BOUNDS.north)
-      };
-      if(out.west>=out.east || out.south>=out.north)return null;
-    }
-
-    return out;
+    return {west:b.west,south,east:b.east,north};
   }
 
   function googleVisibleBounds(){
@@ -405,47 +358,27 @@
     if(!bounds)return null;
     const ne=bounds.getNorthEast();
     const sw=bounds.getSouthWest();
-    return {
-      west:sw.lng(), south:sw.lat(),
-      east:ne.lng(), north:ne.lat()
-    };
+    return normalizeViewportBounds({
+      west:sw.lng(),south:sw.lat(),
+      east:ne.lng(),north:ne.lat()
+    });
   }
 
   function osmVisibleBounds(){
     if(!osmMap)return null;
     const b=osmMap.getBounds();
-    return {
-      west:b.getWest(), south:b.getSouth(),
-      east:b.getEast(), north:b.getNorth()
-    };
+    return normalizeViewportBounds({
+      west:b.getWest(),south:b.getSouth(),
+      east:b.getEast(),north:b.getNorth()
+    });
   }
 
-  function boundsContain(outer,inner,pad=0){
-    if(!outer || !inner)return false;
-    return (
-      outer.west <= inner.west + pad &&
-      outer.east >= inner.east - pad &&
-      outer.south <= inner.south + pad &&
-      outer.north >= inner.north - pad
-    );
+  function currentVisibleBounds(){
+    return currentProvider==='google'?googleVisibleBounds():osmVisibleBounds();
   }
 
-  function boundsArea(b){
-    if(!b)return 0;
-    return Math.max(0,(b.east-b.west)*(b.north-b.south));
-  }
-
-  function shouldDropOldOverlay(oldBounds,newView){
-    if(!oldBounds || !newView)return false;
-    if(!boundsContain(oldBounds,newView))return true;
-
-    const oldArea=boundsArea(oldBounds);
-    const newArea=boundsArea(newView);
-    if(!oldArea || !newArea)return false;
-
-    // If the map has zoomed out enough that the old image now covers
-    // less than 70% of the visible area, remove it immediately.
-    return oldArea/newArea < 0.70;
+  function currentMapDiv(){
+    return currentProvider==='google'?googleMap?.getDiv():osmMap?.getContainer();
   }
 
   function eaViewportWmsUrl(bounds,width,height){
@@ -473,358 +406,116 @@
   }
 
   function requestSizeForMap(div,quality='final'){
+    const cssW=Math.max(1,Math.round(div?.clientWidth||window.innerWidth));
+    const cssH=Math.max(1,Math.round(div?.clientHeight||window.innerHeight));
+    const ratio=cssW/cssH;
+
     if(quality==='preview'){
-      const ratio=div.clientWidth/Math.max(1,div.clientHeight);
-      const maxSide=640;
-      if(ratio>=1){
-        return {
-          width:maxSide,
-          height:Math.max(320,Math.round(maxSide/ratio))
-        };
-      }
-      return {
-        width:Math.max(320,Math.round(maxSide*ratio)),
-        height:maxSide
-      };
+      const maxSide=800;
+      return ratio>=1
+        ? {width:maxSide,height:Math.max(360,Math.round(maxSide/ratio))}
+        : {width:Math.max(360,Math.round(maxSide*ratio)),height:maxSide};
     }
 
-    const dpr=Math.min(window.devicePixelRatio||1,1.35);
+    const dpr=Math.min(window.devicePixelRatio||1,1.5);
     return {
-      width:Math.max(640,Math.min(1280,Math.round(div.clientWidth*dpr))),
-      height:Math.max(640,Math.min(1024,Math.round(div.clientHeight*dpr)))
+      width:Math.max(800,Math.min(1800,Math.round(cssW*dpr))),
+      height:Math.max(800,Math.min(1600,Math.round(cssH*dpr)))
     };
   }
 
   function preloadImage(url){
     return new Promise((resolve,reject)=>{
       const img=new Image();
+      img.decoding='async';
       img.onload=()=>resolve(img);
       img.onerror=()=>reject(new Error('EA WMS 图像加载失败'));
       img.src=url;
     });
   }
 
-  async function ensureGoogleTerrainOverview(){
-    if(!googleMap || !terrainEnabled || focus70Enabled)return;
-    if(googleTerrainOverviewReady && googleTerrainOverviewOverlay){
-      googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.42));
-      googleTerrainOverviewOverlay.setMap(googleMap);
-      return;
-    }
+  function hideTerrainScreen(){
+    $('terrainScreenOverlay').style.display='none';
+    terrainDisplayedBounds=null;
+    terrainDisplayedProvider=null;
+  }
 
-    const url=eaViewportWmsUrl(ENGLAND_OVERVIEW_BOUNDS,900,1000);
+  function applyTerrainOpacity(){
+    $('terrainScreenImage').style.opacity=String(terrainOpacity);
+  }
+
+  function scheduleTerrainRefresh(delay=70,quality='preview'){
+    if(!terrainEnabled)return;
+    clearTimeout(terrainRefreshTimer);
+    terrainRefreshTimer=setTimeout(()=>refreshTerrainScreen(quality),delay);
+  }
+
+  async function refreshTerrainScreen(quality='final'){
+    if(!terrainEnabled)return;
+
+    const providerAtRequest=currentProvider;
+    const visible=currentVisibleBounds();
+    const div=currentMapDiv();
+    if(!visible||!div)return;
+
+    const {width,height}=requestSizeForMap(div,quality);
+    const url=eaViewportWmsUrl(visible,width,height);
+    const requestId=++terrainRequestId;
 
     try{
-      await preloadImage(url);
-      if(!terrainEnabled || focus70Enabled)return;
-
-      if(googleTerrainOverviewOverlay){
-        googleTerrainOverviewOverlay.setMap(null);
+      const loaded=await preloadImage(url);
+      if(requestId!==terrainRequestId||
+         !terrainEnabled||
+         providerAtRequest!==currentProvider){
+        return;
       }
 
-      googleTerrainOverviewOverlay=new google.maps.GroundOverlay(
-        url,
-        ENGLAND_OVERVIEW_BOUNDS,
-        {opacity:Math.min(terrainOpacity,0.42),clickable:false}
-      );
-      googleTerrainOverviewOverlay.setMap(googleMap);
-      googleTerrainOverviewReady=true;
+      $('terrainScreenImage').src=loaded.src;
+      applyTerrainOpacity();
+      $('terrainScreenOverlay').style.display='block';
+      terrainDisplayedBounds={...visible};
+      terrainDisplayedProvider=currentProvider;
+
+      say(quality==='preview'
+        ? 'EA 地形已按当前真实地图范围快速配准。'
+        : 'EA 地形高清图已按当前真实地图范围精确配准。');
     }catch(err){
-      console.warn('EA overview preload failed',err);
-    }
-  }
-
-  function hideGoogleTerrainOverview(){
-    if(googleTerrainOverviewOverlay){
-      googleTerrainOverviewOverlay.setMap(null);
-    }
-  }
-
-  async function ensureOsmTerrainOverview(){
-    if(!osmMap || !osmMap.loaded() || !terrainEnabled || focus70Enabled)return;
-
-    const sourceId='ea-overview-source';
-    const layerId='ea-overview-layer';
-
-    if(osmMap.getLayer(layerId)){
-      osmMap.setLayoutProperty(layerId,'visibility','visible');
-      osmMap.setPaintProperty(layerId,'raster-opacity',Math.min(terrainOpacity,0.42));
-      osmTerrainOverviewReady=true;
-      return;
-    }
-
-    const url=eaViewportWmsUrl(ENGLAND_OVERVIEW_BOUNDS,900,1000);
-    try{
-      await preloadImage(url);
-      if(!terrainEnabled || focus70Enabled)return;
-
-      if(osmMap.getSource(sourceId)){
-        osmMap.removeSource(sourceId);
-      }
-
-      osmMap.addSource(sourceId,{
-        type:'image',
-        url,
-        coordinates:[
-          [ENGLAND_OVERVIEW_BOUNDS.west,ENGLAND_OVERVIEW_BOUNDS.north],
-          [ENGLAND_OVERVIEW_BOUNDS.east,ENGLAND_OVERVIEW_BOUNDS.north],
-          [ENGLAND_OVERVIEW_BOUNDS.east,ENGLAND_OVERVIEW_BOUNDS.south],
-          [ENGLAND_OVERVIEW_BOUNDS.west,ENGLAND_OVERVIEW_BOUNDS.south]
-        ]
-      });
-
-      const layers=osmMap.getStyle()?.layers||[];
-      const firstLabels=layers.find(layer=>layer.type==='symbol')?.id;
-
-      osmMap.addLayer({
-        id:layerId,
-        type:'raster',
-        source:sourceId,
-        paint:{
-          'raster-opacity':Math.min(terrainOpacity,0.42),
-          'raster-fade-duration':0,
-          'raster-resampling':'linear'
-        }
-      },firstLabels);
-
-      osmTerrainOverviewReady=true;
-    }catch(err){
-      console.warn('EA OSM overview preload failed',err);
-    }
-  }
-
-  function hideOsmTerrainOverview(){
-    if(!osmMap)return;
-    const layerId='ea-overview-layer';
-    if(osmMap.getLayer(layerId)){
-      osmMap.setLayoutProperty(layerId,'visibility','none');
-    }
-  }
-
-  function scheduleGoogleTerrainRefresh(delay=220,quality='final'){
-    if(!googleMap || !terrainEnabled)return;
-    clearTimeout(googleTerrainRefreshTimer);
-    googleTerrainRefreshTimer=setTimeout(
-      ()=>refreshGoogleTerrainViewport(quality),
-      delay
-    );
-  }
-
-  async function refreshGoogleTerrainViewport(quality='final'){
-    if(!googleMap || !terrainEnabled)return;
-
-    const visible=googleVisibleBounds();
-    const factor=focus70Enabled
-      ? (quality==='preview' ? 1.08 : 1.00)
-      : (quality==='preview' ? 1.06 : 1.00);
-    const clipped=visible ? expandBounds(visible,factor) : null;
-
-    if(!clipped){
-      if(googleTerrainOverlay){
-        googleTerrainOverlay.setMap(null);
-        googleTerrainOverlay=null;
-      }
-      return;
-    }
-
-    const {width,height}=requestSizeForMap(googleMap.getDiv(),quality);
-    const url=eaViewportWmsUrl(clipped,width,height);
-    const requestId=++googleTerrainRequestId;
-
-    try{
-      await preloadImage(url);
-      if(requestId!==googleTerrainRequestId || !terrainEnabled)return;
-
-      const next=new google.maps.GroundOverlay(
-        url,
-        clipped,
-        {opacity:terrainOpacity,clickable:false}
-      );
-      next.setMap(googleMap);
-
-      const previous=googleTerrainOverlay;
-      googleTerrainOverlay=next;
-      googleTerrainOverlayBounds={...clipped};
-      if(previous)previous.setMap(null);
-
-      if(currentProvider==='google'){
-        say(quality==='preview'
-          ? '滚轮缩放：地形预览已快速跟随。'
-          : 'EA 地形高清图已完整刷新。');
-      }
-    }catch(err){
-      if(requestId!==googleTerrainRequestId)return;
+      if(requestId!==terrainRequestId)return;
       console.warn(err);
-      if(currentProvider==='google'){
-        say('本次地形刷新失败，保留上一张完整图层。',true);
-      }
+      hideTerrainScreen();
+      say('EA 地形本次加载失败；已隐藏旧图，避免错误位置。',true);
     }
   }
 
-  function detachGoogleTerrain(){
-    clearTimeout(googleTerrainRefreshTimer);
-    googleTerrainRequestId++;
-    if(googleTerrainOverlay){
-      googleTerrainOverlay.setMap(null);
-      googleTerrainOverlay=null;
-    }
-    googleTerrainOverlayBounds=null;
+  function terrainCameraStarted(){
+    terrainRequestId++;
+    clearTimeout(terrainRefreshTimer);
+    hideTerrainScreen();
   }
 
-  function updateGoogleTerrain(){
-    if(!googleMap || !window.google?.maps)return;
+  function terrainCameraChanged(){
+    if(!terrainEnabled)return;
+    terrainRequestId++;
+    clearTimeout(terrainRefreshTimer);
+    hideTerrainScreen();
+    scheduleTerrainRefresh(55,'preview');
+  }
 
+  function terrainCameraEnded(){
+    if(!terrainEnabled)return;
+    scheduleTerrainRefresh(35,'preview');
+    setTimeout(()=>{
+      if(terrainEnabled)scheduleTerrainRefresh(220,'final');
+    },90);
+  }
+
+  function updateTerrainLayers(){
     if(!terrainEnabled){
-      detachGoogleTerrain();
-      hideGoogleTerrainOverview();
+      terrainCameraStarted();
       return;
     }
-
-    if(focus70Enabled){
-      hideGoogleTerrainOverview();
-    }else{
-      void ensureGoogleTerrainOverview();
-    }
-
-    if(googleTerrainOverlay){
-      googleTerrainOverlay.setOpacity(terrainOpacity);
-    }
-    scheduleGoogleTerrainRefresh(60,'final');
-  }
-
-  function scheduleOsmTerrainRefresh(delay=220,quality='final'){
-    if(!osmMap || !terrainEnabled)return;
-    clearTimeout(osmTerrainRefreshTimer);
-    osmTerrainRefreshTimer=setTimeout(
-      ()=>refreshOsmTerrainViewport(quality),
-      delay
-    );
-  }
-
-  function ensureOsmTerrainLayer(slotKey,url,bounds){
-    const slot=osmTerrainSlots[slotKey];
-    const coords=[
-      [bounds.west,bounds.north],
-      [bounds.east,bounds.north],
-      [bounds.east,bounds.south],
-      [bounds.west,bounds.south]
-    ];
-
-    if(osmMap.getLayer(slot.layer)){
-      osmMap.removeLayer(slot.layer);
-    }
-    if(osmMap.getSource(slot.source)){
-      osmMap.removeSource(slot.source);
-    }
-
-    osmMap.addSource(slot.source,{
-      type:'image',
-      url,
-      coordinates:coords
-    });
-
-    const layers=osmMap.getStyle()?.layers||[];
-    const firstLabels=layers.find(layer=>layer.type==='symbol')?.id;
-
-    osmMap.addLayer({
-      id:slot.layer,
-      type:'raster',
-      source:slot.source,
-      layout:{visibility:terrainEnabled?'visible':'none'},
-      paint:{
-        'raster-opacity':terrainOpacity,
-        'raster-fade-duration':0,
-        'raster-resampling':'linear'
-      }
-    },firstLabels);
-  }
-
-  function removeOsmTerrainSlot(slotKey){
-    const slot=osmTerrainSlots[slotKey];
-    if(!osmMap)return;
-    if(osmMap.getLayer(slot.layer))osmMap.removeLayer(slot.layer);
-    if(osmMap.getSource(slot.source))osmMap.removeSource(slot.source);
-  }
-
-  async function refreshOsmTerrainViewport(quality='final'){
-    if(!osmMap || !osmMap.loaded() || !terrainEnabled)return;
-
-    const visible=osmVisibleBounds();
-    const factor=focus70Enabled
-      ? (quality==='preview' ? 1.08 : 1.00)
-      : (quality==='preview' ? 1.06 : 1.00);
-    const clipped=visible ? expandBounds(visible,factor) : null;
-
-    if(!clipped){
-      removeOsmTerrainSlot('a');
-      removeOsmTerrainSlot('b');
-      return;
-    }
-
-    const {width,height}=requestSizeForMap(osmMap.getContainer(),quality);
-    const url=eaViewportWmsUrl(clipped,width,height);
-    const requestId=++osmTerrainRequestId;
-
-    try{
-      await preloadImage(url);
-      if(requestId!==osmTerrainRequestId || !terrainEnabled)return;
-
-      const nextSlot=osmTerrainActiveSlot==='a' ? 'b' : 'a';
-
-      // Add the completely loaded image first.
-      ensureOsmTerrainLayer(nextSlot,url,clipped);
-
-      // Then remove the old image, producing an atomic visual swap.
-      removeOsmTerrainSlot(osmTerrainActiveSlot);
-      osmTerrainActiveSlot=nextSlot;
-      osmTerrainCurrentBounds={...clipped};
-
-      if(currentProvider==='osm'){
-        say(quality==='preview'
-          ? '滚轮缩放：地形预览已快速跟随。'
-          : 'EA 地形高清图已完整刷新。');
-      }
-    }catch(err){
-      if(requestId!==osmTerrainRequestId)return;
-      console.warn(err);
-      if(currentProvider==='osm'){
-        say('本次地形刷新失败，保留上一张完整图层。',true);
-      }
-    }
-  }
-
-  function detachOsmTerrain(){
-    clearTimeout(osmTerrainRefreshTimer);
-    osmTerrainRequestId++;
-    removeOsmTerrainSlot('a');
-    removeOsmTerrainSlot('b');
-    osmTerrainCurrentBounds=null;
-  }
-
-  function updateOsmTerrain(){
-    if(!osmMap || !osmMap.loaded())return;
-
-    if(!terrainEnabled){
-      detachOsmTerrain();
-      hideOsmTerrainOverview();
-      return;
-    }
-
-    if(focus70Enabled){
-      hideOsmTerrainOverview();
-    }else{
-      void ensureOsmTerrainOverview();
-    }
-
-    for(const key of ['a','b']){
-      const layer=osmTerrainSlots[key].layer;
-      if(osmMap.getLayer(layer)){
-        osmMap.setPaintProperty(layer,'raster-opacity',terrainOpacity);
-        osmMap.setLayoutProperty(layer,'visibility','visible');
-      }
-    }
-
-    scheduleOsmTerrainRefresh(60,'final');
+    applyTerrainOpacity();
+    terrainCameraChanged();
   }
 
   function fitGoogleTo70(){
@@ -930,60 +621,13 @@
     ensureOsmFocus70();
 
     if(focus70Enabled){
-      hideGoogleTerrainOverview();
-      hideOsmTerrainOverview();
-    }else{
-      if(currentProvider==='google') void ensureGoogleTerrainOverview();
-      if(currentProvider==='osm') void ensureOsmTerrainOverview();
-    }
-
-    if(focus70Enabled){
-      say('70 KM 聚焦模式已开启：视图与地形请求限制在研究范围内。');
+      say('70 KM 聚焦模式已开启：地图限制在研究范围，地形按实际坐标重新配准。');
     }else{
       say('70 KM 聚焦模式已关闭：恢复自由浏览。');
     }
 
-    updateTerrainLayers();
-  }
-
-  function handleGoogleTerrainCameraChange(){
-    if(!googleMap || !terrainEnabled || currentProvider!=='google')return;
-
-    const view=googleVisibleBounds();
-    if(!focus70Enabled &&
-       googleTerrainOverlay &&
-       shouldDropOldOverlay(googleTerrainOverlayBounds,view)){
-      googleTerrainOverlay.setMap(null);
-      googleTerrainOverlay=null;
-      googleTerrainOverlayBounds=null;
-    }
-
-    googleTerrainRequestId++;
-    scheduleGoogleTerrainRefresh(20,'preview');
-  }
-
-  function handleOsmTerrainCameraChange(){
-    if(!osmMap || !terrainEnabled || currentProvider!=='osm')return;
-
-    const view=osmVisibleBounds();
-    if(!focus70Enabled &&
-       osmTerrainCurrentBounds &&
-       shouldDropOldOverlay(osmTerrainCurrentBounds,view)){
-      removeOsmTerrainSlot('a');
-      removeOsmTerrainSlot('b');
-      osmTerrainCurrentBounds=null;
-    }
-
-    osmTerrainRequestId++;
-    scheduleOsmTerrainRefresh(20,'preview');
-  }
-
-  function updateTerrainLayers(){
-    if(currentProvider==='google'){
-      updateGoogleTerrain();
-    }else{
-      updateOsmTerrain();
-    }
+    terrainCameraStarted();
+    setTimeout(terrainCameraEnded,180);
   }
 
   async function initGoogle(){
@@ -1001,7 +645,9 @@
         streetViewControl:true,
         fullscreenControl:true,
         zoomControl:true,
-        scaleControl:true
+        scaleControl:true,
+        tilt:0,
+        heading:0
       });
       googleMap.addListener('mousemove',e=>{
         if(currentProvider!=='google')return;
@@ -1013,35 +659,24 @@
         const center=googleMap.getCenter(); if(!center)return;
         $('coords').textContent='Lat '+center.lat().toFixed(5)+
           ' / Lng '+center.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
-
-        if(terrainEnabled){
-          handleGoogleTerrainCameraChange();
-        }
+        terrainCameraChanged();
       });
 
       googleMap.addListener('center_changed',()=>{
-        if(currentProvider==='google' && terrainEnabled){
-          clearTimeout(googleTerrainRefreshTimer);
-          scheduleGoogleTerrainRefresh(50,'preview');
-        }
-      });
-
-      googleMap.addListener('idle',()=>{
-        if(currentProvider==='google' && terrainEnabled){
-          // Final HD pass only after the wheel/pan interaction has settled.
-          scheduleGoogleTerrainRefresh(220,'final');
-        }
+        if(currentProvider==='google'&&terrainEnabled)terrainCameraChanged();
       });
 
       googleMap.addListener('dragstart',()=>{
-        clearTimeout(googleTerrainRefreshTimer);
-        googleTerrainRequestId++;
+        if(currentProvider==='google')terrainCameraStarted();
       });
 
-      void ensureGoogleTerrainOverview();
-      updateGoogleTerrain();
+      googleMap.addListener('idle',()=>{
+        if(currentProvider==='google')terrainCameraEnded();
+      });
+
       updateGoogleFocus70();
-      if(currentProvider==='google')say('Google Maps 已加载；完整窗口地形模式已启用。');
+      updateTerrainLayers();
+      if(currentProvider==='google')say('Google Maps 已加载；真实位置精确配准模式已启用。');
     }catch(err){
       console.error(err);
       say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
@@ -1066,10 +701,9 @@
 
     osmMap.on('load',()=>{
       ensureOsmFocus70();
-      void ensureOsmTerrainOverview();
       if(currentProvider==='osm'){
-        updateOsmTerrain();
-        say('OpenStreetMap 已连接；完整窗口地形模式已启用。');
+        updateTerrainLayers();
+        say('OpenStreetMap 已连接；真实位置精确配准模式已启用。');
       }
     });
     osmMap.on('mousemove',e=>{
@@ -1079,27 +713,19 @@
     });
 
     osmMap.on('movestart',()=>{
-      clearTimeout(osmTerrainRefreshTimer);
-      osmTerrainRequestId++;
+      if(currentProvider==='osm')terrainCameraStarted();
     });
 
     osmMap.on('zoom',()=>{
-      if(currentProvider==='osm' && terrainEnabled){
-        handleOsmTerrainCameraChange();
-      }
+      if(currentProvider==='osm')terrainCameraChanged();
     });
 
     osmMap.on('move',()=>{
-      if(currentProvider==='osm' && terrainEnabled){
-        clearTimeout(osmTerrainRefreshTimer);
-        scheduleOsmTerrainRefresh(50,'preview');
-      }
+      if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
     });
 
     osmMap.on('moveend',()=>{
-      if(currentProvider==='osm' && terrainEnabled){
-        scheduleOsmTerrainRefresh(220,'final');
-      }
+      if(currentProvider==='osm')terrainCameraEnded();
     });
     osmMap.on('error',e=>{
       console.error(e.error||e);
@@ -1186,6 +812,7 @@
     }
 
     captureCurrentView();
+    terrainCameraStarted();
     currentProvider=provider;
     if(provider==='google'){
       $('googleMap').style.display='block';
@@ -1199,8 +826,8 @@
           applySharedView('google');
         },50);
         updateGoogleFocus70();
-        updateGoogleTerrain();
-        say('Google Maps 模式；正在刷新完整地形图。');
+          setTimeout(terrainCameraEnded,150);
+        say('Google Maps 模式；正在按真实位置重新配准地形。');
       }
     }else{
       $('googleMap').style.display='none';
@@ -1216,8 +843,8 @@
       }
       if(osmMap&&osmMap.loaded()){
         ensureOsmFocus70();
-        updateOsmTerrain();
-        say('OpenStreetMap 模式；正在刷新完整地形图。');
+        setTimeout(terrainCameraEnded,170);
+        say('OpenStreetMap 模式；正在按真实位置重新配准地形。');
       }
     }
   }
@@ -1236,27 +863,7 @@
   $('terrainOpacity').addEventListener('input',e=>{
     terrainOpacity=Number(e.target.value);
     $('terrainOpacityValue').textContent=Math.round(terrainOpacity*100)+'%';
-
-    if(currentProvider==='google'){
-      if(googleTerrainOverlay)googleTerrainOverlay.setOpacity(terrainOpacity);
-      if(googleTerrainOverviewOverlay){
-        googleTerrainOverviewOverlay.setOpacity(Math.min(terrainOpacity,0.42));
-      }
-    }else if(osmMap){
-      if(osmMap.getLayer('ea-overview-layer')){
-        osmMap.setPaintProperty(
-          'ea-overview-layer',
-          'raster-opacity',
-          Math.min(terrainOpacity,0.42)
-        );
-      }
-      for(const key of ['a','b']){
-        const layer=osmTerrainSlots[key].layer;
-        if(osmMap.getLayer(layer)){
-          osmMap.setPaintProperty(layer,'raster-opacity',terrainOpacity);
-        }
-      }
-    }
+    applyTerrainOpacity();
   });
 
   $('focus70Toggle').addEventListener('change',e=>{
@@ -1324,6 +931,8 @@
     $('collapse').textContent=$('panel').classList.contains('collapsed')?'+':'−';
     setTimeout(()=>{
       if(osmMap&&currentProvider==='osm')osmMap.resize();
+      terrainCameraStarted();
+      setTimeout(terrainCameraEnded,150);
     },100);
   };
 
