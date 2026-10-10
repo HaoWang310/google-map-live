@@ -81,7 +81,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.10</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -132,7 +132,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        高速模式：优先使用 EA 官方 WMTS 缓存瓦片；仅请求 70 km 研究区，WMTS 不可用时自动回退 WMS。
+        分级加载：zoom 8–19 优先 WMTS 缓存；zoom 19–23 自动切换 WMS 高清请求，继续放大也保持显示。
       </div>
     </div>
   </div>
@@ -450,7 +450,7 @@
         getTileUrl:eaTileUrlForGoogle,
         tileSize:new google.maps.Size(256,256),
         minZoom:8,
-        maxZoom:19,
+        maxZoom:23,
         name:'EA LiDAR DTM 1 m',
         opacity:terrainOpacity
       });
@@ -469,9 +469,11 @@
   function updateOsmTerrain(){
     if(!osmMap || !osmMap.loaded())return;
 
-    if(!osmMap.getSource('ea-lidar-dtm-1m')){
-      const fastTiles=eaWmts?.mapLibreTemplate || EA_WMS_MAPLIBRE;
-      osmMap.addSource('ea-lidar-dtm-1m',{
+    const fastTiles=eaWmts?.mapLibreTemplate || EA_WMS_MAPLIBRE;
+
+    // Cached / fast terrain for normal map scales.
+    if(!osmMap.getSource('ea-lidar-dtm-fast')){
+      osmMap.addSource('ea-lidar-dtm-fast',{
         type:'raster',
         tiles:[fastTiles],
         tileSize:256,
@@ -487,13 +489,34 @@
       });
     }
 
-    if(!osmMap.getLayer('ea-lidar-dtm-1m-layer')){
-      const layers=osmMap.getStyle()?.layers||[];
-      const firstLabels=layers.find(layer=>layer.type==='symbol')?.id;
-      osmMap.addLayer({
-        id:'ea-lidar-dtm-1m-layer',
+    // Dynamic WMS fallback for street/building-scale zooms.
+    if(!osmMap.getSource('ea-lidar-dtm-deep')){
+      osmMap.addSource('ea-lidar-dtm-deep',{
         type:'raster',
-        source:'ea-lidar-dtm-1m',
+        tiles:[EA_WMS_MAPLIBRE],
+        tileSize:256,
+        minzoom:19,
+        maxzoom:23,
+        bounds:[
+          TERRAIN_BOUNDS.west,
+          TERRAIN_BOUNDS.south,
+          TERRAIN_BOUNDS.east,
+          TERRAIN_BOUNDS.north
+        ],
+        attribution:'© Environment Agency copyright and/or database right'
+      });
+    }
+
+    const layers=osmMap.getStyle()?.layers||[];
+    const firstLabels=layers.find(layer=>layer.type==='symbol')?.id;
+
+    if(!osmMap.getLayer('ea-lidar-dtm-fast-layer')){
+      osmMap.addLayer({
+        id:'ea-lidar-dtm-fast-layer',
+        type:'raster',
+        source:'ea-lidar-dtm-fast',
+        minzoom:8,
+        maxzoom:19.01,
         layout:{visibility:terrainEnabled?'visible':'none'},
         paint:{
           'raster-opacity':terrainOpacity,
@@ -501,17 +524,33 @@
           'raster-resampling':'linear'
         }
       },firstLabels);
-    }else{
-      osmMap.setLayoutProperty(
-        'ea-lidar-dtm-1m-layer',
-        'visibility',
-        terrainEnabled?'visible':'none'
-      );
-      osmMap.setPaintProperty(
-        'ea-lidar-dtm-1m-layer',
-        'raster-opacity',
-        terrainOpacity
-      );
+    }
+
+    if(!osmMap.getLayer('ea-lidar-dtm-deep-layer')){
+      osmMap.addLayer({
+        id:'ea-lidar-dtm-deep-layer',
+        type:'raster',
+        source:'ea-lidar-dtm-deep',
+        minzoom:19,
+        maxzoom:24,
+        layout:{visibility:terrainEnabled?'visible':'none'},
+        paint:{
+          'raster-opacity':terrainOpacity,
+          'raster-fade-duration':0,
+          'raster-resampling':'linear'
+        }
+      },firstLabels);
+    }
+
+    for(const id of ['ea-lidar-dtm-fast-layer','ea-lidar-dtm-deep-layer']){
+      if(osmMap.getLayer(id)){
+        osmMap.setLayoutProperty(
+          id,
+          'visibility',
+          terrainEnabled?'visible':'none'
+        );
+        osmMap.setPaintProperty(id,'raster-opacity',terrainOpacity);
+      }
     }
   }
 
@@ -549,8 +588,12 @@
       googleMap.addListener('zoom_changed',()=>{
         if(currentProvider!=='google')return;
         const c=googleMap.getCenter(); if(!c)return;
+        const z=googleMap.getZoom();
         $('coords').textContent='Lat '+c.lat().toFixed(5)+
-          ' / Lng '+c.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
+          ' / Lng '+c.lng().toFixed(5)+' / Zoom '+z;
+        if(terrainEnabled && z>=19){
+          say('建筑尺度：自动切换 EA WMS 高清地形，不会因继续放大而消失。');
+        }
       });
       updateGoogleTerrain();
       if(currentProvider==='google')say('Google Maps 已加载；EA 1 m LiDAR：'+eaRasterMode+'。');
@@ -586,6 +629,12 @@
       if(currentProvider!=='osm')return;
       $('coords').textContent='Lat '+e.lngLat.lat.toFixed(5)+
         ' / Lng '+e.lngLat.lng.toFixed(5)+' / Zoom '+osmMap.getZoom().toFixed(1);
+    });
+    osmMap.on('zoomend',()=>{
+      if(currentProvider!=='osm' || !terrainEnabled)return;
+      if(osmMap.getZoom()>=19){
+        say('建筑尺度：自动切换 EA WMS 高清地形，不会因继续放大而消失。');
+      }
     });
     osmMap.on('error',e=>{
       console.error(e.error||e);
