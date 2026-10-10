@@ -81,7 +81,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.11</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.12</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -132,7 +132,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        全尺度显示：远景 WMS 概览；中景 WMTS 缓存；近景 WMS 高清。无论缩放大小都保持地形图层。</div>
+        全尺度显示：zoom < 8 强制 WMS；zoom 8–18 使用 WMTS；zoom ≥ 19 强制 WMS。避免低级别 WMTS 空白。</div>
     </div>
   </div>
 
@@ -347,10 +347,15 @@
     const ll=tileBoundsLngLat(coord.x,coord.y,zoom);
     if(!intersectsTerrainBounds(ll))return EMPTY_TILE;
 
-    const wmts=eaWmtsUrlForGoogle(coord,zoom);
-    if(wmts)return wmts;
+    // IMPORTANT:
+    // EA WMTS tile-matrix identifiers are not a safe 1:1 match with
+    // ordinary XYZ levels at every zoom. Only use WMTS in the tested
+    // middle range; use WMS for far and deep zooms.
+    if(zoom>=8 && zoom<19){
+      const wmts=eaWmtsUrlForGoogle(coord,zoom);
+      if(wmts)return wmts;
+    }
 
-    // Fallback only when WMTS discovery fails.
     const bbox=tileBBox3857(coord.x,coord.y,zoom);
     const q=new URLSearchParams({
       SERVICE:'WMS',
@@ -386,6 +391,7 @@
   let googleTerrainAttached=false;
   let terrainEnabled=true;
   let terrainOpacity=0.72;
+  let googleTerrainTier=null;
   let sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM,source:currentProvider};
 
   const $=id=>document.getElementById(id);
@@ -437,6 +443,15 @@
       }
     }
     googleTerrainAttached=false;
+  }
+
+  function refreshGoogleTerrainTiles(){
+    if(!googleMap || !googleTerrainAttached)return;
+    // Recreate the ImageMapType so Google discards tiles from the previous
+    // zoom strategy and requests the correct WMS/WMTS tier immediately.
+    detachGoogleTerrain();
+    googleTerrainMapType=null;
+    updateGoogleTerrain();
   }
 
   function updateGoogleTerrain(){
@@ -590,20 +605,31 @@
       });
       googleMap.addListener('zoom_changed',()=>{
         if(currentProvider!=='google')return;
-        const c=googleMap.getCenter(); if(!c)return;
+        const center=googleMap.getCenter(); if(!center)return;
         const z=googleMap.getZoom();
-        $('coords').textContent='Lat '+c.lat().toFixed(5)+
-          ' / Lng '+c.lng().toFixed(5)+' / Zoom '+z;
+        $('coords').textContent='Lat '+center.lat().toFixed(5)+
+          ' / Lng '+center.lng().toFixed(5)+' / Zoom '+z;
+
         if(terrainEnabled){
+          const tier=z<8 ? 'far-wms' : (z<19 ? 'mid-wmts' : 'deep-wms');
+          if(tier!==googleTerrainTier){
+            googleTerrainTier=tier;
+            setTimeout(refreshGoogleTerrainTiles,80);
+          }
+
           if(z<8){
-            say('远景模式：EA WMS 概览地形保持显示。');
+            say('远景：强制使用 EA WMS，避免 WMTS 空白瓦片。');
           }else if(z>=19){
-            say('建筑尺度：EA WMS 高清地形保持显示。');
+            say('近景：使用 EA WMS 高清地形。');
+          }else{
+            say('中景：使用 EA WMTS 缓存地形。');
           }
         }
       });
+      googleTerrainTier=googleMap.getZoom()<8 ? 'far-wms' :
+        (googleMap.getZoom()<19 ? 'mid-wmts' : 'deep-wms');
       updateGoogleTerrain();
-      if(currentProvider==='google')say('Google Maps 已加载；EA 1 m LiDAR：'+eaRasterMode+'。');
+      if(currentProvider==='google')say('Google Maps 已加载；EA 地形分级加载已修复。');
     }catch(err){
       console.error(err);
       say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
