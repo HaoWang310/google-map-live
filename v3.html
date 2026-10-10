@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>London Map Live</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css">
+
+  <style>
+    html,body,#googleMap,#osmMap{height:100%;margin:0}
+    body{
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",
+      "PingFang SC","Microsoft YaHei",sans-serif;
+      overflow:hidden;background:#dbe5ef
+    }
+    #googleMap,#osmMap{position:absolute;inset:0}
+    #osmMap{display:none}
+    .panel{
+      position:absolute;z-index:20;top:14px;left:14px;
+      width:min(370px,calc(100vw - 28px));padding:14px;border-radius:14px;
+      background:rgba(24,32,47,.95);color:#fff;
+      box-shadow:0 16px 45px rgba(0,0,0,.28);backdrop-filter:blur(12px)
+    }
+    .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+    .title{font-size:18px;font-weight:750}
+    .sub{margin-top:3px;color:#aeb8c8;font-size:11px;line-height:1.5}
+    select,button{
+      font:inherit;border-radius:9px;border:1px solid rgba(255,255,255,.12)
+    }
+    select{
+      width:100%;min-height:40px;padding:8px 10px;
+      background:#2b3547;color:#fff;outline:none
+    }
+    button{
+      min-height:39px;padding:8px 12px;color:#fff;background:#2f76ff;
+      font-weight:650;cursor:pointer
+    }
+    button.secondary{background:#3a4659}
+    .row{display:flex;gap:8px;margin-top:9px}.row>*{flex:1}
+    .divider{height:1px;background:rgba(255,255,255,.12);margin:13px 0}
+    .section{font-size:12px;color:#d7deea;margin-bottom:7px}
+    .status{font-size:11px;line-height:1.5;color:#bfd3ff;margin-top:10px;white-space:pre-line}
+    .status.error{color:#ffb8b8}
+    .note{font-size:10px;line-height:1.5;color:#99a6b9;margin-top:8px}
+    .coords{
+      position:absolute;z-index:10;right:12px;bottom:12px;padding:7px 9px;
+      border-radius:8px;background:rgba(24,32,47,.9);color:#fff;font-size:11px
+    }
+    #collapse{flex:0 0 38px;min-width:38px;padding:0;background:#3a4659}
+    .collapsed .content{display:none}
+    .providerBadge{
+      display:inline-flex;align-items:center;gap:6px;margin-top:7px;
+      padding:4px 7px;border-radius:999px;background:#334155;color:#dbeafe;font-size:10px
+    }
+    @media(max-width:600px){
+      .panel{top:8px;left:8px;width:calc(100vw - 16px);padding:12px}
+    }
+  </style>
+</head>
+<body>
+  <div id="googleMap"></div>
+  <div id="osmMap"></div>
+
+  <div class="panel" id="panel">
+    <div class="head">
+      <div>
+        <div class="title">London Map Live</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3</div>
+        <div class="providerBadge" id="providerBadge">Google Maps</div>
+      </div>
+      <button id="collapse">−</button>
+    </div>
+
+    <div class="content">
+      <div class="divider"></div>
+
+      <div class="section">地图来源</div>
+      <select id="provider">
+        <option value="google">Google Maps</option>
+        <option value="osm">OpenStreetMap / OpenFreeMap</option>
+      </select>
+
+      <div class="divider"></div>
+
+      <div class="section">Google 地图类型</div>
+      <select id="mapType">
+        <option value="roadmap">道路图 Roadmap</option>
+        <option value="satellite">卫星图 Satellite</option>
+        <option value="hybrid">混合图 Hybrid</option>
+        <option value="terrain">地形图 Terrain</option>
+      </select>
+
+      <div class="row">
+        <button id="londonBtn" class="secondary">伦敦</button>
+        <button id="locateBtn" class="secondary">定位我</button>
+        <button id="resetBtn" class="secondary">重置</button>
+      </div>
+
+      <div id="status" class="status">正在初始化地图…</div>
+      <div class="note" id="note">
+        Google 使用内置 Demo Key；OpenStreetMap 模式通过 MapLibre + OpenFreeMap 加载，无需 API Key。
+      </div>
+    </div>
+  </div>
+
+  <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
+
+<script type="module">
+  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
+
+  const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
+  const CENTER={lat:51.5074,lng:-0.1278};
+  const ZOOM=10;
+
+  let googleMap=null;
+  let osmMap=null;
+  let googleMarker=null;
+  let osmMarker=null;
+  let googleLoading=false;
+  let currentProvider='google';
+
+  const $=id=>document.getElementById(id);
+  const say=(m,e=false)=>{
+    $('status').textContent=m;
+    $('status').className='status'+(e?' error':'');
+  };
+
+  function syncBadge(){
+    $('providerBadge').textContent =
+      currentProvider==='google' ? 'Google Maps' : 'OpenStreetMap · no API key';
+    $('mapType').disabled = currentProvider!=='google';
+    $('note').textContent = currentProvider==='google'
+      ? 'Google Maps 使用内置 Demo Key。卫星图 / 混合图 / 地形图从这里切换。'
+      : 'OpenStreetMap 模式使用 OpenFreeMap 矢量瓦片 + MapLibre GL JS，不需要 API Key。';
+  }
+
+  window.gm_authFailure=()=>{
+    say('Google 拒绝了当前 Demo Key。你仍可以切换到 OpenStreetMap 使用地图。',true);
+  };
+
+  function loadGoogleScript(){
+    return new Promise((resolve,reject)=>{
+      if(window.google&&window.google.maps){resolve();return;}
+      if(googleLoading){
+        const t=setInterval(()=>{
+          if(window.google&&window.google.maps){clearInterval(t);resolve();}
+        },100);
+        setTimeout(()=>{clearInterval(t);reject(new Error('Google Maps 加载超时。'));},20000);
+        return;
+      }
+      googleLoading=true;
+      window.__initGoogleMap=()=>{googleLoading=false;resolve();};
+      const s=document.createElement('script');
+      s.async=true;s.defer=true;
+      s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(API_KEY)+
+        '&loading=async&libraries=maps&v=weekly&language=zh-CN&region=GB&callback=__initGoogleMap';
+      s.onerror=()=>{googleLoading=false;reject(new Error('Google Maps 脚本下载失败。'))};
+      document.head.appendChild(s);
+    });
+  }
+
+  async function initGoogle(){
+    if(googleMap)return;
+    say('正在加载 Google Maps…');
+    try{
+      await loadGoogleScript();
+      const {Map}=await google.maps.importLibrary('maps');
+      googleMap=new Map($('googleMap'),{
+        center:CENTER,zoom:ZOOM,mapId:'DEMO_MAP_ID',
+        mapTypeId:$('mapType').value,
+        gestureHandling:'greedy',
+        mapTypeControl:false,
+        streetViewControl:true,
+        fullscreenControl:true,
+        zoomControl:true,
+        scaleControl:true
+      });
+      googleMap.addListener('mousemove',e=>{
+        if(currentProvider!=='google')return;
+        $('coords').textContent='Lat '+e.latLng.lat().toFixed(5)+
+          ' / Lng '+e.latLng.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
+      });
+      googleMap.addListener('zoom_changed',()=>{
+        if(currentProvider!=='google')return;
+        const c=googleMap.getCenter(); if(!c)return;
+        $('coords').textContent='Lat '+c.lat().toFixed(5)+
+          ' / Lng '+c.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
+      });
+      if(currentProvider==='google')say('Google Maps 已加载。');
+    }catch(err){
+      console.error(err);
+      say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
+    }
+  }
+
+  function initOSM(){
+    if(osmMap)return;
+    say('正在加载 OpenStreetMap…');
+    osmMap=new maplibregl.Map({
+      container:'osmMap',
+      style:'https://tiles.openfreemap.org/styles/liberty',
+      center:[CENTER.lng,CENTER.lat],
+      zoom:ZOOM,
+      pitch:0,
+      bearing:0,
+      attributionControl:true
+    });
+
+    osmMap.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
+    osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
+
+    osmMap.on('load',()=>{
+      if(currentProvider==='osm')say('OpenStreetMap 已连接：MapLibre + OpenFreeMap，无需 API Key。');
+    });
+    osmMap.on('mousemove',e=>{
+      if(currentProvider!=='osm')return;
+      $('coords').textContent='Lat '+e.lngLat.lat.toFixed(5)+
+        ' / Lng '+e.lngLat.lng.toFixed(5)+' / Zoom '+osmMap.getZoom().toFixed(1);
+    });
+    osmMap.on('error',e=>{
+      console.error(e.error||e);
+    });
+  }
+
+  function switchProvider(provider){
+    currentProvider=provider;
+    if(provider==='google'){
+      $('googleMap').style.display='block';
+      $('osmMap').style.display='none';
+      syncBadge();
+      initGoogle();
+      if(googleMap){
+        setTimeout(()=>google.maps.event.trigger(googleMap,'resize'),50);
+        say('Google Maps 模式。');
+      }
+    }else{
+      $('googleMap').style.display='none';
+      $('osmMap').style.display='block';
+      syncBadge();
+      initOSM();
+      setTimeout(()=>{if(osmMap)osmMap.resize();},100);
+      if(osmMap&&osmMap.loaded())say('OpenStreetMap 模式，无需 API Key。');
+    }
+  }
+
+  $('provider').addEventListener('change',e=>switchProvider(e.target.value));
+
+  $('mapType').addEventListener('change',e=>{
+    if(googleMap)googleMap.setMapTypeId(e.target.value);
+  });
+
+  $('londonBtn').onclick=()=>{
+    if(currentProvider==='google'&&googleMap){
+      googleMap.setCenter(CENTER);googleMap.setZoom(10);
+    }else if(currentProvider==='osm'&&osmMap){
+      osmMap.flyTo({center:[CENTER.lng,CENTER.lat],zoom:10,pitch:0,bearing:0});
+    }
+  };
+
+  $('resetBtn').onclick=()=>{
+    if(currentProvider==='google'&&googleMap){
+      googleMap.setCenter(CENTER);googleMap.setZoom(ZOOM);
+      googleMap.setMapTypeId('roadmap');$('mapType').value='roadmap';
+    }else if(currentProvider==='osm'&&osmMap){
+      osmMap.jumpTo({center:[CENTER.lng,CENTER.lat],zoom:ZOOM,pitch:0,bearing:0});
+    }
+  };
+
+  $('locateBtn').onclick=()=>{
+    if(!navigator.geolocation){say('浏览器不支持定位。',true);return;}
+    say('正在定位…');
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      const p={lat:pos.coords.latitude,lng:pos.coords.longitude};
+      if(currentProvider==='google'){
+        await initGoogle();
+        if(!googleMap)return;
+        googleMap.panTo(p);googleMap.setZoom(15);
+        if(googleMarker)googleMarker.setMap(null);
+        googleMarker=new google.maps.Marker({position:p,map:googleMap,title:'当前位置'});
+      }else{
+        initOSM();
+        osmMap.flyTo({center:[p.lng,p.lat],zoom:15});
+        if(osmMarker)osmMarker.remove();
+        osmMarker=new maplibregl.Marker().setLngLat([p.lng,p.lat]).addTo(osmMap);
+      }
+      say('定位成功。');
+    },err=>say('定位失败：'+err.message,true),{
+      enableHighAccuracy:true,timeout:10000,maximumAge:60000
+    });
+  };
+
+  $('collapse').onclick=()=>{
+    $('panel').classList.toggle('collapsed');
+    $('collapse').textContent=$('panel').classList.contains('collapsed')?'+':'−';
+    setTimeout(()=>{
+      if(osmMap&&currentProvider==='osm')osmMap.resize();
+    },100);
+  };
+
+  syncBadge();
+  initOSM();
+  switchProvider('google');
+</script>
+</body>
+</html>
