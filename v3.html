@@ -148,7 +148,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.1</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.2</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -200,20 +200,20 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>汇水贡献面积 · Contributing Area</strong>
-              <small>源栅格 50 m · 单位 km²</small>
+              <small>源栅格 50 m · 单位 km² · 高对比显示</small>
             </span>
             <input id="drainageToggle" type="checkbox">
           </label>
           <div class="rangeRow">
             <span>透明度</span>
-            <input id="drainageOpacity" type="range" min="0" max="1" step="0.05" value="0.68">
-            <span id="drainageOpacityValue">68%</span>
+            <input id="drainageOpacity" type="range" min="0" max="1" step="0.05" value="1">
+            <span id="drainageOpacityValue">100%</span>
           </div>
           <div class="layerLegend">
             <span>0.0025</span><span class="layerLegendBar"></span><span>7924 km²</span>
           </div>
           <div class="layerMeta">
-            50 m × 50 m = 0.0025 km² / cell。Derived from Environment Agency LiDAR Composite DTM; hydrological contributing-area analysis at 50 m resolution. Browser display uses an optimized preview of the analytical GeoTIFF.
+            50 m × 50 m = 0.0025 km² / cell。高对比显示会压低小汇水量背景，并突出主要汇水通道。Derived from Environment Agency LiDAR Composite DTM; hydrological contributing-area analysis at 50 m resolution.
           </div>
         </div>
 
@@ -441,7 +441,7 @@
   };
 
   let drainageEnabled=false;
-  let drainageOpacity=0.68;
+  let drainageOpacity=1;
   let drainageImageUrl=null;
   let drainageLoadingPromise=null;
 
@@ -900,6 +900,73 @@
     return (osmMap.getStyle()?.layers||[]).find(layer=>layer.type==='symbol')?.id;
   }
 
+  async function makeDrainageHighContrastBlob(sourceBlob){
+    // The compact preview already encodes contributing-area strength in its
+    // alpha/color response. Re-map it client-side so the drainage hierarchy
+    // is visually obvious over OpenStreetMap without changing analytical data.
+    try{
+      const bitmap=await createImageBitmap(sourceBlob);
+      const canvas=document.createElement('canvas');
+      canvas.width=bitmap.width;
+      canvas.height=bitmap.height;
+      const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      ctx.drawImage(bitmap,0,0);
+      bitmap.close?.();
+
+      const image=ctx.getImageData(0,0,canvas.width,canvas.height);
+      const d=image.data;
+
+      for(let i=0;i<d.length;i+=4){
+        const a=d[i+3];
+
+        // Outside study area / very small contributing areas: transparent.
+        if(a<96){
+          d[i+3]=0;
+          continue;
+        }
+
+        // The source preview alpha spans roughly 96..190 for meaningful flow.
+        // Stretch that narrow range aggressively to make the hierarchy legible.
+        let t=(a-96)/(190-96);
+        t=Math.max(0,Math.min(1,t));
+        t=Math.pow(t,0.72);
+
+        let r,g,b;
+        if(t<0.50){
+          const q=t/0.50;
+          // cyan -> yellow
+          r=Math.round(0+(255-0)*q);
+          g=Math.round(210+(232-210)*q);
+          b=Math.round(255+(65-255)*q);
+        }else{
+          const q=(t-0.50)/0.50;
+          // yellow -> red
+          r=255;
+          g=Math.round(232+(48-232)*q);
+          b=Math.round(65+(35-65)*q);
+        }
+
+        d[i]=r;
+        d[i+1]=g;
+        d[i+2]=b;
+        d[i+3]=Math.round(55+200*t);
+      }
+
+      ctx.putImageData(image,0,0);
+
+      return await new Promise((resolve,reject)=>{
+        canvas.toBlob(
+          blob=>blob?resolve(blob):reject(new Error('Drainage contrast conversion failed')),
+          'image/webp',
+          0.94
+        );
+      });
+    }catch(err){
+      console.warn('High-contrast drainage processing unavailable; using source preview.',err);
+      return sourceBlob;
+    }
+  }
+
   async function getDrainageImageUrl(){
     if(drainageImageUrl)return drainageImageUrl;
     if(drainageLoadingPromise)return drainageLoadingPromise;
@@ -921,9 +988,9 @@
       const bytes=new Uint8Array(binary.length);
       for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
 
-      return URL.createObjectURL(
-        new Blob([bytes],{type:'image/webp'})
-      );
+      const sourceBlob=new Blob([bytes],{type:'image/webp'});
+      const displayBlob=await makeDrainageHighContrastBlob(sourceBlob);
+      return URL.createObjectURL(displayBlob);
     })();
 
     try{
@@ -992,13 +1059,17 @@
         source:DRAINAGE_SOURCE_ID,
         paint:{
           'raster-opacity':drainageOpacity,
+          'raster-contrast':0.72,
+          'raster-saturation':0.55,
+          'raster-brightness-min':0.02,
+          'raster-brightness-max':1,
           'raster-fade-duration':0,
-          'raster-resampling':'linear'
+          'raster-resampling':'nearest'
         }
       },firstSymbol);
 
       keepDrainageAboveTerrain();
-      say('汇水贡献面积图层已按 GeoTIFF 实际地理范围配准。');
+      say('汇水贡献面积已启用高对比显示：主汇水通道以黄/红色突出。');
     }catch(err){
       console.error(err);
       removeDrainageLayer();
