@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Google Map Live</title>
+  <style>
+    html,body,#map{height:100%;margin:0}
+    body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;overflow:hidden;background:#dbe5ef}
+    #map{position:absolute;inset:0}
+    .panel{position:absolute;z-index:20;top:14px;left:14px;width:min(360px,calc(100vw - 28px));padding:14px;border-radius:14px;background:rgba(24,32,47,.95);color:#fff;box-shadow:0 16px 45px rgba(0,0,0,.28);backdrop-filter:blur(12px)}
+    .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.title{font-size:18px;font-weight:750}.sub{margin-top:3px;color:#aeb8c8;font-size:11px;line-height:1.5}
+    input,select,button{font:inherit;border-radius:9px;border:1px solid rgba(255,255,255,.12)}
+    input,select{width:100%;min-height:40px;padding:8px 10px;background:#2b3547;color:#fff;outline:none}
+    button{min-height:39px;padding:8px 12px;color:#fff;background:#2f76ff;font-weight:650;cursor:pointer}
+    button.secondary{background:#3a4659}.row{display:flex;gap:8px;margin-top:9px}.row>*{flex:1}
+    .divider{height:1px;background:rgba(255,255,255,.12);margin:13px 0}.section{font-size:12px;color:#d7deea;margin-bottom:7px}
+    .status{font-size:11px;line-height:1.5;color:#bfd3ff;margin-top:10px;white-space:pre-line}.status.error{color:#ffb8b8}
+    .note{font-size:10px;line-height:1.5;color:#99a6b9;margin-top:8px}.coords{position:absolute;z-index:10;right:12px;bottom:12px;padding:7px 9px;border-radius:8px;background:rgba(24,32,47,.9);color:#fff;font-size:11px}
+    #collapse{flex:0 0 38px;min-width:38px;padding:0;background:#3a4659}.collapsed .content{display:none}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="panel" id="panel">
+    <div class="head">
+      <div>
+        <div class="title">Google Map Live</div>
+        <div class="sub">GitHub Pages · Maps Demo Key · DEMO_MAP_ID</div>
+      </div>
+      <button id="collapse">−</button>
+    </div>
+    <div class="content">
+      <div class="row"><input id="apiKey" type="password" autocomplete="off" placeholder="粘贴 Maps Demo Key"></div>
+      <div class="row"><button id="loadBtn">加载地图</button><button id="clearBtn" class="secondary">清除 Key</button></div>
+      <div class="divider"></div>
+      <div class="section">地图类型</div>
+      <select id="mapType">
+        <option value="roadmap">道路图 Roadmap</option>
+        <option value="satellite">卫星图 Satellite</option>
+        <option value="hybrid">混合图 Hybrid</option>
+        <option value="terrain">地形图 Terrain</option>
+      </select>
+      <div class="row"><button id="londonBtn" class="secondary">伦敦</button><button id="locateBtn" class="secondary">定位我</button><button id="resetBtn" class="secondary">重置</button></div>
+      <div id="status" class="status">等待 Demo Key。</div>
+      <div class="note">API Key 只保存在当前浏览器 localStorage，不写入 GitHub 仓库。</div>
+    </div>
+  </div>
+  <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
+
+<script>
+(() => {
+  const CENTER={lat:51.5074,lng:-0.1278}, ZOOM=10;
+  let map=null, marker=null, loading=false;
+  const $=id=>document.getElementById(id);
+  const say=(m,e=false)=>{$('status').textContent=m;$('status').className='status'+(e?' error':'')};
+
+  window.gm_authFailure=()=>say('Google 拒绝了这个 Key。请检查 Demo Key 是否仍有效。',true);
+
+  function loadGoogle(key){
+    return new Promise((resolve,reject)=>{
+      if(window.google&&window.google.maps){resolve();return;}
+      window.__initGoogleMap=()=>resolve();
+      const s=document.createElement('script');
+      s.async=true;s.defer=true;
+      s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(key)+'&loading=async&libraries=maps&v=weekly&language=zh-CN&region=GB&callback=__initGoogleMap';
+      s.onerror=()=>reject(new Error('Google Maps 脚本下载失败。'));
+      document.head.appendChild(s);
+      setTimeout(()=>{if(!(window.google&&window.google.maps))reject(new Error('Google Maps 加载超时。'));},20000);
+    });
+  }
+
+  async function boot(){
+    const key=$('apiKey').value.trim();
+    if(!key){say('请先粘贴 Maps Demo Key。',true);return;}
+    if(loading)return;
+    loading=true;
+    localStorage.setItem('googleMapsDemoKey',key);
+    say('正在加载 Google Maps…');
+    try{
+      await loadGoogle(key);
+      const {Map}=await google.maps.importLibrary('maps');
+      map=new Map($('map'),{
+        center:CENTER,zoom:ZOOM,mapId:'DEMO_MAP_ID',
+        mapTypeId:$('mapType').value,gestureHandling:'greedy',
+        mapTypeControl:false,streetViewControl:true,fullscreenControl:true,
+        zoomControl:true,scaleControl:true
+      });
+      map.addListener('mousemove',e=>{
+        $('coords').textContent='Lat '+e.latLng.lat().toFixed(5)+' / Lng '+e.latLng.lng().toFixed(5)+' / Zoom '+map.getZoom();
+      });
+      map.addListener('zoom_changed',()=>{
+        const c=map.getCenter(); if(!c)return;
+        $('coords').textContent='Lat '+c.lat().toFixed(5)+' / Lng '+c.lng().toFixed(5)+' / Zoom '+map.getZoom();
+      });
+      say('地图已加载，可以拖动、缩放并切换底图。');
+    }catch(err){console.error(err);say(err.message||'加载失败。',true)}
+    finally{loading=false}
+  }
+
+  $('loadBtn').onclick=boot;
+  $('clearBtn').onclick=()=>{localStorage.removeItem('googleMapsDemoKey');$('apiKey').value='';say('已清除本地 Key。')};
+  $('mapType').onchange=e=>{if(map)map.setMapTypeId(e.target.value)};
+  $('londonBtn').onclick=()=>{if(map){map.setCenter(CENTER);map.setZoom(10)}};
+  $('resetBtn').onclick=()=>{if(map){map.setCenter(CENTER);map.setZoom(ZOOM);map.setMapTypeId('roadmap');$('mapType').value='roadmap'}};
+  $('locateBtn').onclick=()=>{
+    if(!map){say('请先加载地图。',true);return}
+    if(!navigator.geolocation){say('浏览器不支持定位。',true);return}
+    say('正在定位…');
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const p={lat:pos.coords.latitude,lng:pos.coords.longitude};
+      map.panTo(p);map.setZoom(15);
+      if(marker)marker.setMap(null);
+      marker=new google.maps.Marker({position:p,map,title:'当前位置'});
+      say('定位成功。');
+    },err=>say('定位失败：'+err.message,true),{enableHighAccuracy:true,timeout:10000,maximumAge:60000});
+  };
+  $('collapse').onclick=()=>{$('panel').classList.toggle('collapsed');$('collapse').textContent=$('panel').classList.contains('collapsed')?'+':'−'};
+  $('apiKey').addEventListener('keydown',e=>{if(e.key==='Enter')boot()});
+
+  const saved=localStorage.getItem('googleMapsDemoKey')||'';
+  $('apiKey').value=saved;
+  if(saved){say('已读取本地 Demo Key，正在自动加载…');setTimeout(boot,250)}
+})();
+</script>
+</body>
+</html>
