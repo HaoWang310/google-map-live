@@ -94,7 +94,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.0</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.1</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -302,12 +302,21 @@
       currentProvider==='google' ? 'Google Maps' : 'OpenStreetMap · no API key';
     $('mapType').disabled = currentProvider!=='google';
     $('note').textContent = currentProvider==='google'
-      ? 'Google Maps 使用内置 Demo Key。卫星图 / 混合图 / 地形图从这里切换。'
+      ? 'Google Maps 需要有效的标准 Maps JavaScript API Key；认证失败时自动切回 OpenStreetMap。'
       : 'OpenStreetMap 模式使用 OpenFreeMap 矢量瓦片 + MapLibre GL JS，不需要 API Key。';
   }
 
   window.gm_authFailure=()=>{
-    say('Google 拒绝了当前 Demo Key。你仍可以切换到 OpenStreetMap 使用地图。',true);
+    console.error('Google Maps authentication failed.');
+    say('Google Maps Key 认证失败，正在自动切换到 OpenStreetMap…',true);
+
+    terrainCameraStarted();
+
+    setTimeout(()=>{
+      const provider=$('provider');
+      provider.value='osm';
+      switchProvider('osm');
+    },350);
   };
 
   function loadGoogleScript(){
@@ -637,7 +646,7 @@
       await loadGoogleScript();
       const {Map}=await google.maps.importLibrary('maps');
       googleMap=new Map($('googleMap'),{
-        center:CENTER,zoom:ZOOM,mapId:'DEMO_MAP_ID',
+        center:CENTER,zoom:ZOOM,
         mapTypeId:$('mapType').value,
         gestureHandling:'greedy',
         mapTypeControl:false,
@@ -679,7 +688,12 @@
       if(currentProvider==='google')say('Google Maps 已加载；真实位置精确配准模式已启用。');
     }catch(err){
       console.error(err);
-      say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
+      say('Google Maps 加载失败，正在自动切换到 OpenStreetMap…',true);
+      setTimeout(()=>{
+        const provider=$('provider');
+        provider.value='osm';
+        switchProvider('osm');
+      },350);
     }
   }
 
