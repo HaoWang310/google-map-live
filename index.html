@@ -94,7 +94,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.1</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.9.2</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -334,7 +334,7 @@
       const s=document.createElement('script');
       s.async=true;s.defer=true;
       s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(API_KEY)+
-        '&loading=async&libraries=maps&v=weekly&language=zh-CN&region=GB&callback=__initGoogleMap';
+        '&loading=async&libraries=maps&v=weekly&language=zh-CN&region=GB&auth_referrer_policy=origin&callback=__initGoogleMap';
       s.onerror=()=>{googleLoading=false;reject(new Error('Google Maps 脚本下载失败。'))};
       document.head.appendChild(s);
     });
