@@ -81,7 +81,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.6</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.7</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -109,19 +109,19 @@
       <div class="divider"></div>
       <div class="section">真实地形图层</div>
       <label class="layerRow">
-        <span>London 70 km Ground Terrain</span>
+        <span>EA LiDAR DTM 1 m · HD</span>
         <input id="terrainToggle" type="checkbox" checked>
       </label>
       <div class="rangeRow">
         <span>透明度</span>
-        <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.80">
-        <span id="terrainOpacityValue">80%</span>
+        <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.72">
+        <span id="terrainOpacityValue">72%</span>
       </div>
       <div class="row">
-        <button id="terrainFit" class="secondary">定位到 70 km 图层</button>
+        <button id="terrainFit" class="secondary">定位到 70 km 范围</button>
       </div>
       <div class="terrainMeta">
-        EA LiDAR Composite · Charing Cross E530037 N180373 · 70 km radius · EPSG:27700 → EPSG:3857 · Open Government Licence
+        Environment Agency LiDAR Composite DTM 1 m · Dynamic WMS · EPSG:3857 · Open Government Licence
       </div>
 
       <div class="row">
@@ -132,7 +132,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        Google 使用内置 Demo Key；OpenStreetMap 模式通过 MapLibre + OpenFreeMap 加载，无需 API Key。
+        Google / OpenStreetMap 均叠加 Environment Agency 1 m LiDAR WMS；放大时会重新请求更高细节。
       </div>
     </div>
   </div>
@@ -146,62 +146,55 @@
   const CENTER={lat:51.5074,lng:-0.1278};
   const ZOOM=10;
 
-  // Georeferenced from the supplied terrain plate:
-  // Charing Cross E530037 N180373 (EPSG:27700), 70 km radius.
-  // The source was cropped to its exact 140 km square and reprojected to EPSG:3857.
-  const TERRAIN_CHUNKS=[
-    './assets/terrain_b64/0.txt?v=1',
-    './assets/terrain_b64/1.txt?v=1',
-    './assets/terrain_b64/2.txt?v=1',
-    './assets/terrain_b64/3.txt?v=1',
-    './assets/terrain_b64/4.txt?v=1'
-  ];
-  let terrainBlobUrl=null;
-  let terrainUrlPromise=null;
+  // Official Environment Agency LiDAR Composite DTM 1 m.
+  // Dynamic WMS: requests a fresh raster tile for every zoom level.
+  const EA_WMS_BASE='https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wms';
+  const EA_WMS_LAYER='Lidar_Composite_DTM_1m';
 
-  async function getTerrainUrl(){
-    if(terrainBlobUrl)return terrainBlobUrl;
-    if(terrainUrlPromise)return terrainUrlPromise;
-
-    terrainUrlPromise=(async()=>{
-      const responses=await Promise.all(
-        TERRAIN_CHUNKS.map(url=>fetch(url,{cache:'no-store'}))
-      );
-      if(responses.some(r=>!r.ok)){
-        throw new Error('地形图层数据文件加载失败');
-      }
-      const parts=await Promise.all(responses.map(r=>r.text()));
-      const base64=parts.join('').replace(/\s+/g,'');
-      const binary=atob(base64);
-      const bytes=new Uint8Array(binary.length);
-      for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
-      const blob=new Blob([bytes],{type:'image/webp'});
-      terrainBlobUrl=URL.createObjectURL(blob);
-
-      await new Promise((resolve,reject)=>{
-        const img=new Image();
-        img.onload=()=>resolve();
-        img.onerror=()=>reject(new Error('重建后的地形图像无法解码'));
-        img.src=terrainBlobUrl;
-      });
-
-      return terrainBlobUrl;
-    })();
-
-    return terrainUrlPromise;
-  }
+  // Original 70 km study extent centred on Charing Cross E530037 N180373.
   const TERRAIN_BOUNDS={
     west:-1.1478120391692022,
     south:50.858309108610484,
     east:0.9210948646196429,
     north:52.14838885409756
   };
-  const TERRAIN_COORDS=[
-    [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.north],
-    [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.north],
-    [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.south],
-    [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.south]
-  ];
+
+  function tileBBox3857(x,y,z){
+    const origin=20037508.342789244;
+    const world=origin*2;
+    const size=world/Math.pow(2,z);
+    const minx=-origin+x*size;
+    const maxx=minx+size;
+    const maxy= origin-y*size;
+    const miny=maxy-size;
+    return [minx,miny,maxx,maxy].join(',');
+  }
+
+  function eaWmsUrlForGoogle(coord,zoom){
+    const bbox=tileBBox3857(coord.x,coord.y,zoom);
+    const q=new URLSearchParams({
+      SERVICE:'WMS',
+      VERSION:'1.3.0',
+      REQUEST:'GetMap',
+      LAYERS:EA_WMS_LAYER,
+      STYLES:'',
+      FORMAT:'image/png',
+      TRANSPARENT:'TRUE',
+      CRS:'EPSG:3857',
+      WIDTH:'512',
+      HEIGHT:'512',
+      BBOX:bbox
+    });
+    return EA_WMS_BASE+'?'+q.toString();
+  }
+
+  const EA_WMS_MAPLIBRE =
+    EA_WMS_BASE+
+    '?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'+
+    '&LAYERS='+encodeURIComponent(EA_WMS_LAYER)+
+    '&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE'+
+    '&CRS=EPSG:3857&WIDTH=512&HEIGHT=512'+
+    '&BBOX={bbox-epsg-3857}';
 
   let googleMap=null;
   let osmMap=null;
@@ -209,9 +202,10 @@
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='google';
-  let googleTerrainOverlay=null;
+  let googleTerrainMapType=null;
+  let googleTerrainAttached=false;
   let terrainEnabled=true;
-  let terrainOpacity=0.80;
+  let terrainOpacity=0.72;
   let sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM,source:currentProvider};
 
   const $=id=>document.getElementById(id);
@@ -254,62 +248,92 @@
     });
   }
 
-  async function updateGoogleTerrain(){
-    if(!googleMap || !window.google?.maps)return;
-
-    if(!googleTerrainOverlay){
-      googleTerrainOverlay=new google.maps.GroundOverlay(
-        await getTerrainUrl(),
-        TERRAIN_BOUNDS,
-        {opacity:terrainOpacity,clickable:false}
-      );
+  function detachGoogleTerrain(){
+    if(!googleMap || !googleTerrainMapType || !googleTerrainAttached)return;
+    const overlays=googleMap.overlayMapTypes;
+    for(let i=overlays.getLength()-1;i>=0;i--){
+      if(overlays.getAt(i)===googleTerrainMapType){
+        overlays.removeAt(i);
+      }
     }
-
-    googleTerrainOverlay.setOpacity(terrainOpacity);
-    googleTerrainOverlay.setMap(terrainEnabled ? googleMap : null);
+    googleTerrainAttached=false;
   }
 
-  async function updateOsmTerrain(){
-    if(!osmMap || !osmMap.loaded())return;
+  function updateGoogleTerrain(){
+    if(!googleMap || !window.google?.maps)return;
 
-    if(!osmMap.getSource('london-terrain-source')){
-      osmMap.addSource('london-terrain-source',{
-        type:'image',
-        url:await getTerrainUrl(),
-        coordinates:TERRAIN_COORDS
+    if(!googleTerrainMapType){
+      googleTerrainMapType=new google.maps.ImageMapType({
+        getTileUrl:eaWmsUrlForGoogle,
+        tileSize:new google.maps.Size(256,256),
+        minZoom:5,
+        maxZoom:21,
+        name:'EA LiDAR DTM 1 m',
+        opacity:terrainOpacity
       });
     }
 
-    if(!osmMap.getLayer('london-terrain-layer')){
-      const layers=osmMap.getStyle()?.layers||[];
-      const before=layers.find(layer=>layer.type==='line' || layer.type==='symbol')?.id;
-      osmMap.addLayer({
-        id:'london-terrain-layer',
-        type:'raster',
-        source:'london-terrain-source',
-        layout:{visibility:terrainEnabled?'visible':'none'},
-        paint:{
-          'raster-opacity':terrainOpacity,
-          'raster-fade-duration':0
-        }
-      },before);
-    }else{
-      osmMap.setLayoutProperty(
-        'london-terrain-layer',
-        'visibility',
-        terrainEnabled?'visible':'none'
-      );
-      osmMap.setPaintProperty('london-terrain-layer','raster-opacity',terrainOpacity);
+    googleTerrainMapType.setOpacity(terrainOpacity);
+
+    if(terrainEnabled && !googleTerrainAttached){
+      googleMap.overlayMapTypes.insertAt(0,googleTerrainMapType);
+      googleTerrainAttached=true;
+    }else if(!terrainEnabled){
+      detachGoogleTerrain();
     }
   }
 
-  async function updateTerrainLayers(){
-    try{
-      await Promise.all([updateGoogleTerrain(),updateOsmTerrain()]);
-    }catch(err){
-      console.error(err);
-      say('地形图层加载失败：'+err.message,true);
+  function updateOsmTerrain(){
+    if(!osmMap || !osmMap.loaded())return;
+
+    if(!osmMap.getSource('ea-lidar-dtm-1m')){
+      osmMap.addSource('ea-lidar-dtm-1m',{
+        type:'raster',
+        tiles:[EA_WMS_MAPLIBRE],
+        tileSize:256,
+        minzoom:5,
+        maxzoom:21,
+        bounds:[
+          TERRAIN_BOUNDS.west,
+          TERRAIN_BOUNDS.south,
+          TERRAIN_BOUNDS.east,
+          TERRAIN_BOUNDS.north
+        ],
+        attribution:'© Environment Agency copyright and/or database right'
+      });
     }
+
+    if(!osmMap.getLayer('ea-lidar-dtm-1m-layer')){
+      const layers=osmMap.getStyle()?.layers||[];
+      const firstLabels=layers.find(layer=>layer.type==='symbol')?.id;
+      osmMap.addLayer({
+        id:'ea-lidar-dtm-1m-layer',
+        type:'raster',
+        source:'ea-lidar-dtm-1m',
+        layout:{visibility:terrainEnabled?'visible':'none'},
+        paint:{
+          'raster-opacity':terrainOpacity,
+          'raster-fade-duration':0,
+          'raster-resampling':'linear'
+        }
+      },firstLabels);
+    }else{
+      osmMap.setLayoutProperty(
+        'ea-lidar-dtm-1m-layer',
+        'visibility',
+        terrainEnabled?'visible':'none'
+      );
+      osmMap.setPaintProperty(
+        'ea-lidar-dtm-1m-layer',
+        'raster-opacity',
+        terrainOpacity
+      );
+    }
+  }
+
+  function updateTerrainLayers(){
+    updateGoogleTerrain();
+    updateOsmTerrain();
   }
 
   async function initGoogle(){
@@ -340,8 +364,8 @@
         $('coords').textContent='Lat '+c.lat().toFixed(5)+
           ' / Lng '+c.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
       });
-      await updateGoogleTerrain();
-      if(currentProvider==='google')say('Google Maps 已加载；70 km 地形图层已显示。');
+      updateGoogleTerrain();
+      if(currentProvider==='google')say('Google Maps 已加载；EA 1 m LiDAR 动态图层已连接。');
     }catch(err){
       console.error(err);
       say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
@@ -364,9 +388,9 @@
     osmMap.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
-    osmMap.on('load',async()=>{
-      await updateOsmTerrain();
-      if(currentProvider==='osm')say('OpenStreetMap 已连接；70 km 地形图层已显示。');
+    osmMap.on('load',()=>{
+      updateOsmTerrain();
+      if(currentProvider==='osm')say('OpenStreetMap 已连接；EA 1 m LiDAR 动态图层已连接。');
     });
     osmMap.on('mousemove',e=>{
       if(currentProvider!=='osm')return;
@@ -496,19 +520,16 @@
 
   $('terrainToggle').addEventListener('change',e=>{
     terrainEnabled=e.target.checked;
-    void updateTerrainLayers();
+    updateTerrainLayers();
   });
 
   $('terrainOpacity').addEventListener('input',e=>{
     terrainOpacity=Number(e.target.value);
     $('terrainOpacityValue').textContent=Math.round(terrainOpacity*100)+'%';
-    void updateTerrainLayers();
+    updateTerrainLayers();
   });
 
   $('terrainFit').onclick=()=>{
-    terrainEnabled=true;
-    $('terrainToggle').checked=true;
-    void updateTerrainLayers();
     if(currentProvider==='google' && googleMap){
       googleMap.fitBounds(TERRAIN_BOUNDS,0);
     }else if(currentProvider==='osm' && osmMap){
