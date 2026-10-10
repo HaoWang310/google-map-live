@@ -81,7 +81,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.8.1</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -132,8 +132,7 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        高速模式：仅请求 70 km 研究区内可见的 EA 1 m LiDAR；远景不请求，放大后自动加载高清细节。
-      </div>
+        稳定模式：Google 地形不再用小瓦片拼接；停止移动后一次加载当前窗口完整 WMS 图像，避免缺块。</div>
     </div>
   </div>
 
@@ -230,8 +229,9 @@
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='google';
-  let googleTerrainMapType=null;
-  let googleTerrainAttached=false;
+  let googleTerrainOverlay=null;
+  let googleTerrainRefreshTimer=null;
+  let googleTerrainRequestId=0;
   let terrainEnabled=true;
   let terrainOpacity=0.72;
   let sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM,source:currentProvider};
@@ -276,39 +276,126 @@
     });
   }
 
-  function detachGoogleTerrain(){
-    if(!googleMap || !googleTerrainMapType || !googleTerrainAttached)return;
-    const overlays=googleMap.overlayMapTypes;
-    for(let i=overlays.getLength()-1;i>=0;i--){
-      if(overlays.getAt(i)===googleTerrainMapType){
-        overlays.removeAt(i);
+  function mercatorX(lng){
+    return lng * 20037508.342789244 / 180;
+  }
+
+  function mercatorY(lat){
+    const clamped=Math.max(-85.05112878,Math.min(85.05112878,lat));
+    const rad=clamped*Math.PI/180;
+    return 6378137*Math.log(Math.tan(Math.PI/4+rad/2));
+  }
+
+  function intersectViewBounds(bounds){
+    if(!bounds)return null;
+    const ne=bounds.getNorthEast();
+    const sw=bounds.getSouthWest();
+    const clipped={
+      west:Math.max(sw.lng(),TERRAIN_BOUNDS.west),
+      south:Math.max(sw.lat(),TERRAIN_BOUNDS.south),
+      east:Math.min(ne.lng(),TERRAIN_BOUNDS.east),
+      north:Math.min(ne.lat(),TERRAIN_BOUNDS.north)
+    };
+    if(clipped.west>=clipped.east || clipped.south>=clipped.north)return null;
+    return clipped;
+  }
+
+  function eaViewportWmsUrl(bounds,width,height){
+    const bbox=[
+      mercatorX(bounds.west),
+      mercatorY(bounds.south),
+      mercatorX(bounds.east),
+      mercatorY(bounds.north)
+    ].join(',');
+
+    const q=new URLSearchParams({
+      SERVICE:'WMS',
+      VERSION:'1.3.0',
+      REQUEST:'GetMap',
+      LAYERS:EA_WMS_LAYER,
+      STYLES:'',
+      FORMAT:'image/png',
+      TRANSPARENT:'TRUE',
+      CRS:'EPSG:3857',
+      WIDTH:String(width),
+      HEIGHT:String(height),
+      BBOX:bbox
+    });
+    return EA_WMS_BASE+'?'+q.toString();
+  }
+
+  function scheduleGoogleTerrainRefresh(delay=180){
+    if(!googleMap || !terrainEnabled)return;
+    clearTimeout(googleTerrainRefreshTimer);
+    googleTerrainRefreshTimer=setTimeout(refreshGoogleTerrainViewport,delay);
+  }
+
+  async function refreshGoogleTerrainViewport(){
+    if(!googleMap || !terrainEnabled)return;
+
+    const clipped=intersectViewBounds(googleMap.getBounds());
+    if(!clipped){
+      if(googleTerrainOverlay){
+        googleTerrainOverlay.setMap(null);
+        googleTerrainOverlay=null;
       }
+      return;
     }
-    googleTerrainAttached=false;
+
+    const div=googleMap.getDiv();
+    const dpr=Math.min(window.devicePixelRatio||1,1.5);
+    const width=Math.max(512,Math.min(1600,Math.round(div.clientWidth*dpr)));
+    const height=Math.max(512,Math.min(1200,Math.round(div.clientHeight*dpr)));
+    const url=eaViewportWmsUrl(clipped,width,height);
+
+    const requestId=++googleTerrainRequestId;
+    say('正在加载当前窗口完整地形…');
+
+    const img=new Image();
+    img.onload=()=>{
+      if(requestId!==googleTerrainRequestId || !terrainEnabled)return;
+
+      const next=new google.maps.GroundOverlay(
+        url,
+        clipped,
+        {opacity:terrainOpacity,clickable:false}
+      );
+      next.setMap(googleMap);
+
+      const previous=googleTerrainOverlay;
+      googleTerrainOverlay=next;
+      if(previous)previous.setMap(null);
+
+      say('EA 1 m LiDAR：当前窗口已完整加载。');
+    };
+    img.onerror=()=>{
+      if(requestId!==googleTerrainRequestId)return;
+      say('地形图本次加载失败，保留上一张完整图层。',true);
+    };
+    img.src=url;
+  }
+
+  function detachGoogleTerrain(){
+    clearTimeout(googleTerrainRefreshTimer);
+    googleTerrainRequestId++;
+    if(googleTerrainOverlay){
+      googleTerrainOverlay.setMap(null);
+      googleTerrainOverlay=null;
+    }
   }
 
   function updateGoogleTerrain(){
     if(!googleMap || !window.google?.maps)return;
 
-    if(!googleTerrainMapType){
-      googleTerrainMapType=new google.maps.ImageMapType({
-        getTileUrl:eaWmsUrlForGoogle,
-        tileSize:new google.maps.Size(256,256),
-        minZoom:8,
-        maxZoom:19,
-        name:'EA LiDAR DTM 1 m',
-        opacity:terrainOpacity
-      });
-    }
-
-    googleTerrainMapType.setOpacity(terrainOpacity);
-
-    if(terrainEnabled && !googleTerrainAttached){
-      googleMap.overlayMapTypes.insertAt(0,googleTerrainMapType);
-      googleTerrainAttached=true;
-    }else if(!terrainEnabled){
+    if(!terrainEnabled){
       detachGoogleTerrain();
+      return;
     }
+
+    if(googleTerrainOverlay){
+      googleTerrainOverlay.setOpacity(terrainOpacity);
+    }
+    scheduleGoogleTerrainRefresh(60);
   }
 
   function updateOsmTerrain(){
@@ -392,12 +479,23 @@
       });
       googleMap.addListener('zoom_changed',()=>{
         if(currentProvider!=='google')return;
-        const c=googleMap.getCenter(); if(!c)return;
-        $('coords').textContent='Lat '+c.lat().toFixed(5)+
-          ' / Lng '+c.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
+        const center=googleMap.getCenter(); if(!center)return;
+        $('coords').textContent='Lat '+center.lat().toFixed(5)+
+          ' / Lng '+center.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
       });
+
+      googleMap.addListener('idle',()=>{
+        if(currentProvider==='google' && terrainEnabled){
+          scheduleGoogleTerrainRefresh(120);
+        }
+      });
+
+      googleMap.addListener('dragstart',()=>{
+        clearTimeout(googleTerrainRefreshTimer);
+      });
+
       updateGoogleTerrain();
-      if(currentProvider==='google')say('Google Maps 已加载；EA 1 m LiDAR 已启用高速按需加载。');
+      if(currentProvider==='google')say('Google Maps 已加载；完整窗口地形模式已启用。');
     }catch(err){
       console.error(err);
       say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
@@ -564,7 +662,11 @@
   $('terrainOpacity').addEventListener('input',e=>{
     terrainOpacity=Number(e.target.value);
     $('terrainOpacityValue').textContent=Math.round(terrainOpacity*100)+'%';
-    updateTerrainLayers();
+    if(currentProvider==='google' && googleTerrainOverlay){
+      googleTerrainOverlay.setOpacity(terrainOpacity);
+    }else{
+      updateTerrainLayers();
+    }
   });
 
   $('terrainFit').onclick=()=>{
