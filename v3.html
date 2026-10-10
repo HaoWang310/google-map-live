@@ -87,7 +87,7 @@
     }
     .layerLegendBar{
       flex:1;height:6px;border-radius:999px;
-      background:linear-gradient(90deg,#153f70,#168aaa,#68d0c6,#e1da76);
+      background:linear-gradient(90deg,rgba(255,237,160,.25),#ffd54f,#ff9800,#ef4444,#7f1d1d);
       border:1px solid rgba(255,255,255,.14)
     }
     .layerRow{
@@ -148,7 +148,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.2</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.3</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -188,8 +188,8 @@
           </label>
           <div class="rangeRow">
             <span>透明度</span>
-            <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.72">
-            <span id="terrainOpacityValue">72%</span>
+            <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.42">
+            <span id="terrainOpacityValue">42%</span>
           </div>
           <div class="layerMeta">
             LiDAR Composite DTM 1 m · WMS · EPSG:3857 · Open Government Licence
@@ -210,10 +210,10 @@
             <span id="drainageOpacityValue">100%</span>
           </div>
           <div class="layerLegend">
-            <span>0.0025</span><span class="layerLegendBar"></span><span>7924 km²</span>
+            <span>弱</span><span class="layerLegendBar"></span><span>强</span>
           </div>
           <div class="layerMeta">
-            50 m × 50 m = 0.0025 km² / cell。高对比显示会压低小汇水量背景，并突出主要汇水通道。Derived from Environment Agency LiDAR Composite DTM; hydrological contributing-area analysis at 50 m resolution.
+            50 m × 50 m = 0.0025 km² / cell。暖色只表示上游汇水贡献面积强弱，不代表洪水淹没范围。低值透明，仅突出中高汇水通道。Derived from Environment Agency LiDAR Composite DTM; hydrological contributing-area analysis at 50 m resolution.
           </div>
         </div>
 
@@ -426,7 +426,7 @@
   let googleLoading=false;
   let currentProvider='osm';
   let terrainEnabled=true;
-  let terrainOpacity=0.72;
+  let terrainOpacity=0.42;
   let terrainRefreshTimer=null;
   let terrainRequestId=0;
 
@@ -901,9 +901,9 @@
   }
 
   async function makeDrainageHighContrastBlob(sourceBlob){
-    // The compact preview already encodes contributing-area strength in its
-    // alpha/color response. Re-map it client-side so the drainage hierarchy
-    // is visually obvious over OpenStreetMap without changing analytical data.
+    // Warm hydrology palette: this layer represents contributing area,
+    // NOT flood extent. Suppress low values so the city is not visually
+    // interpreted as being under water.
     try{
       const bitmap=await createImageBitmap(sourceBlob);
       const canvas=document.createElement('canvas');
@@ -919,37 +919,38 @@
       for(let i=0;i<d.length;i+=4){
         const a=d[i+3];
 
-        // Outside study area / very small contributing areas: transparent.
-        if(a<96){
+        // Source alpha distribution:
+        // median ~98, 90th percentile ~125, 95th ~134, 99th ~151.
+        // Hide the broad low-value field and keep only the stronger network.
+        if(a<118){
           d[i+3]=0;
           continue;
         }
 
-        // The source preview alpha spans roughly 96..190 for meaningful flow.
-        // Stretch that narrow range aggressively to make the hierarchy legible.
-        let t=(a-96)/(190-96);
-        t=Math.max(0,Math.min(1,t));
-        t=Math.pow(t,0.72);
+        let r,g,b,outA;
 
-        let r,g,b;
-        if(t<0.50){
-          const q=t/0.50;
-          // cyan -> yellow
-          r=Math.round(0+(255-0)*q);
-          g=Math.round(210+(232-210)*q);
-          b=Math.round(255+(65-255)*q);
+        if(a<128){
+          // moderate: pale yellow, deliberately subtle
+          r=255; g=224; b=120;
+          outA=78;
+        }else if(a<140){
+          // medium-high: orange
+          r=255; g=153; b=0;
+          outA=135;
+        }else if(a<155){
+          // high: red-orange
+          r=239; g=68; b=68;
+          outA=195;
         }else{
-          const q=(t-0.50)/0.50;
-          // yellow -> red
-          r=255;
-          g=Math.round(232+(48-232)*q);
-          b=Math.round(65+(35-65)*q);
+          // very high / principal contributing paths: dark red
+          r=127; g=29; b=29;
+          outA=245;
         }
 
         d[i]=r;
         d[i+1]=g;
         d[i+2]=b;
-        d[i+3]=Math.round(55+200*t);
+        d[i+3]=outA;
       }
 
       ctx.putImageData(image,0,0);
@@ -958,11 +959,11 @@
         canvas.toBlob(
           blob=>blob?resolve(blob):reject(new Error('Drainage contrast conversion failed')),
           'image/webp',
-          0.94
+          0.95
         );
       });
     }catch(err){
-      console.warn('High-contrast drainage processing unavailable; using source preview.',err);
+      console.warn('Warm drainage rendering unavailable; using source preview.',err);
       return sourceBlob;
     }
   }
@@ -1059,8 +1060,8 @@
         source:DRAINAGE_SOURCE_ID,
         paint:{
           'raster-opacity':drainageOpacity,
-          'raster-contrast':0.72,
-          'raster-saturation':0.55,
+          'raster-contrast':0.22,
+          'raster-saturation':0.35,
           'raster-brightness-min':0.02,
           'raster-brightness-max':1,
           'raster-fade-duration':0,
@@ -1069,7 +1070,7 @@
       },firstSymbol);
 
       keepDrainageAboveTerrain();
-      say('汇水贡献面积已启用高对比显示：主汇水通道以黄/红色突出。');
+      say('汇水贡献面积已启用暖色分级：低值透明，主汇水通道为黄/橙/红；这不是洪水淹没范围。');
     }catch(err){
       console.error(err);
       removeDrainageLayer();
