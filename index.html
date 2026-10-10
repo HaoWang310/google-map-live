@@ -56,6 +56,18 @@
       display:inline-flex;align-items:center;gap:6px;margin-top:7px;
       padding:4px 7px;border-radius:999px;background:#334155;color:#dbeafe;font-size:10px
     }
+    .layerRow{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:9px 10px;border-radius:9px;background:#2b3547;
+      border:1px solid rgba(255,255,255,.12);font-size:12px
+    }
+    .layerRow input{width:18px;height:18px}
+    .rangeRow{
+      display:grid;grid-template-columns:auto 1fr 38px;align-items:center;gap:8px;
+      margin-top:8px;font-size:11px;color:#cbd5e1
+    }
+    .rangeRow input[type=range]{width:100%}
+    .terrainMeta{font-size:9px;line-height:1.45;color:#8fa0b5;margin-top:7px}
     @media(max-width:600px){
       .panel{top:8px;left:8px;width:calc(100vw - 16px);padding:12px}
     }
@@ -69,7 +81,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.3</div>
+        <div class="sub">Google Maps + OpenStreetMap / OpenFreeMap · v3.4</div>
         <div class="providerBadge" id="providerBadge">Google Maps</div>
       </div>
       <button id="collapse">−</button>
@@ -94,6 +106,24 @@
         <option value="terrain">地形图 Terrain</option>
       </select>
 
+      <div class="divider"></div>
+      <div class="section">真实地形图层</div>
+      <label class="layerRow">
+        <span>London 70 km Ground Terrain</span>
+        <input id="terrainToggle" type="checkbox" checked>
+      </label>
+      <div class="rangeRow">
+        <span>透明度</span>
+        <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.65">
+        <span id="terrainOpacityValue">65%</span>
+      </div>
+      <div class="row">
+        <button id="terrainFit" class="secondary">定位到 70 km 图层</button>
+      </div>
+      <div class="terrainMeta">
+        EA LiDAR Composite · Charing Cross E530037 N180373 · 70 km radius · EPSG:27700 → EPSG:3857 · Open Government Licence
+      </div>
+
       <div class="row">
         <button id="londonBtn" class="secondary">伦敦</button>
         <button id="locateBtn" class="secondary">定位我</button>
@@ -116,13 +146,32 @@
   const CENTER={lat:51.5074,lng:-0.1278};
   const ZOOM=10;
 
+  // Georeferenced from the supplied terrain plate:
+  // Charing Cross E530037 N180373 (EPSG:27700), 70 km radius.
+  // The source was cropped to its exact 140 km square and reprojected to EPSG:3857.
+  const TERRAIN_URL='./assets/london_70km_terrain.webp?v=1';
+  const TERRAIN_BOUNDS={
+    west:-1.1478120391692022,
+    south:50.858309108610484,
+    east:0.9210948646196429,
+    north:52.14838885409756
+  };
+  const TERRAIN_COORDS=[
+    [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.north],
+    [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.north],
+    [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.south],
+    [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.south]
+  ];
+
   let googleMap=null;
   let osmMap=null;
   let googleMarker=null;
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='google';
-  let sharedBounds=null;
+  let googleTerrainOverlay=null;
+  let terrainEnabled=true;
+  let terrainOpacity=0.65;
   let sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM,source:currentProvider};
 
   const $=id=>document.getElementById(id);
@@ -165,6 +214,60 @@
     });
   }
 
+  function updateGoogleTerrain(){
+    if(!googleMap || !window.google?.maps)return;
+
+    if(!googleTerrainOverlay){
+      googleTerrainOverlay=new google.maps.GroundOverlay(
+        TERRAIN_URL,
+        TERRAIN_BOUNDS,
+        {opacity:terrainOpacity,clickable:false}
+      );
+    }
+
+    googleTerrainOverlay.setOpacity(terrainOpacity);
+    googleTerrainOverlay.setMap(terrainEnabled ? googleMap : null);
+  }
+
+  function updateOsmTerrain(){
+    if(!osmMap || !osmMap.loaded())return;
+
+    if(!osmMap.getSource('london-terrain-source')){
+      osmMap.addSource('london-terrain-source',{
+        type:'image',
+        url:TERRAIN_URL,
+        coordinates:TERRAIN_COORDS
+      });
+    }
+
+    if(!osmMap.getLayer('london-terrain-layer')){
+      const layers=osmMap.getStyle()?.layers||[];
+      const before=layers.find(layer=>layer.type==='line' || layer.type==='symbol')?.id;
+      osmMap.addLayer({
+        id:'london-terrain-layer',
+        type:'raster',
+        source:'london-terrain-source',
+        layout:{visibility:terrainEnabled?'visible':'none'},
+        paint:{
+          'raster-opacity':terrainOpacity,
+          'raster-fade-duration':0
+        }
+      },before);
+    }else{
+      osmMap.setLayoutProperty(
+        'london-terrain-layer',
+        'visibility',
+        terrainEnabled?'visible':'none'
+      );
+      osmMap.setPaintProperty('london-terrain-layer','raster-opacity',terrainOpacity);
+    }
+  }
+
+  function updateTerrainLayers(){
+    updateGoogleTerrain();
+    updateOsmTerrain();
+  }
+
   async function initGoogle(){
     if(googleMap)return;
     say('正在加载 Google Maps…');
@@ -193,7 +296,8 @@
         $('coords').textContent='Lat '+c.lat().toFixed(5)+
           ' / Lng '+c.lng().toFixed(5)+' / Zoom '+googleMap.getZoom();
       });
-      if(currentProvider==='google')say('Google Maps 已加载。');
+      updateGoogleTerrain();
+      if(currentProvider==='google')say('Google Maps 已加载；70 km 地形图层已精确配准。');
     }catch(err){
       console.error(err);
       say('Google Maps 加载失败；可以切换到 OpenStreetMap。',true);
@@ -217,7 +321,8 @@
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
     osmMap.on('load',()=>{
-      if(currentProvider==='osm')say('OpenStreetMap 已连接：MapLibre + OpenFreeMap，无需 API Key。');
+      updateOsmTerrain();
+      if(currentProvider==='osm')say('OpenStreetMap 已连接；70 km 地形图层已精确配准。');
     });
     osmMap.on('mousemove',e=>{
       if(currentProvider!=='osm')return;
@@ -344,6 +449,28 @@
   $('mapType').addEventListener('change',e=>{
     if(googleMap)googleMap.setMapTypeId(e.target.value);
   });
+
+  $('terrainToggle').addEventListener('change',e=>{
+    terrainEnabled=e.target.checked;
+    updateTerrainLayers();
+  });
+
+  $('terrainOpacity').addEventListener('input',e=>{
+    terrainOpacity=Number(e.target.value);
+    $('terrainOpacityValue').textContent=Math.round(terrainOpacity*100)+'%';
+    updateTerrainLayers();
+  });
+
+  $('terrainFit').onclick=()=>{
+    if(currentProvider==='google' && googleMap){
+      googleMap.fitBounds(TERRAIN_BOUNDS,0);
+    }else if(currentProvider==='osm' && osmMap){
+      osmMap.fitBounds([
+        [TERRAIN_BOUNDS.west,TERRAIN_BOUNDS.south],
+        [TERRAIN_BOUNDS.east,TERRAIN_BOUNDS.north]
+      ],{padding:20,duration:500});
+    }
+  };
 
   $('londonBtn').onclick=()=>{
     if(currentProvider==='google'&&googleMap){

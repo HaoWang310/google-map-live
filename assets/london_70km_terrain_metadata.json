@@ -1,0 +1,48 @@
+{
+  "title": "London 70 km Ground Terrain",
+  "source_label": "EA LiDAR Composite",
+  "licence": "Open Government Licence",
+  "centre_bng": {
+    "crs": "EPSG:27700",
+    "easting": 530037,
+    "northing": 180373
+  },
+  "centre_wgs84": {
+    "longitude": -0.12768375058439654,
+    "latitude": 51.50733434456047
+  },
+  "radius_m": 70000,
+  "source_extent_bng": {
+    "west": 460037,
+    "south": 110373,
+    "east": 600037,
+    "north": 250373
+  },
+  "source_preview": {
+    "width_px": 1200,
+    "height_px": 1400,
+    "exact_map_crop_px": [
+      68,
+      177,
+      1132,
+      1241
+    ]
+  },
+  "processing": {
+    "source_crs": "EPSG:27700",
+    "web_crs": "EPSG:3857",
+    "method": "crop 140 km square around Charing Cross, circular transparency mask, raster reprojection to Web Mercator"
+  },
+  "web_mercator_bounds_m": {
+    "west": -127773.85172670457,
+    "south": 6596268.411651624,
+    "east": 102535.8113017579,
+    "north": 6827000.661217754
+  },
+  "wgs84_overlay_bounds": {
+    "west": -1.1478120391692022,
+    "south": 50.858309108610484,
+    "east": 0.9210948646196429,
+    "north": 52.14838885409756
+  }
+}
