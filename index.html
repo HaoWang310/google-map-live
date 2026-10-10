@@ -31,8 +31,6 @@
       <button id="collapse">−</button>
     </div>
     <div class="content">
-      <div class="row"><input id="apiKey" type="password" autocomplete="off" placeholder="粘贴 Maps Demo Key"></div>
-      <div class="row"><button id="loadBtn">加载地图</button><button id="clearBtn" class="secondary">清除 Key</button></div>
       <div class="divider"></div>
       <div class="section">地图类型</div>
       <select id="mapType">
@@ -42,14 +40,15 @@
         <option value="terrain">地形图 Terrain</option>
       </select>
       <div class="row"><button id="londonBtn" class="secondary">伦敦</button><button id="locateBtn" class="secondary">定位我</button><button id="resetBtn" class="secondary">重置</button></div>
-      <div id="status" class="status">等待 Demo Key。</div>
-      <div class="note">API Key 只保存在当前浏览器 localStorage，不写入 GitHub 仓库。</div>
+      <div id="status" class="status">正在自动加载地图…</div>
+      <div class="note">地图打开后会自动连接 Google Maps，无需手动输入 Key。</div>
     </div>
   </div>
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script>
 (() => {
+  const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
   const CENTER={lat:51.5074,lng:-0.1278}, ZOOM=10;
   let map=null, marker=null, loading=false;
   const $=id=>document.getElementById(id);
@@ -71,14 +70,11 @@
   }
 
   async function boot(){
-    const key=$('apiKey').value.trim();
-    if(!key){say('请先粘贴 Maps Demo Key。',true);return;}
     if(loading)return;
     loading=true;
-    localStorage.setItem('googleMapsDemoKey',key);
     say('正在加载 Google Maps…');
     try{
-      await loadGoogle(key);
+      await loadGoogle(API_KEY);
       const {Map}=await google.maps.importLibrary('maps');
       map=new Map($('map'),{
         center:CENTER,zoom:ZOOM,mapId:'DEMO_MAP_ID',
@@ -98,8 +94,6 @@
     finally{loading=false}
   }
 
-  $('loadBtn').onclick=boot;
-  $('clearBtn').onclick=()=>{localStorage.removeItem('googleMapsDemoKey');$('apiKey').value='';say('已清除本地 Key。')};
   $('mapType').onchange=e=>{if(map)map.setMapTypeId(e.target.value)};
   $('londonBtn').onclick=()=>{if(map){map.setCenter(CENTER);map.setZoom(10)}};
   $('resetBtn').onclick=()=>{if(map){map.setCenter(CENTER);map.setZoom(ZOOM);map.setMapTypeId('roadmap');$('mapType').value='roadmap'}};
@@ -116,11 +110,7 @@
     },err=>say('定位失败：'+err.message,true),{enableHighAccuracy:true,timeout:10000,maximumAge:60000});
   };
   $('collapse').onclick=()=>{$('panel').classList.toggle('collapsed');$('collapse').textContent=$('panel').classList.contains('collapsed')?'+':'−'};
-  $('apiKey').addEventListener('keydown',e=>{if(e.key==='Enter')boot()});
-
-  const saved=localStorage.getItem('googleMapsDemoKey')||'';
-  $('apiKey').value=saved;
-  if(saved){say('已读取本地 Demo Key，正在自动加载…');setTimeout(boot,250)}
+  setTimeout(boot,100);
 })();
 </script>
 </body>
