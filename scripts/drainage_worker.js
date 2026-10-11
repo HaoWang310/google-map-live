@@ -1,12 +1,15 @@
 // Dynamic threshold display of one authoritative 50 m Thames upstream-accumulation field.
-// IMPORTANT: the network threshold is applied to RAW 50 m accumulation cells BEFORE
-// any display resampling. This preserves one-cell-wide D8 flow paths.
-// At low zoom, max-pooling keeps narrow channels visible; a 1 px display dilation improves
-// legibility only and does not change the underlying hydrology or threshold.
+// Hydrological truth: thresholding is always evaluated on RAW 50 m accumulation cells.
+// Visual treatment: the binary drainage result is then resampled and feathered in screen space
+// so the map reads as a continuous drainage corridor instead of blocky raster squares.
 export const AREA_MIN_ZOOM=8,AREA_MAX_ZOOM=18,AREA_TILE_SIZE=512;
 const R=6378137,HALF=Math.PI*R;
 const MIN_AREA=.0025,MAX_AREA=20000;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const smoothstep=(a,b,v)=>{
+  const t=clamp((v-a)/(b-a),0,1);
+  return t*t*(3-2*t);
+};
 
 export function areaTileBounds(z,x,y){
   const n=2**z;
@@ -30,11 +33,11 @@ function decodeArea(code){
 
 function networkColour(code){
   const a=decodeArea(code);
-  if(a>=100)return [112,255,241,245];
-  if(a>=25)return [0,224,230,242];
-  if(a>=5)return [0,183,228,238];
-  if(a>=1)return [35,152,255,235];
-  return [75,169,255,228];
+  if(a>=100)return [112,255,241,238];
+  if(a>=25)return [0,224,230,234];
+  if(a>=5)return [0,183,228,230];
+  if(a>=1)return [35,152,255,226];
+  return [75,169,255,218];
 }
 
 function insideRadius(mx,my,clat,clon,radius){
@@ -42,6 +45,53 @@ function insideRadius(mx,my,clat,clon,radius){
   const dlat=Math.sin((lat-clat)/2)**2,cos=Math.cos(lat)*Math.cos(clat);
   const hav=dlat+cos*Math.sin((mx/R-clon)/2)**2;
   return 2*R*Math.asin(Math.sqrt(Math.min(1,hav)))<=radius;
+}
+
+function blur5(src,size){
+  const tmp=new Float32Array(src.length);
+  const out=new Float32Array(src.length);
+  const w0=1/16,w1=4/16,w2=6/16;
+
+  for(let y=0;y<size;y++){
+    const row=y*size;
+    for(let x=0;x<size;x++){
+      const xm2=Math.max(0,x-2),xm1=Math.max(0,x-1);
+      const xp1=Math.min(size-1,x+1),xp2=Math.min(size-1,x+2);
+      tmp[row+x]=
+        src[row+xm2]*w0+src[row+xm1]*w1+src[row+x]*w2+
+        src[row+xp1]*w1+src[row+xp2]*w0;
+    }
+  }
+
+  for(let y=0;y<size;y++){
+    const ym2=Math.max(0,y-2),ym1=Math.max(0,y-1);
+    const yp1=Math.min(size-1,y+1),yp2=Math.min(size-1,y+2);
+    for(let x=0;x<size;x++){
+      out[y*size+x]=
+        tmp[ym2*size+x]*w0+tmp[ym1*size+x]*w1+tmp[y*size+x]*w2+
+        tmp[yp1*size+x]*w1+tmp[yp2*size+x]*w0;
+    }
+  }
+  return out;
+}
+
+function neighbourCode(codes,size,row,col){
+  let best=codes[row*size+col];
+  if(best)return best;
+  for(let r=1;r<=2;r++){
+    for(let oy=-r;oy<=r;oy++){
+      const yy=row+oy;
+      if(yy<0||yy>=size)continue;
+      for(let ox=-r;ox<=r;ox++){
+        const xx=col+ox;
+        if(xx<0||xx>=size)continue;
+        const code=codes[yy*size+xx];
+        if(code>best)best=code;
+      }
+    }
+    if(best)return best;
+  }
+  return 0;
 }
 
 async function renderNetworkTile({
@@ -60,28 +110,20 @@ async function renderNetworkTile({
   const dy=(bbox[3]-bbox[1])/size;
   const scaleX=width/(bounds.right-bounds.left);
   const scaleY=height/(bounds.top-bounds.bottom);
+  const cellsPerPixelX=dx*scaleX;
+  const cellsPerPixelY=dy*scaleY;
+  const cellsPerPixel=Math.max(cellsPerPixelX,cellsPerPixelY);
   const clat=center.lat*Math.PI/180,clon=center.lng*Math.PI/180;
 
-  // Source-cell footprint of one output pixel. At small scales we take the maximum
-  // raw contributing-area code within that footprint, so a 50 m D8 channel cannot
-  // vanish simply because it falls between output pixel centres.
-  const rx=Math.max(.55,dx*scaleX*.55);
-  const ry=Math.max(.55,dy*scaleY*.55);
+  const coverage=new Float32Array(size*size);
+  const codes=new Uint16Array(size*size);
 
-  const xRanges=Array.from({length:size},(_,col)=>{
-    const mx=bbox[0]+(col+.5)*dx;
-    const sx=(mx-bounds.left)*scaleX-.5;
-    return {
-      mx,
-      c0:clamp(Math.floor(sx-rx),0,width-1),
-      c1:clamp(Math.ceil(sx+rx),0,width-1)
-    };
-  });
-
-  // First pass: exact threshold on raw encoded source values + max-pool display.
-  const mask=new Uint8Array(size*size);
-  const maxCodes=new Uint16Array(size*size);
-
+  // When one output pixel is smaller than one 50 m source cell, sample the RAW
+  // threshold mask bilinearly. This removes square cell edges while preserving the
+  // exact threshold decision made on the four surrounding source cells.
+  // At overview scales (>1 source cell per output pixel), max-pool ONLY across the
+  // true pixel footprint so a one-cell D8 path remains visible without artificial
+  // multi-cell dilation.
   for(let row=0;row<size;row++){
     if(row%24===0){
       await pause();
@@ -90,35 +132,70 @@ async function renderNetworkTile({
 
     const my=bbox[3]-(row+.5)*dy;
     if(my<bounds.bottom||my>bounds.top)continue;
-
     const sy=(bounds.top-my)*scaleY-.5;
-    const r0=clamp(Math.floor(sy-ry),0,height-1);
-    const r1=clamp(Math.ceil(sy+ry),0,height-1);
 
     for(let col=0;col<size;col++){
-      const {mx,c0,c1}=xRanges[col];
+      const mx=bbox[0]+(col+.5)*dx;
       if(mx<bounds.left||mx>bounds.right||
          !insideRadius(mx,my,clat,clon,radius))continue;
 
-      let maxCode=0;
-      for(let rr=r0;rr<=r1;rr++){
-        const offset=rr*width;
-        for(let cc=c0;cc<=c1;cc++){
-          const code=field[offset+cc];
-          if(code>maxCode)maxCode=code;
+      const i=row*size+col;
+      const sx=(mx-bounds.left)*scaleX-.5;
+
+      if(cellsPerPixel<=1.05){
+        const x0=clamp(Math.floor(sx),0,width-1);
+        const y0=clamp(Math.floor(sy),0,height-1);
+        const x1=clamp(x0+1,0,width-1);
+        const y1=clamp(y0+1,0,height-1);
+        const tx=clamp(sx-Math.floor(sx),0,1);
+        const ty=clamp(sy-Math.floor(sy),0,1);
+
+        const c00=field[y0*width+x0],c10=field[y0*width+x1];
+        const c01=field[y1*width+x0],c11=field[y1*width+x1];
+        const a00=c00>=thresholdCode?1:0;
+        const a10=c10>=thresholdCode?1:0;
+        const a01=c01>=thresholdCode?1:0;
+        const a11=c11>=thresholdCode?1:0;
+
+        const top=a00*(1-tx)+a10*tx;
+        const bottom=a01*(1-tx)+a11*tx;
+        coverage[i]=top*(1-ty)+bottom*ty;
+
+        let best=0;
+        if(a00)best=Math.max(best,c00);
+        if(a10)best=Math.max(best,c10);
+        if(a01)best=Math.max(best,c01);
+        if(a11)best=Math.max(best,c11);
+        codes[i]=best;
+      }else{
+        const halfX=cellsPerPixelX*.5;
+        const halfY=cellsPerPixelY*.5;
+        const c0=clamp(Math.floor(sx-halfX),0,width-1);
+        const c1=clamp(Math.ceil(sx+halfX),0,width-1);
+        const r0=clamp(Math.floor(sy-halfY),0,height-1);
+        const r1=clamp(Math.ceil(sy+halfY),0,height-1);
+
+        let best=0;
+        for(let rr=r0;rr<=r1;rr++){
+          const offset=rr*width;
+          for(let cc=c0;cc<=c1;cc++){
+            const code=field[offset+cc];
+            if(code>=thresholdCode&&code>best)best=code;
+          }
         }
-      }
-      if(maxCode>=thresholdCode){
-        const i=row*size+col;
-        mask[i]=1;
-        maxCodes[i]=maxCode;
+        if(best){
+          coverage[i]=1;
+          codes[i]=best;
+        }
       }
     }
   }
 
-  // Second pass: 1 CSS-pixel visual dilation. This is intentionally display-only:
-  // the threshold is already evaluated on the raw 50 m cells above.
-  const DISPLAY_RADIUS=1;
+  // Screen-space feathering. Two gentle Gaussian passes are used only at close zoom,
+  // one pass at overview zoom. Hydrological values and threshold membership are untouched.
+  let feather=blur5(coverage,size);
+  if(cellsPerPixel<0.55)feather=blur5(feather,size);
+
   for(let row=0;row<size;row++){
     if(row%48===0){
       await pause();
@@ -126,25 +203,21 @@ async function renderNetworkTile({
     }
     for(let col=0;col<size;col++){
       const i=row*size+col;
-      if(!mask[i])continue;
-      const code=maxCodes[i];
+
+      // Preserve a readable core while using the blurred field for soft edges.
+      const visual=Math.max(coverage[i]*0.72,feather[i]);
+      if(visual<0.015)continue;
+
+      const code=neighbourCode(codes,size,row,col);
+      if(!code)continue;
+
       const colour=networkColour(code);
-      for(let oy=-DISPLAY_RADIUS;oy<=DISPLAY_RADIUS;oy++){
-        const yy=row+oy;
-        if(yy<0||yy>=size)continue;
-        for(let ox=-DISPLAY_RADIUS;ox<=DISPLAY_RADIUS;ox++){
-          const xx=col+ox;
-          if(xx<0||xx>=size)continue;
-          if(ox*ox+oy*oy>DISPLAY_RADIUS*DISPLAY_RADIUS+0.01)continue;
-          const j=(yy*size+xx)*4;
-          // Keep the stronger upstream class if multiple paths overlap.
-          if(pixels[j+3] && maxCodes[yy*size+xx]>code)continue;
-          pixels[j]=colour[0];
-          pixels[j+1]=colour[1];
-          pixels[j+2]=colour[2];
-          pixels[j+3]=Math.max(pixels[j+3],colour[3]);
-        }
-      }
+      const edge=smoothstep(0.015,0.82,visual);
+      const j=i*4;
+      pixels[j]=colour[0];
+      pixels[j+1]=colour[1];
+      pixels[j+2]=colour[2];
+      pixels[j+3]=Math.round(colour[3]*edge);
     }
   }
   return pixels;
