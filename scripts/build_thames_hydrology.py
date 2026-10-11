@@ -315,6 +315,45 @@ def encode_display(area3857: np.ndarray) -> tuple[Path, dict]:
     }
 
 
+DEM_ENCODE_MIN_M = -100.0
+DEM_ENCODE_STEP_M = 0.1
+
+def encode_dem_display(dem3857: np.ndarray) -> tuple[Path, dict]:
+    """Encode the London 50 m terrain grid losslessly for browser flood simulation.
+
+    code 0 is NoData. Valid elevations use 0.1 m quantisation:
+        elevation_m = DEM_ENCODE_MIN_M + (code - 1) * DEM_ENCODE_STEP_M
+    """
+    valid = np.isfinite(dem3857)
+    code = np.zeros(dem3857.shape, dtype=np.uint16)
+    scaled = 1 + np.round(
+        (np.clip(dem3857[valid],
+                 DEM_ENCODE_MIN_M,
+                 DEM_ENCODE_MIN_M + 65534 * DEM_ENCODE_STEP_M)
+         - DEM_ENCODE_MIN_M) / DEM_ENCODE_STEP_M
+    ).astype(np.uint16)
+    code[valid] = scaled
+
+    rgb = np.zeros((DISPLAY_HEIGHT, DISPLAY_WIDTH, 3), dtype=np.uint8)
+    rgb[:, :, 0] = code >> 8
+    rgb[:, :, 1] = code & 255
+
+    OUTDIR.mkdir(parents=True, exist_ok=True)
+    path = OUTDIR / "dem50_log16.webp"
+    Image.fromarray(rgb).save(path, "WEBP", lossless=True, method=6, exact=True)
+    decoded = np.array(Image.open(path))
+    if not np.array_equal(decoded, rgb):
+        raise RuntimeError("Lossless DEM encoding verification failed")
+
+    return path, {
+        "valid_cells": int(valid.sum()),
+        "min_elevation_m": float(np.nanmin(dem3857[valid])) if valid.any() else None,
+        "max_elevation_m": float(np.nanmax(dem3857[valid])) if valid.any() else None,
+        "encoding_min_m": DEM_ENCODE_MIN_M,
+        "encoding_step_m": DEM_ENCODE_STEP_M,
+    }
+
+
 def main():
     WORK.mkdir(parents=True, exist_ok=True)
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
@@ -424,7 +463,22 @@ def main():
         resampling=Resampling.nearest,
     )
 
+    print("Reprojecting OS Terrain 50 elevations to the same London web grid...")
+    dem3857 = np.full((DISPLAY_HEIGHT, DISPLAY_WIDTH), np.nan, dtype=np.float32)
+    reproject(
+        source=dem,
+        destination=dem3857,
+        src_transform=ANALYSIS_TRANSFORM,
+        src_crs="EPSG:27700",
+        src_nodata=NODATA,
+        dst_transform=DISPLAY_TRANSFORM,
+        dst_crs="EPSG:3857",
+        dst_nodata=np.nan,
+        resampling=Resampling.bilinear,
+    )
+
     image_path, display_stats = encode_display(area3857)
+    dem_path, dem_display_stats = encode_dem_display(dem3857)
 
     metadata = {
         "name": "London 70 km shared Thames contributing-area field",
@@ -477,6 +531,22 @@ def main():
         "asset": "assets/drainage_area/area_log16.webp",
         "asset_sha256": sha256(image_path),
         "asset_size_bytes": image_path.stat().st_size,
+        "terrain_dem_asset": {
+            "path": "assets/drainage_area/dem50_log16.webp",
+            "sha256": sha256(dem_path),
+            "size_bytes": dem_path.stat().st_size,
+            "source_resolution_m": 50,
+            "web_grid": "same EPSG:3857 bounds and dimensions as the accumulation field",
+            "reprojection": "bilinear from native OS Terrain 50 elevations",
+            "encoding": {
+                "code": "R * 256 + G; 0 = NoData",
+                "minimum_elevation_m": DEM_ENCODE_MIN_M,
+                "step_m": DEM_ENCODE_STEP_M,
+                "decode": "minimum_elevation_m + (code - 1) * step_m",
+            },
+            "purpose": "Local browser flood-routing simulation terrain. It remains a 50 m terrain model even when the visual simulation grid is finer.",
+            **dem_display_stats,
+        },
         "encoding": {
             "code": "R * 256 + G; 0 = NoData",
             "minimum_area_km2": MIN_AREA,
@@ -510,9 +580,12 @@ def main():
     print(json.dumps({
         "asset": str(image_path.relative_to(ROOT)),
         "bytes": image_path.stat().st_size,
+        "dem_asset": str(dem_path.relative_to(ROOT)),
+        "dem_bytes": dem_path.stat().st_size,
         "kingston_model_km2": round(kingston_value, 2),
         "kingston_error_percent": round(error_pct, 2),
         **display_stats,
+        "dem_display": dem_display_stats,
     }, indent=2))
 
 
