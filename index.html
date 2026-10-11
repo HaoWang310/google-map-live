@@ -139,6 +139,8 @@
       margin-top:8px;font-size:11px;color:#cbd5e1
     }
     .rangeRow input[type=range]{width:100%}
+    .networkThresholdRow{grid-template-columns:auto 1fr 74px}
+    .networkThresholdRow #networkThresholdValue{text-align:right;font-variant-numeric:tabular-nums}
     .terrainMeta{font-size:9px;line-height:1.45;color:#8fa0b5;margin-top:7px}
     .apiStats{
       margin-top:10px;padding:10px;border:1px solid #445269;border-radius:10px;
@@ -186,7 +188,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.15.1</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.16.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -301,7 +303,7 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>地形推导排水网络</strong>
-              <small>Terrain-derived drainage network · 50 m 源分析</small>
+              <small>Terrain-derived drainage network · 与汇水面积共用同一 50 m 数据</small>
             </span>
             <input id="networkToggle" type="checkbox" autocomplete="off" disabled>
           </label>
@@ -311,12 +313,13 @@
             <span id="networkOpacityValue">90%</span>
           </div>
           <div class="layerOptions">
-            <label for="networkThreshold">最小汇水面积 · 网络密度</label>
-            <select id="networkThreshold">
-              <option value="025">0.25 km² · 细支流</option>
-              <option value="1" selected>1 km² · 默认网络</option>
-              <option value="5">5 km² · 主通道</option>
-            </select>
+            <label for="networkThreshold">最小汇水面积 · 动态阈值</label>
+          </div>
+          <div class="rangeRow networkThresholdRow">
+            <span>阈值</span>
+            <input id="networkThreshold" aria-label="最小汇水面积阈值" type="range"
+              min="-1.3" max="2.7" step="0.05" value="0">
+            <span id="networkThresholdValue">1.00 km²</span>
           </div>
           <div class="networkLegend" aria-label="蓝色按汇水面积分级">
             <span><i style="--swatch:#4ba9ff"></i>0.25–1</span>
@@ -326,7 +329,7 @@
             <span><i style="--swatch:#70fff1"></i>≥100 km²</span>
           </div>
           <div class="layerMeta">
-            从原始汇水数值按阈值提取的潜在排水路径。蓝色不是积水范围；网络密度阈值可调整。
+            直接从「汇水贡献面积」同一份 50 m 累积栅格按当前阈值实时提取潜在汇流廊道；不下载、不保存第二套网络数据。蓝色不是积水范围。
           </div>
           <div id="networkStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
@@ -354,20 +357,20 @@
         <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.15.1 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
-          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.16.0 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.16.0" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
-        <p>汇水与网络：本项目的 50 m 汇水栅格（每格 0.0025 km²），并非官方实测河网。现有元数据标注其地形来源为 EA DTM；原文件未附 DEM→汇水的完整处理日志。本次网络直接按该栅格的实际 km² 数值提取。
-          <a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm" target="_blank" rel="noopener noreferrer">阈值提取方法</a> ·
-          <a href="assets/london_drainage_network_metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">网络元数据</a>
+        <p>汇水与网络：两者共用同一份 50 m 上游汇水面积栅格（每格 0.0025 km²）。「汇水贡献面积」显示连续累积规模；「地形推导排水网络」仅在浏览器中按可调最小汇水面积阈值实时筛选同一栅格，不再生成或下载独立网络数据。
+          <a href="https://deltares.github.io/pyflwdir/latest/_generated/pyflwdir.from_dem.html" target="_blank" rel="noopener noreferrer">D8 / depression filling 方法</a> ·
+          <a href="assets/drainage_area/metadata.json?v=3.16.0" target="_blank" rel="noopener noreferrer">共享水文数据元数据</a>
         </p>
-        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
-        <p>汇水面积绝对值校核：当前源栅格最大值约 7,924 km²，而 NRFA 的 Thames at Kingston（39001）官方站点记录上游集水面积为 9,948 km²。Kingston 位于 Greenwich／Blackwall 上游，因此当前 70 km 研究窗口栅格不能代表泰晤士河完整上游总集水面积；它适合表达研究区内相对汇流强弱，不应把主河道数值解读为完整流域面积。<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
+        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.16.0" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
+        <p>汇水面积绝对值校核：v3.16.0 的构建流程改为先在完整 Thames 上游分析域上进行 50 m DEM 水文校正、D8 流向与 flow accumulation，再裁出 London 70 km 显示范围；构建结果会用 NRFA 39001 Thames at Kingston（官方集水面积 9,948 km²）进行独立校核。<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
         <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
         <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
           <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
-          <a href="assets/london_flood_risk_metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
+          <a href="assets/london_flood_risk_metadata.json?v=3.16.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
         <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
@@ -419,13 +422,13 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.15.1';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.15.1';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.15.1';
-  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.15.1';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.16.0';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.16.0';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.16.0';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.16.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.15.1';
+  const APP_VERSION='3.16.0';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
@@ -434,7 +437,7 @@
   const ZOOM=10;
 
   // Environment Agency LiDAR Composite DTM 1 m source.
-  // v3.15.1 uses only the locally cached official terrain rendering at runtime.
+  // v3.16.0 uses only the locally cached official terrain rendering at runtime.
   // The browser builds WebMercator XYZ tiles in a worker, so no EA WMS/WMTS
   // request is made while panning, zooming or pitching the map.
   const TERRAIN_LOCAL_TILES=['ea-terrain-local://tiles/{z}/{x}/{y}'];
@@ -451,11 +454,10 @@
   const FOCUS70_CENTER={lat:51.50733434456047,lng:-0.12768375058439654};
   const FOCUS70_RADIUS_M=70000;
 
-  // Hydrological contributing-area raster — authoritative source geometry.
-  // Source GeoTIFF: EPSG:27700, 2801 × 2801 cells, 50 m × 50 m per cell.
-  // Raster edge bounds: E460012..600062 / N110348..250398,
-  // therefore the TRUE physical raster footprint is 140.05 km × 140.05 km.
-  // Centre: E530037 N180373 = 51.5073343446, -0.1276837506.
+  // London display grid for the shared Thames hydrology analysis.
+  // The hydrological solve is performed on the larger complete Thames upstream domain
+  // at 50 m, then cropped/reprojected to this 70 km-radius London display footprint.
+  // These BNG bounds define the display crop, not the upstream analysis boundary.
   const DRAINAGE_BNG={
     left:460012,
     right:600062,
@@ -480,7 +482,7 @@
   //   bottom 6596204.025752107
   //   top    6827041.923624865
   //
-  // Shared exact projection bounds; source analysis remains 50 m.
+  // Shared exact projection bounds for both hydrology layers; upstream analysis remains 50 m.
   const DRAINAGE_GRID_SIZE=10;
   const DRAINAGE_3857={
     left:-127813.8696191665,
@@ -521,11 +523,6 @@
   const DRAINAGE_LAYER='drainage-contributing-area-layer';
   const NETWORK_SOURCE='terrain-drainage-network-source';
   const NETWORK_LAYER='terrain-drainage-network-layer';
-  const NETWORK_FILES={
-    '025':'assets/drainage_network/network_025.webp',
-    '1':'assets/drainage_network/network_1.webp',
-    '5':'assets/drainage_network/network_5.webp'
-  };
   // 25 m display: twice the base hydrology dimensions, split below 4096 px.
   // Outer bounds and every image coordinate share the existing EPSG:3857 grid.
   const FLOOD_GRID_SIZE=2;
@@ -600,10 +597,8 @@
   let drainageDisplayMode=null;
   let networkEnabled=false;
   let networkOpacity=0.9;
-  let networkThreshold='1';
-  let networkAppliedThreshold=null;
-  let networkRequestId=0;
-  const networkImageUrls=new Map();
+  let networkThreshold=1;
+  let networkThresholdTimer=null;
   let floodEnabled=false;
   let floodOpacity=0.7;
   let floodRequestId=0;
@@ -1096,87 +1091,68 @@
     $('networkStatus').className='layerStatus'+(error?' error':'');
   }
 
-  async function getNetworkImageUrl(threshold){
-    if(networkImageUrls.has(threshold))return networkImageUrls.get(threshold);
-    const path=NETWORK_FILES[threshold];
-    if(!path)throw new Error('未知的网络阈值');
-    const response=await fetch(assetUrl(path),{cache:'force-cache'});
-    if(!response.ok)throw new Error('网络图层文件加载失败（'+response.status+'）');
-    const blob=await response.blob();
-    const bitmap=await createImageBitmap(blob);
-    const valid=bitmap.width===DRAINAGE_3857.baseWidth50m&&
-      bitmap.height===DRAINAGE_3857.baseHeight50m;
-    bitmap.close?.();
-    if(!valid)throw new Error('网络栅格尺寸与配准网格不一致');
-    const url=URL.createObjectURL(blob);
-    // Concurrent toggles may complete the same asset more than once.
-    if(networkImageUrls.has(threshold)){
-      URL.revokeObjectURL(url);
-      return networkImageUrls.get(threshold);
-    }
-    networkImageUrls.set(threshold,url);
-    return url;
+  function formatNetworkThreshold(value){
+    const v=Number(value);
+    if(v<1)return v.toFixed(v<0.1?2:1);
+    if(v<10)return v.toFixed(2).replace(/0+$/,'').replace(/\.$/,'');
+    if(v<100)return v.toFixed(1).replace(/\.0$/,'');
+    return Math.round(v).toString();
+  }
+
+  function networkTileTemplate(){
+    return 'drainage-network://tiles/'+networkThreshold.toPrecision(6)+'/{z}/{x}/{y}';
   }
 
   function removeNetworkLayer(){
-    if(!osmMap)return;
-    if(osmMap.getLayer(NETWORK_LAYER))osmMap.removeLayer(NETWORK_LAYER);
-    if(osmMap.getSource(NETWORK_SOURCE))osmMap.removeSource(NETWORK_SOURCE);
-    networkAppliedThreshold=null;
+    if(osmMap?.getLayer(NETWORK_LAYER)){
+      osmMap.setLayoutProperty(NETWORK_LAYER,'visibility','none');
+    }
   }
 
-  async function updateNetworkLayer(){
-    const requestId=++networkRequestId;
+  function updateNetworkLayer(){
     $('networkItem').classList.toggle('focusActive',networkEnabled);
     if(!networkEnabled){
       removeNetworkLayer();
       setNetworkStatus('已关闭');
-      return true;
+      return;
     }
     if(!osmMap||!osmStyleReady){
       setNetworkStatus('等待地图加载…');
-      return false;
+      return;
     }
-    const threshold=networkThreshold;
-    const value=threshold==='025'?0.25:Number(threshold);
-    setNetworkStatus('正在加载 ≥ '+value+' km² 的网络…');
-    try{
-      const url=await getNetworkImageUrl(threshold);
-      if(requestId!==networkRequestId||!networkEnabled||!osmStyleReady)return false;
-      const coordinates=networkCoordinates();
-      const source=osmMap.getSource(NETWORK_SOURCE);
-      if(source){
-        source.updateImage({url,coordinates});
-      }else{
-        osmMap.addSource(NETWORK_SOURCE,{type:'image',url,coordinates});
-      }
-      if(!osmMap.getLayer(NETWORK_LAYER)){
-        osmMap.addLayer({
-          id:NETWORK_LAYER,type:'raster',source:NETWORK_SOURCE,
-          paint:{
-            'raster-opacity':networkOpacity,
-            'raster-fade-duration':0,
-            'raster-resampling':'linear'
-          }
-        },getFirstSymbolLayerId());
-      }else{
-        osmMap.setPaintProperty(NETWORK_LAYER,'raster-opacity',networkOpacity);
-      }
-      networkAppliedThreshold=threshold;
-      keepDrainageAboveTerrain();
-      setNetworkStatus('已显示 · 汇水面积 ≥ '+value+' km² · 50 m 源分析');
-      return true;
-    }catch(err){
-      if(requestId!==networkRequestId||!networkEnabled)return false;
-      console.error('Drainage network:',err);
-      if(networkAppliedThreshold){
-        networkThreshold=networkAppliedThreshold;
-        $('networkThreshold').value=networkThreshold;
-      }
-      setNetworkStatus((networkAppliedThreshold?'加载失败，保留上一次网络：':'加载失败：')+
-        (err?.message||err),true);
-      return false;
+
+    const nw=networkCoordinates()[0],se=networkCoordinates()[2];
+    const tiles=[networkTileTemplate()];
+    const source=osmMap.getSource(NETWORK_SOURCE);
+    if(source){
+      source.setTiles(tiles);
+    }else{
+      osmMap.addSource(NETWORK_SOURCE,{
+        type:'raster',
+        tiles,
+        tileSize:AREA_TILE_SIZE,
+        minzoom:AREA_MIN_ZOOM,
+        maxzoom:AREA_MAX_ZOOM,
+        bounds:[nw[0],se[1],se[0],nw[1]],
+        attribution:'地形推导排水网络 · 与汇水贡献面积共用同一 50 m 累积栅格'
+      });
     }
+
+    if(!osmMap.getLayer(NETWORK_LAYER)){
+      osmMap.addLayer({
+        id:NETWORK_LAYER,type:'raster',source:NETWORK_SOURCE,minzoom:AREA_MIN_ZOOM,
+        paint:{
+          'raster-opacity':networkOpacity,
+          'raster-fade-duration':0,
+          'raster-resampling':'linear'
+        }
+      },getFirstSymbolLayerId());
+    }else{
+      osmMap.setLayoutProperty(NETWORK_LAYER,'visibility','visible');
+      osmMap.setPaintProperty(NETWORK_LAYER,'raster-opacity',networkOpacity);
+    }
+    keepDrainageAboveTerrain();
+    setNetworkStatus('已显示 · 动态阈值 ≥ '+formatNetworkThreshold(networkThreshold)+' km² · 共用 50 m 汇水数据');
   }
 
   function syncDrainageStatus(){
@@ -1522,14 +1498,15 @@
       if(floodEnabled)floodDetailSeen=true;
       return result;
     });
-    const areaLoader=createDrainageDisplayLoader({
+    const hydrologyLoader=createDrainageDisplayLoader({
       sourceUrl:new URL(assetUrl('assets/drainage_area/area_log16.webp'),location.href).href,
       width:DRAINAGE_3857.baseWidth50m,height:DRAINAGE_3857.baseHeight50m,
       center:FOCUS70_CENTER,radius:FOCUS70_RADIUS_M,bounds:DRAINAGE_3857
     });
     maplibregl.addProtocol('drainage-area',async(request,controller)=>{
-      const result=await areaLoader(request,controller);drainageDisplaySeen=true;return result;
+      const result=await hydrologyLoader(request,controller);drainageDisplaySeen=true;return result;
     });
+    maplibregl.addProtocol('drainage-network',hydrologyLoader);
     const terrainLoader=createTerrainLocalLoader({
       imageUrl:new URL(assetUrl('assets/terrain/overview.webp'),location.href).href,
       bounds:DRAINAGE_3857,
@@ -1562,6 +1539,9 @@
     osmMap.on('moveend',syncDrainageStatus);
     osmMap.on('error',e=>{
       if(e.sourceId===DRAINAGE_SOURCE){drainageDisplayError=e.error?.message||'加载失败';syncDrainageStatus();}
+      if(e.sourceId===NETWORK_SOURCE&&networkEnabled){
+        setNetworkStatus('排水网络显示失败：'+(e.error?.message||'加载失败'),true);
+      }
       if(e.sourceId===TERRAIN_TILE_SOURCE&&terrainEnabled){
         terrainLocalError=e.error?.message||'本地地形瓦片加载失败';
         syncTerrainView();
@@ -1816,9 +1796,18 @@
     }
   });
 
-  $('networkThreshold').addEventListener('change',e=>{
-    networkThreshold=e.target.value;
-    updateNetworkLayer();
+  $('networkThreshold').addEventListener('input',e=>{
+    networkThreshold=10**Number(e.target.value);
+    $('networkThresholdValue').textContent=formatNetworkThreshold(networkThreshold)+' km²';
+    if(!networkEnabled)return;
+    clearTimeout(networkThresholdTimer);
+    networkThresholdTimer=setTimeout(updateNetworkLayer,140);
+  });
+  $('networkThreshold').addEventListener('change',()=>{
+    if(networkEnabled){
+      clearTimeout(networkThresholdTimer);
+      updateNetworkLayer();
+    }
   });
 
   $('focus70Toggle').addEventListener('change',e=>{
