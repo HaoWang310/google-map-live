@@ -22,10 +22,18 @@
   "encoding": {
     "code": "R * 256 + G; 0 = NoData",
     "minimum_area_km2": 0.0025,
-    "maximum_area_km2": 8192.0,
+    "maximum_area_km2": 8192,
     "decode": "0.0025 * exp((code - 1) / 65534 * log(8192 / 0.0025))"
   },
   "reprojection": "Nearest neighbour onto the exact existing hydrology EPSG:3857 grid; no hand offsets.",
-  "display": "Viewport-only 512 px XYZ tiles, z8–18. Clamped cubic interpolation of log area, continuous yellow-to-red palette, original NoData and 70 km mask. This interpolation is visual only; source analysis remains 50 m.",
-  "provenance": "Existing project metadata attributes the analytical raster to EA LiDAR DTM. The TIFF has no original DEM ID, flow-direction raster or complete processing log; upstream analysis is not independently reproduced."
+  "display": "Viewport-only 512 px XYZ tiles, z8–18. Non-ringing cubic B-spline interpolation of log-area codes, continuous yellow-to-red palette, original NoData and 70 km mask. Display smoothing does not increase the 50 m source analysis resolution.",
+  "provenance": "Existing project metadata attributes the analytical raster to EA LiDAR DTM. The TIFF has no original DEM ID, flow-direction raster or complete processing log; upstream analysis is not independently reproducible from the repository alone.",
+  "validation": {
+    "checked_on": "2026-10-11",
+    "source_raster_max_km2": 7924.00732421875,
+    "external_reference": "NRFA station 39001 Thames at Kingston",
+    "external_reference_url": "https://nrfa.ceh.ac.uk/data/station/info/39001",
+    "external_reference_catchment_area_km2": 9948,
+    "conclusion": "The clipped London study raster does not contain the full upstream Thames catchment. Values should be interpreted as study-window contributing area / relative accumulation strength, not absolute total Thames catchment area."
+  }
 }
