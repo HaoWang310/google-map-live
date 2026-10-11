@@ -186,7 +186,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.15.0</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.15.1</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -253,7 +253,7 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>汇水贡献面积 · Contributing Area</strong>
-              <small>随缩放细化显示 · 源分析 50 m · Web Mercator 精确配准</small>
+              <small>平滑显示 · 50 m 源栅格 · Web Mercator 精确配准</small>
             </span>
             <input id="drainageToggle" type="checkbox" autocomplete="off" disabled>
           </label>
@@ -266,7 +266,7 @@
             <span>弱</span><span class="layerLegendBar"></span><span>强</span>
           </div>
           <div class="layerMeta">
-            黄至红色表示上游汇水面积强弱（km²）。采用完整 50 m 源栅格，街道尺度约 1–3 m 显示像元与平滑插值；显示细分不增加分析精度。与排水网络采用相同 EPSG:3857 边界。
+            黄至红色表示研究窗口内的累计上游汇水面积强弱（km²）。源栅格为 50 m；街道尺度仅做平滑重采样，不代表 1–3 m 水文分析精度。主干河流上的红带不是河宽或洪水范围。与排水网络采用相同 EPSG:3857 边界。
           </div>
           <div id="drainageStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
@@ -354,19 +354,20 @@
         <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.15.0 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
-          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.15.1 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
         <p>汇水与网络：本项目的 50 m 汇水栅格（每格 0.0025 km²），并非官方实测河网。现有元数据标注其地形来源为 EA DTM；原文件未附 DEM→汇水的完整处理日志。本次网络直接按该栅格的实际 km² 数值提取。
           <a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm" target="_blank" rel="noopener noreferrer">阈值提取方法</a> ·
-          <a href="assets/london_drainage_network_metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
+          <a href="assets/london_drainage_network_metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">网络元数据</a>
         </p>
-        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
+        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
+        <p>汇水面积绝对值校核：当前源栅格最大值约 7,924 km²，而 NRFA 的 Thames at Kingston（39001）官方站点记录上游集水面积为 9,948 km²。Kingston 位于 Greenwich／Blackwall 上游，因此当前 70 km 研究窗口栅格不能代表泰晤士河完整上游总集水面积；它适合表达研究区内相对汇流强弱，不应把主河道数值解读为完整流域面积。<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
         <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
         <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
           <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
-          <a href="assets/london_flood_risk_metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
+          <a href="assets/london_flood_risk_metadata.json?v=3.15.1" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
         <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
@@ -418,13 +419,13 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.15.0';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.15.0';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.15.0';
-  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.15.0';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.15.1';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.15.1';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.15.1';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.15.1';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.15.0';
+  const APP_VERSION='3.15.1';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
@@ -433,7 +434,7 @@
   const ZOOM=10;
 
   // Environment Agency LiDAR Composite DTM 1 m source.
-  // v3.15.0 uses only the locally cached official terrain rendering at runtime.
+  // v3.15.1 uses only the locally cached official terrain rendering at runtime.
   // The browser builds WebMercator XYZ tiles in a worker, so no EA WMS/WMTS
   // request is made while panning, zooming or pitching the map.
   const TERRAIN_LOCAL_TILES=['ea-terrain-local://tiles/{z}/{x}/{y}'];
@@ -1184,7 +1185,7 @@
       drainageDisplaySeen&&osmMap.isSourceLoaded(DRAINAGE_SOURCE)?'ready':'loading';
     if(mode===drainageDisplayMode)return;drainageDisplayMode=mode;
     $('drainageStatus').className='layerStatus'+(mode==='error'?' error':'');
-    $('drainageStatus').textContent=mode==='ready'?'已显示 · 完整 50 m 源分析 · 放大平滑细分':
+    $('drainageStatus').textContent=mode==='ready'?'已显示 · 50 m 源栅格 · B-spline 平滑显示':
       mode==='error'?'汇水显示加载失败，请重新勾选图层重试':
       mode==='zoom'?'请放大到区域尺度查看汇水图层':'正在加载汇水图层… 仅生成当前视野';
   }
