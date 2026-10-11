@@ -1,6 +1,6 @@
-// Shared 50 m Thames hydrology renderer for both contributing-area and drainage-network views.
-// One encoded accumulation raster is loaded once in this worker. The network is a live threshold
-// view of the same field; it is not a separately generated hydrology dataset.
+// Dynamic threshold view of one authoritative 50 m Thames upstream-accumulation field.
+// The encoded field is fetched once per Worker and reused for all threshold changes.
+// No second drainage-network dataset and no visible contributing-area raster are created.
 export const AREA_MIN_ZOOM=8,AREA_MAX_ZOOM=18,AREA_TILE_SIZE=512;
 const R=6378137,HALF=Math.PI*R;
 const MIN_AREA=.0025,MAX_AREA=20000;
@@ -10,20 +10,18 @@ export function areaTileBounds(z,x,y){
   const n=2**z;
   if(!Number.isInteger(z)||z<AREA_MIN_ZOOM||z>AREA_MAX_ZOOM||
      !Number.isInteger(x)||!Number.isInteger(y)||x<0||y<0||x>=n||y>=n){
-    throw new Error('Invalid hydrology tile');
+    throw new Error('Invalid drainage-network tile');
   }
   const side=2*HALF/n;
   return [-HALF+x*side,HALF-(y+1)*side,-HALF+(x+1)*side,HALF-y*side];
 }
 
-export function cubicWeights(t){
-  // Non-ringing cubic B-spline weights. All weights are non-negative and sum to 1.
+function cubicWeights(t){
   const t2=t*t,t3=t2*t,u=1-t;
   return [u*u*u/6,(3*t3-6*t2+4)/6,(-3*t3+3*t2+3*t+1)/6,t3/6];
 }
 
 function areaCode(km2){
-  if(!(km2>0))return 1;
   const ratio=Math.log(clamp(km2,MIN_AREA,MAX_AREA)/MIN_AREA)/Math.log(MAX_AREA/MIN_AREA);
   return 1+Math.round(ratio*65534);
 }
@@ -32,25 +30,6 @@ function decodeArea(code){
   if(!code)return 0;
   return MIN_AREA*Math.exp((code-1)/65534*Math.log(MAX_AREA/MIN_AREA));
 }
-
-function palette(){
-  const out=new Uint8ClampedArray(65536*4),span=Math.log(MAX_AREA/MIN_AREA);
-  const start=Math.log(.025/MIN_AREA),solid=Math.log(.125/MIN_AREA);
-  const strong=Math.log(3000/MIN_AREA);
-  for(let code=1;code<65536;code++){
-    const a=(code-1)/65534*span;
-    const v=clamp((a-start)/(solid-start),0,1),visible=v*v*(3-2*v);
-    const t=clamp((a-solid)/(strong-solid),0,1);
-    let r,g,b,q;
-    if(t<.4){q=t/.4;r=255;g=224+(153-224)*q;b=120*(1-q);}
-    else if(t<.75){q=(t-.4)/.35;r=255+(239-255)*q;g=153+(68-153)*q;b=68*q;}
-    else{q=(t-.75)/.25;r=239+(127-239)*q;g=68+(29-68)*q;b=g;}
-    const i=code*4;out[i]=r;out[i+1]=g;out[i+2]=b;
-    out[i+3]=(45+205*t**.72)*visible;
-  }
-  return out;
-}
-const COLOURS=palette();
 
 function networkColour(code){
   const a=decodeArea(code);
@@ -61,18 +40,22 @@ function networkColour(code){
   return [75,169,255,210];
 }
 
-function sourceSampler({field,width,height,bounds,bbox,size}){
+function sourceSampler({field,width,bounds,bbox,size}){
   const dx=(bbox[2]-bbox[0])/size,dy=(bbox[3]-bbox[1])/size;
-  const scaleX=width/(bounds.right-bounds.left),scaleY=height/(bounds.top-bounds.bottom);
+  const scaleX=width/(bounds.right-bounds.left);
   const columns=Array.from({length:size},(_,col)=>{
     const mx=bbox[0]+(col+.5)*dx,sx=(mx-bounds.left)*scaleX-.5;
     const base=Math.floor(sx);
-    return {mx,sx,nx:clamp(Math.round(sx),0,width-1),weights:cubicWeights(sx-base),
-            ix:[-1,0,1,2].map(k=>clamp(base+k,0,width-1))};
+    return {
+      mx,
+      nx:clamp(Math.round(sx),0,width-1),
+      weights:cubicWeights(sx-base),
+      ix:[-1,0,1,2].map(k=>clamp(base+k,0,width-1))
+    };
   });
   const horizontalRows=new Map();
   function horizontal(y){
-    y=clamp(y,0,height-1);
+    y=clamp(y,0,configHeight-1);
     if(horizontalRows.has(y))return horizontalRows.get(y);
     const values=new Float32Array(size),offset=y*width;
     for(let col=0;col<size;col++){
@@ -80,10 +63,13 @@ function sourceSampler({field,width,height,bounds,bbox,size}){
       values[col]=w[0]*(field[offset+ix[0]]||1)+w[1]*(field[offset+ix[1]]||1)+
                   w[2]*(field[offset+ix[2]]||1)+w[3]*(field[offset+ix[3]]||1);
     }
-    horizontalRows.set(y,values);return values;
+    horizontalRows.set(y,values);
+    return values;
   }
-  return {dx,dy,scaleY,columns,horizontal};
+  return {dy,columns,horizontal};
 }
+
+let configHeight=0;
 
 function insideRadius(mx,my,clat,clon,radius){
   const lat=2*Math.atan(Math.exp(my/R))-Math.PI/2;
@@ -92,76 +78,51 @@ function insideRadius(mx,my,clat,clon,radius){
   return 2*R*Math.asin(Math.sqrt(Math.min(1,hav)))<=radius;
 }
 
-// Display-only B-spline rendering of the stored 50 m accumulation field.
-export async function renderAreaTile({field,width,height,bounds,center,radius,z,x,y,
-                                     size=AREA_TILE_SIZE,cancelled=()=>false,
-                                     pause=()=>new Promise(resolve=>setTimeout(resolve,0))}){
-  const bbox=areaTileBounds(z,x,y),pixels=new Uint8ClampedArray(size*size*4);
-  if(bbox[2]<=bounds.left||bbox[0]>=bounds.right||
-     bbox[3]<=bounds.bottom||bbox[1]>=bounds.top)return pixels;
-  if(field.length!==width*height)throw new Error('Contributing-area dimensions mismatch');
-
-  const {dy,scaleY,columns,horizontal}=sourceSampler({field,width,height,bounds,bbox,size});
-  const clat=center.lat*Math.PI/180,clon=center.lng*Math.PI/180;
-  for(let row=0;row<size;row++){
-    if(row%32===0){await pause();if(cancelled())throw new DOMException('Aborted','AbortError');}
-    const my=bbox[3]-(row+.5)*dy;
-    if(my<bounds.bottom||my>bounds.top)continue;
-    const sy=(bounds.top-my)*scaleY-.5,baseY=Math.floor(sy),wy=cubicWeights(sy-baseY);
-    const ny=clamp(Math.round(sy),0,height-1);
-    const h0=horizontal(baseY-1),h1=horizontal(baseY),h2=horizontal(baseY+1),h3=horizontal(baseY+2);
-    const y0=clamp(baseY,0,height-1)*width,y1=clamp(baseY+1,0,height-1)*width;
-    for(let col=0;col<size;col++){
-      const {mx,nx,ix}=columns[col];
-      if(mx<bounds.left||mx>bounds.right||!insideRadius(mx,my,clat,clon,radius))continue;
-      const nearest=field[ny*width+nx];
-      if(!nearest)continue;
-      const value=wy[0]*h0[col]+wy[1]*h1[col]+wy[2]*h2[col]+wy[3]*h3[col];
-      const a=field[y0+ix[1]]||1,b=field[y0+ix[2]]||1,
-            c=field[y1+ix[1]]||1,d=field[y1+ix[2]]||1;
-      const lo=Math.min(a,b,c,d),hi=Math.max(a,b,c,d);
-      const colour=clamp(Math.round(value),lo,hi)*4,index=(row*size+col)*4;
-      pixels[index]=COLOURS[colour];pixels[index+1]=COLOURS[colour+1];
-      pixels[index+2]=COLOURS[colour+2];pixels[index+3]=COLOURS[colour+3];
-    }
-  }
-  return pixels;
-}
-
-// Dynamic threshold view of the exact same 50 m accumulation field.
-export async function renderNetworkTile({field,width,height,bounds,center,radius,threshold,z,x,y,
-                                        size=AREA_TILE_SIZE,cancelled=()=>false,
-                                        pause=()=>new Promise(resolve=>setTimeout(resolve,0))}){
+async function renderNetworkTile({field,width,height,bounds,center,radius,threshold,z,x,y,
+                                  size=AREA_TILE_SIZE,cancelled=()=>false,
+                                  pause=()=>new Promise(resolve=>setTimeout(resolve,0))}){
+  configHeight=height;
   const bbox=areaTileBounds(z,x,y),pixels=new Uint8ClampedArray(size*size*4);
   if(bbox[2]<=bounds.left||bbox[0]>=bounds.right||
      bbox[3]<=bounds.bottom||bbox[1]>=bounds.top)return pixels;
   if(field.length!==width*height)throw new Error('Drainage-network dimensions mismatch');
 
   const thresholdCode=areaCode(threshold);
-  const {dy,scaleY,columns,horizontal}=sourceSampler({field,width,height,bounds,bbox,size});
+  const {dy,columns,horizontal}=sourceSampler({field,width,bounds,bbox,size});
+  const scaleY=height/(bounds.top-bounds.bottom);
   const clat=center.lat*Math.PI/180,clon=center.lng*Math.PI/180;
+
   for(let row=0;row<size;row++){
-    if(row%32===0){await pause();if(cancelled())throw new DOMException('Aborted','AbortError');}
+    if(row%32===0){
+      await pause();
+      if(cancelled())throw new DOMException('Aborted','AbortError');
+    }
     const my=bbox[3]-(row+.5)*dy;
     if(my<bounds.bottom||my>bounds.top)continue;
+
     const sy=(bounds.top-my)*scaleY-.5,baseY=Math.floor(sy),wy=cubicWeights(sy-baseY);
     const ny=clamp(Math.round(sy),0,height-1);
     const h0=horizontal(baseY-1),h1=horizontal(baseY),h2=horizontal(baseY+1),h3=horizontal(baseY+2);
     const y0=clamp(baseY,0,height-1)*width,y1=clamp(baseY+1,0,height-1)*width;
+
     for(let col=0;col<size;col++){
       const {mx,nx,ix}=columns[col];
       if(mx<bounds.left||mx>bounds.right||!insideRadius(mx,my,clat,clon,radius))continue;
+
       const nearest=field[ny*width+nx];
       if(!nearest)continue;
+
       const value=wy[0]*h0[col]+wy[1]*h1[col]+wy[2]*h2[col]+wy[3]*h3[col];
       const a=field[y0+ix[1]]||1,b=field[y0+ix[2]]||1,
             c=field[y1+ix[1]]||1,d=field[y1+ix[2]]||1;
-      const lo=Math.min(a,b,c,d),hi=Math.max(a,b,c,d);
-      const code=clamp(Math.round(value),lo,hi);
+      const code=clamp(Math.round(value),Math.min(a,b,c,d),Math.max(a,b,c,d));
       if(code<thresholdCode)continue;
+
       const colour=networkColour(code),index=(row*size+col)*4;
-      pixels[index]=colour[0];pixels[index+1]=colour[1];
-      pixels[index+2]=colour[2];pixels[index+3]=colour[3];
+      pixels[index]=colour[0];
+      pixels[index+1]=colour[1];
+      pixels[index+2]=colour[2];
+      pixels[index+3]=colour[3];
     }
   }
   return pixels;
@@ -177,48 +138,72 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
       let bitmap;
       try{
         const response=await fetch(config.sourceUrl,{cache:'force-cache',signal:controller.signal});
-        if(!response.ok)throw new Error('共享 50 m 汇水源数据加载失败（'+response.status+'）');
+        if(!response.ok)throw new Error('50 m 汇水源数据加载失败（'+response.status+'）');
         bitmap=await createImageBitmap(await response.blob());
         const {width,height}=bitmap;
-        if(width!==config.width||height!==config.height)throw new Error('共享汇水源数据尺寸不匹配');
-        const canvas=new OffscreenCanvas(width,height),ctx=canvas.getContext('2d',{willReadFrequently:true});
+        if(width!==config.width||height!==config.height)throw new Error('汇水源数据尺寸不匹配');
+
+        const canvas=new OffscreenCanvas(width,height);
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});
         ctx.drawImage(bitmap,0,0);
-        const pixels=ctx.getImageData(0,0,width,height).data,field=new Uint16Array(width*height);
+        const pixels=ctx.getImageData(0,0,width,height).data;
+        const field=new Uint16Array(width*height);
         for(let i=0;i<field.length;i++)field[i]=(pixels[i*4]<<8)|pixels[i*4+1];
         canvas.width=1;canvas.height=1;
         return {field,width,height};
-      }finally{bitmap?.close();clearTimeout(timeout);}
+      }finally{
+        bitmap?.close();
+        clearTimeout(timeout);
+      }
     })().catch(error=>{fieldPromise=null;throw error;});
     return fieldPromise;
   };
 
   async function pump(){
-    if(running)return;running=true;
+    if(running)return;
+    running=true;
     try{
       while(queue.length){
-        const job=queue.shift(),{id,mode,threshold,z,x,y}=job;
-        const key=mode+'/'+(mode==='network'?Number(threshold).toPrecision(6)+'/':'')+z+'/'+x+'/'+y;
+        const job=queue.shift(),{id,threshold,z,x,y}=job;
+        const key=Number(threshold).toPrecision(6)+'/'+z+'/'+x+'/'+y;
         activeId=id;
         try{
           if(cancelled.has(id))continue;
           let data=cache.get(key);
-          if(data){cache.delete(key);cache.set(key,data);}
-          else{
-            const input=await source();if(cancelled.has(id))continue;
-            const renderer=mode==='network'?renderNetworkTile:renderAreaTile;
-            const pixels=await renderer({...config,...input,threshold,z,x,y,cancelled:()=>cancelled.has(id)});
+          if(data){
+            cache.delete(key);
+            cache.set(key,data);
+          }else{
+            const input=await source();
             if(cancelled.has(id))continue;
-            const canvas=new OffscreenCanvas(AREA_TILE_SIZE,AREA_TILE_SIZE),ctx=canvas.getContext('2d');
-            ctx.putImageData(new ImageData(pixels,AREA_TILE_SIZE,AREA_TILE_SIZE),0,0);
+            const pixels=await renderNetworkTile({
+              ...config,...input,threshold,z,x,y,
+              cancelled:()=>cancelled.has(id)
+            });
+            if(cancelled.has(id))continue;
+
+            const canvas=new OffscreenCanvas(AREA_TILE_SIZE,AREA_TILE_SIZE);
+            canvas.getContext('2d').putImageData(
+              new ImageData(pixels,AREA_TILE_SIZE,AREA_TILE_SIZE),0,0
+            );
             data=await (await canvas.convertToBlob({type:'image/png'})).arrayBuffer();
             if(cancelled.has(id))continue;
-            cache.set(key,data);while(cache.size>96)cache.delete(cache.keys().next().value);
+
+            cache.set(key,data);
+            while(cache.size>96)cache.delete(cache.keys().next().value);
           }
-          const copy=data.slice(0);postMessage({id,data:copy},[copy]);
-        }catch(error){if(!cancelled.has(id))postMessage({id,error:error.message});}
-        finally{cancelled.delete(id);activeId=null;}
+          const copy=data.slice(0);
+          postMessage({id,data:copy},[copy]);
+        }catch(error){
+          if(!cancelled.has(id))postMessage({id,error:error.message});
+        }finally{
+          cancelled.delete(id);
+          activeId=null;
+        }
       }
-    }finally{running=false;}
+    }finally{
+      running=false;
+    }
   }
 
   globalThis.onmessage=({data})=>{
@@ -227,6 +212,7 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
       if(activeId===data.id||queue.some(job=>job.id===data.id))cancelled.add(data.id);
       return;
     }
-    queue.push(data);pump();
+    queue.push(data);
+    pump();
   };
 }
