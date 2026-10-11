@@ -314,13 +314,22 @@ def main():
     product = find_terrain_product(session)
     print("Terrain product:", product.get("id"), product.get("name"), product.get("version"))
 
+    # Terrain 50 is currently supplied as a national GB grid download.
+    # Query the catalogue once (without an area filter) because some releases do not
+    # expose 100 km square area filters even though the API schema lists them.
+    downloads_url = product.get("downloadsUrl") or f"{API_BASE}/products/{product['id']}/downloads"
+    all_downloads = get_json(session, downloads_url)
+    print("Terrain download catalogue:", json.dumps([
+        {k:d.get(k) for k in ("fileName","area","format","subformat","size")}
+        for d in all_downloads
+    ], indent=2))
+
     terrain_downloads = []
-    for area in TERRAIN_AREAS:
-        downloads = get_json(session, product.get("downloadsUrl") or f"{API_BASE}/products/{product['id']}/downloads",
-                             params={"area": area})
-        info = choose_grid_download(downloads, area)
+    gb = [d for d in all_downloads if (d.get("area") or "").upper() == "GB"]
+    if gb:
+        info = choose_grid_download(gb, "GB")
         terrain_downloads.append({
-            "area": area,
+            "area": "GB",
             "fileName": info.get("fileName"),
             "format": info.get("format"),
             "subformat": info.get("subformat"),
@@ -328,9 +337,28 @@ def main():
             "md5": info.get("md5"),
             "url": info.get("url"),
         })
-        local = DOWNLOADS / f"{area}_{info['fileName']}"
+        local = DOWNLOADS / info["fileName"]
         download_file(session, info, local)
-        extract_recursive(local, EXTRACTED / area)
+        extract_recursive(local, EXTRACTED / "GB")
+    else:
+        # Backward-compatible path for releases that expose individual 100 km squares.
+        for area in TERRAIN_AREAS:
+            candidates=[d for d in all_downloads if (d.get("area") or "").upper()==area]
+            if not candidates:
+                raise RuntimeError(f"No Terrain 50 download for {area}; catalogue={all_downloads!r}")
+            info=choose_grid_download(candidates,area)
+            terrain_downloads.append({
+                "area": area,
+                "fileName": info.get("fileName"),
+                "format": info.get("format"),
+                "subformat": info.get("subformat"),
+                "size": info.get("size"),
+                "md5": info.get("md5"),
+                "url": info.get("url"),
+            })
+            local=DOWNLOADS/f"{area}_{info['fileName']}"
+            download_file(session,info,local)
+            extract_recursive(local,EXTRACTED/area)
 
     asc_files = sorted(EXTRACTED.rglob("*.asc"))
     print("ASCII tiles found:", len(asc_files))
