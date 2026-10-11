@@ -38,6 +38,27 @@
       display:flex;flex-direction:column
     }
     .head{flex-shrink:0}
+    .searchTools{flex-shrink:0;margin-top:11px}
+    .searchForm{display:flex;gap:7px}
+    .searchForm input{
+      min-width:0;flex:1;font:inherit;font-size:12px;padding:9px 10px;
+      border:1px solid #5c6c84;border-radius:9px;background:#182233;color:#fff
+    }
+    .searchForm input::placeholder{color:#aeb8c8}
+    .searchForm input:focus-visible{outline:2px solid #7dd3fc;outline-offset:1px}
+    .searchForm button{flex-shrink:0;font-size:12px}
+    .searchStatus{font-size:10px;line-height:1.5;color:#b9d8ff;margin-top:5px;max-height:45px;overflow:auto}
+    .searchStatus:empty{display:none}
+    .searchStatus.error{color:#ffb8b8}
+    .searchResults{max-height:155px;overflow-y:auto;margin-top:6px;scrollbar-width:thin}
+    .searchResults:empty{display:none}
+    .searchResult{
+      display:block;width:100%;text-align:left;font-size:10px;line-height:1.45;
+      padding:8px 9px;background:#29364b;margin-top:4px;overflow-wrap:anywhere
+    }
+    .searchResult[aria-pressed=true]{border-color:#7dd3fc;background:#304c71}
+    .viewButtons button[aria-pressed=true]{background:#2f76ff;border-color:#76b8ff}
+    button:disabled{opacity:.5;cursor:wait}
     .content{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
     .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
     .title{font-size:18px;font-weight:750}
@@ -165,10 +186,20 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.12.1</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.13.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
+    </div>
+
+    <div class="searchTools">
+      <form class="searchForm" id="placeSearchForm" role="search">
+        <input id="placeSearchInput" type="search" aria-label="搜索地点、地址或邮编"
+          placeholder="搜索地点、地址或邮编…" maxlength="200" autocomplete="off" required>
+        <button id="placeSearchButton" type="submit" disabled>搜索</button>
+      </form>
+      <div id="placeSearchStatus" class="searchStatus" role="status" aria-live="polite"></div>
+      <div id="placeSearchResults" class="searchResults" role="group" aria-label="搜索结果"></div>
     </div>
 
     <div class="content">
@@ -179,6 +210,17 @@
         <span>OpenStreetMap / OpenFreeMap</span>
         <span style="font-size:9px;color:#9fb0c4">开发模式</span>
       </div>
+
+      <div class="row viewButtons" role="group" aria-label="地图视角">
+        <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D 平面</button>
+        <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D 城市</button>
+      </div>
+      <div class="rangeRow">
+        <label for="viewPitch">倾斜</label>
+        <input id="viewPitch" type="range" min="0" max="70" step="1" value="0" disabled>
+        <span id="viewPitchValue">0°</span>
+      </div>
+      <div class="note" id="viewHint">点击“3D 城市”查看建筑；右键拖动可旋转与倾斜。</div>
 
       <select id="provider" class="googleOnly">
         <option value="osm" selected>OpenStreetMap / OpenFreeMap</option>
@@ -201,7 +243,7 @@
               <strong>EA LiDAR DTM 1 m</strong>
               <small>裸地地形高程 · Environment Agency</small>
             </span>
-            <input id="terrainToggle" type="checkbox" checked>
+            <input id="terrainToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
             <span>透明度</span>
@@ -219,7 +261,7 @@
               <strong>汇水贡献面积 · Contributing Area</strong>
               <small>10 m 显示重采样 · 源数据 50 m · Web Mercator 精确配准</small>
             </span>
-            <input id="drainageToggle" type="checkbox">
+            <input id="drainageToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
             <span>透明度</span>
@@ -234,13 +276,13 @@
           </div>
         </div>
 
-        <div class="layerItem focusActive" id="floodItem">
+        <div class="layerItem" id="floodItem">
           <label class="layerRow">
             <span class="layerName">
               <strong>现状洪水风险等级 · EA</strong>
               <small>伦敦 70 km · 放大自动加载官方街道精细图</small>
             </span>
-            <input id="floodToggle" type="checkbox" checked>
+            <input id="floodToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
             <span>透明度</span>
@@ -257,16 +299,16 @@
           <div class="layerMeta">
             河流／海洋与地表水两套现状风险图中，取可获得的较高等级；不是合并洪水概率，也不是洪水深度。空白不代表无风险。
           </div>
-          <div id="floodStatus" class="layerStatus" role="status" aria-live="polite">等待地图加载…</div>
+          <div id="floodStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
-        <div class="layerItem focusActive" id="networkItem">
+        <div class="layerItem" id="networkItem">
           <label class="layerRow">
             <span class="layerName">
               <strong>地形推导排水网络</strong>
               <small>Terrain-derived drainage network · 50 m 源分析</small>
             </span>
-            <input id="networkToggle" type="checkbox" checked>
+            <input id="networkToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
             <span>透明度</span>
@@ -291,7 +333,7 @@
           <div class="layerMeta">
             从原始汇水数值按阈值提取的潜在排水路径。蓝色不是积水范围；网络密度阈值可调整。
           </div>
-          <div id="networkStatus" class="layerStatus" role="status" aria-live="polite">等待地图加载…</div>
+          <div id="networkStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem">
@@ -300,7 +342,7 @@
               <strong>70 KM 研究范围</strong>
               <small>Charing Cross 中心 · 开启后聚焦研究区</small>
             </span>
-            <input id="focus70Toggle" type="checkbox">
+            <input id="focus70Toggle" type="checkbox" autocomplete="off" disabled>
           </label>
         </div>
 
@@ -311,19 +353,25 @@
         <p>底图：© OpenStreetMap contributors；OpenFreeMap 提供地图瓦片。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OSM 来源</a>
         </p>
+        <p>3D 建筑轮廓与位置来自同一套 OSM / OpenFreeMap 矢量瓦片。高度按已有高度或层数字段生成，缺失时采用数据源的估计值，不是全城实测模型。
+          <a href="https://openmaptiles.org/docs/schema/#building" target="_blank" rel="noopener noreferrer">建筑数据字段</a>
+        </p>
+        <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
+        </p>
         <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。
           <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a>
         </p>
         <p>汇水与网络：本项目的 50 m 汇水栅格（每格 0.0025 km²），并非官方实测河网。现有元数据标注其地形来源为 EA DTM；原文件未附 DEM→汇水的完整处理日志。本次网络直接按该栅格的实际 km² 数值提取。
           <a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm" target="_blank" rel="noopener noreferrer">阈值提取方法</a> ·
-          <a href="assets/london_drainage_network_metadata.json?v=3.12.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
+          <a href="assets/london_drainage_network_metadata.json?v=3.13.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
         </p>
         <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。</p>
         <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
         <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
           <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
-          <a href="assets/london_flood_risk_metadata.json?v=3.12.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
+          <a href="assets/london_flood_risk_metadata.json?v=3.13.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
         <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
@@ -368,17 +416,19 @@
 
       <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        开发阶段仅启用 OpenStreetMap / OpenFreeMap。所有分析图层在“地图图层”列表中独立开关，并按真实地理坐标配准。</div>
+        分析图层默认关闭，勾选后加载。地图支持 2D / 3D 城市视角与地点搜索；各图层仍按真实地理坐标配准。</div>
     </div>
   </div>
 
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.12.1';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.13.0';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.13.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.12.1';
+  const APP_VERSION='3.13.0';
+  const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -622,7 +672,7 @@
   let osmMarker=null;
   let googleLoading=false;
   let currentProvider='osm';
-  let terrainEnabled=true;
+  let terrainEnabled=false;
   let terrainOpacity=0.42;
   let terrainRefreshTimer=null;
   let terrainRequestId=0;
@@ -643,13 +693,13 @@
   let drainageLoadingPromise=null;
   let drainageTileUrls=[];
   let drainageRequestId=0;
-  let networkEnabled=true;
+  let networkEnabled=false;
   let networkOpacity=0.9;
   let networkThreshold='1';
   let networkAppliedThreshold=null;
   let networkRequestId=0;
   const networkImageUrls=new Map();
-  let floodEnabled=true;
+  let floodEnabled=false;
   let floodOpacity=0.7;
   let floodRequestId=0;
   const floodImageUrls=new Map();
@@ -664,6 +714,11 @@
   let focus70Enabled=false;
   let googleFocusCircle=null;
   let osmFocusReady=false;
+  let cityBuildingsShown=false;
+  let searchMarker=null;
+  let searchController=null;
+  let searchRequestId=0;
+  const searchPlaces=createPlaceSearch();
 
   let sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM,source:currentProvider};
 
@@ -1278,6 +1333,7 @@
     }
     if(osmMap.getLayer(FLOOD_DETAIL_LAYER))osmMap.moveLayer(FLOOD_DETAIL_LAYER,firstSymbol);
     if(osmMap.getLayer(NETWORK_LAYER))osmMap.moveLayer(NETWORK_LAYER,firstSymbol);
+    if(osmMap.getLayer(CITY_BUILDINGS_LAYER))osmMap.moveLayer(CITY_BUILDINGS_LAYER,firstSymbol);
   }
 
   function setFloodStatus(message,error=false){
@@ -1839,6 +1895,127 @@
     }
   }
 
+  function ensureCityBuildings(){
+    if(!osmMap||!osmStyleReady||osmMap.getLayer(CITY_BUILDINGS_LAYER))return;
+    const building=(osmMap.getStyle()?.layers||[]).find(layer=>layer['source-layer']==='building');
+    let source=building?.source;
+    if(!source){
+      source='osm-city-buildings-source';
+      if(!osmMap.getSource(source))osmMap.addSource(source,{
+        type:'vector',url:'https://tiles.openfreemap.org/planet'
+      });
+    }
+    osmMap.addLayer({
+      id:CITY_BUILDINGS_LAYER,type:'fill-extrusion',source,'source-layer':'building',minzoom:14,
+      filter:['!=',['get','hide_3d'],true],layout:{visibility:'none'},
+      paint:{
+        'fill-extrusion-color':'#c6ced5',
+        'fill-extrusion-height':['max',0,['to-number',['get','render_height'],5]],
+        'fill-extrusion-base':['max',0,['to-number',['get','render_min_height'],0]],
+        'fill-extrusion-opacity':1
+      }
+    },getFirstSymbolLayerId());
+    cityBuildingsShown=false;
+  }
+
+  function syncCityView(){
+    if(!osmMap||!osmStyleReady)return;
+    const pitch=osmMap.getPitch(),is3D=pitch>.5;
+    $('viewPitch').value=String(Math.round(pitch));
+    $('viewPitchValue').textContent=Math.round(pitch)+'°';
+    $('view2D').setAttribute('aria-pressed',String(!is3D));
+    $('view3D').setAttribute('aria-pressed',String(is3D));
+    if(osmMap.getLayer(CITY_BUILDINGS_LAYER)&&is3D!==cityBuildingsShown){
+      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',is3D?'visible':'none');
+      cityBuildingsShown=is3D;
+    }
+    $('viewHint').textContent=is3D?
+      (osmMap.getZoom()<14?'3D 视角已开启；放大到街道尺度可见建筑。':'右键拖动旋转与倾斜；触屏双指旋转。建筑高度含估计值。'):
+      '点击“3D 城市”查看建筑；右键拖动可旋转与倾斜。';
+  }
+
+  function setCityView(is3D){
+    if(!osmMap||!osmStyleReady)return;
+    osmMap.easeTo(is3D?{
+      zoom:Math.max(osmMap.getZoom(),15.5),pitch:55,
+      bearing:osmMap.getBearing()||-20,duration:700
+    }:{pitch:0,bearing:0,duration:450});
+  }
+
+  function setSearchStatus(message,error=false){
+    $('placeSearchStatus').textContent=message;
+    $('placeSearchStatus').className='searchStatus'+(error?' error':'');
+  }
+
+  function cancelPlaceSearch(){
+    searchRequestId++;
+    searchController?.abort();searchController=null;
+    $('placeSearchButton').disabled=!osmStyleReady;
+    $('placeSearchButton').textContent='搜索';
+  }
+
+  function goToPlace(place,button){
+    if(!osmMap||!osmStyleReady)return;
+    if(focus70Enabled&&(place.lng<TERRAIN_BOUNDS.west||place.lng>TERRAIN_BOUNDS.east||
+       place.lat<TERRAIN_BOUNDS.south||place.lat>TERRAIN_BOUNDS.north)){
+      focus70Enabled=false;$('focus70Toggle').checked=false;
+      $('focus70Toggle').closest('.layerItem')?.classList.toggle('focusActive',false);
+      updateFocus70();
+    }
+    let zoom=16.5;
+    if(place.bounds){
+      const camera=osmMap.cameraForBounds(place.bounds,{padding:40,maxZoom:16.5});
+      if(camera&&Number.isFinite(camera.zoom))zoom=camera.zoom;
+    }
+    osmMap.flyTo({center:[place.lng,place.lat],zoom,
+      pitch:osmMap.getPitch(),bearing:osmMap.getBearing(),duration:1100});
+    if(searchMarker)searchMarker.remove();
+    searchMarker=new maplibregl.Marker({color:'#f97316'})
+      .setLngLat([place.lng,place.lat])
+      .setPopup(new maplibregl.Popup({offset:25}).setText(place.name)).addTo(osmMap);
+    searchMarker.getElement().setAttribute('aria-label',place.name);
+    for(const item of $('placeSearchResults').children)item.setAttribute('aria-pressed',String(item===button));
+    setSearchStatus('已定位：'+place.name);
+    if(window.innerWidth<=600){
+      $('panel').classList.add('collapsed');$('collapse').textContent='+';
+    }
+  }
+
+  async function runPlaceSearch(){
+    if(!osmMap||!osmStyleReady){setSearchStatus('地图正在加载，请稍候。');return;}
+    const query=$('placeSearchInput').value.trim();
+    if(!query){setSearchStatus('请输入地点名称、地址或邮编。',true);return;}
+    cancelPlaceSearch();
+    const requestId=searchRequestId,controller=new AbortController();
+    searchController=controller;
+    $('placeSearchButton').disabled=true;$('placeSearchButton').textContent='搜索中…';
+    $('placeSearchResults').replaceChildren();setSearchStatus('正在搜索…');
+    const timeout=setTimeout(()=>controller.abort(),18000);
+    try{
+      const bounds=osmMap.getBounds();
+      const viewbox=[bounds.getWest(),bounds.getNorth(),bounds.getEast(),bounds.getSouth()];
+      const places=await searchPlaces(query,{signal:controller.signal,viewbox});
+      if(requestId!==searchRequestId)return;
+      if(!places.length){setSearchStatus('没有找到该地点，请补充城市、地址或邮编。',true);return;}
+      for(const place of places){
+        const button=document.createElement('button');
+        button.type='button';button.className='searchResult';button.textContent=place.name;
+        button.setAttribute('aria-pressed','false');
+        button.addEventListener('click',()=>goToPlace(place,button));
+        $('placeSearchResults').appendChild(button);
+      }
+      goToPlace(places[0],$('placeSearchResults').firstElementChild);
+    }catch(error){
+      if(requestId!==searchRequestId)return;
+      setSearchStatus(error.name==='AbortError'?'搜索超时，请重试。':(error.message||'搜索失败，请重试。'),true);
+    }finally{
+      clearTimeout(timeout);
+      if(requestId===searchRequestId){
+        searchController=null;$('placeSearchButton').disabled=false;$('placeSearchButton').textContent='搜索';
+      }
+    }
+  }
+
   function initOSM(){
     if(osmMap)return;
     say('正在加载 OpenStreetMap…');
@@ -1857,25 +2034,32 @@
       zoom:ZOOM,
       pitch:0,
       bearing:0,
-      maxPitch:0,
-      dragRotate:false,
-      pitchWithRotate:false,
+      maxPitch:70,
+      dragRotate:true,
+      pitchWithRotate:true,
+      touchPitch:true,
+      canvasContextAttributes:{antialias:true},
       attributionControl:true
     });
 
-    osmMap.addControl(new maplibregl.NavigationControl({showCompass:false,visualizePitch:false}),'top-right');
-    osmMap.touchZoomRotate.disableRotation();
+    osmMap.addControl(new maplibregl.NavigationControl({showCompass:true,visualizePitch:true}),'top-right');
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
     osmMap.on('load',()=>{
       osmStyleReady=true;
+      ensureCityBuildings();syncCityView();
+      $('view2D').disabled=false;$('view3D').disabled=false;$('viewPitch').disabled=false;
+      $('placeSearchButton').disabled=false;
+      for(const id of ['terrainToggle','drainageToggle','floodToggle','networkToggle','focus70Toggle']){
+        $(id).disabled=false;
+      }
       ensureOsmFocus70();
       updateNetworkLayer();
       updateFloodLayer();
       updateDrainageLayer();
       if(currentProvider==='osm'){
         updateTerrainLayers();
-        say('OpenStreetMap 已连接；Google Maps 已暂停，EA 地形配准已启用。');
+        say('地图已连接。可切换 3D 城市或搜索地点；分析图层勾选后加载。');
       }
     });
     osmMap.on('mousemove',e=>{
@@ -1889,6 +2073,7 @@
     });
 
     osmMap.on('zoom',()=>{
+      syncCityView();
       if(currentProvider==='osm')terrainCameraChanged();
       syncFloodView();
     });
@@ -1902,6 +2087,7 @@
     });
 
     osmMap.on('pitch',()=>{
+      syncCityView();
       if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
     });
 
@@ -2041,6 +2227,15 @@
   }
 
   $('provider').addEventListener('change',e=>{ switchProvider(e.target.value); });
+  $('view2D').addEventListener('click',()=>setCityView(false));
+  $('view3D').addEventListener('click',()=>setCityView(true));
+  $('viewPitch').addEventListener('input',e=>{
+    if(osmMap&&osmStyleReady)osmMap.setPitch(Math.max(0,Math.min(70,Number(e.target.value))));
+  });
+  $('placeSearchForm').addEventListener('submit',e=>{e.preventDefault();runPlaceSearch();});
+  $('placeSearchInput').addEventListener('input',()=>{
+    cancelPlaceSearch();$('placeSearchResults').replaceChildren();setSearchStatus('');
+  });
 
   $('mapType').addEventListener('change',e=>{
     if(googleMap)googleMap.setMapTypeId(e.target.value);
@@ -2139,6 +2334,9 @@
   };
 
   $('resetBtn').onclick=()=>{
+    cancelPlaceSearch();$('placeSearchInput').value='';
+    $('placeSearchResults').replaceChildren();setSearchStatus('');
+    searchMarker?.remove();searchMarker=null;
     if(currentProvider==='google'&&googleMap){
       googleMap.setCenter(CENTER);googleMap.setZoom(ZOOM);
       sharedView={lat:CENTER.lat,lng:CENTER.lng,zoom:ZOOM,source:currentProvider};
@@ -2185,6 +2383,9 @@
   };
 
   syncBadge();
+  for(const id of ['terrainToggle','drainageToggle','floodToggle','networkToggle','focus70Toggle']){
+    $(id).checked=false;
+  }
   $('googleMap').style.display='none';
   $('osmMap').style.display='block';
   initOSM();

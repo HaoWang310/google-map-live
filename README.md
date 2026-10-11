@@ -2,11 +2,29 @@
 
 Live map: https://haowang310.github.io/google-map-live/
 
-Version 3.12.1 uses OpenStreetMap / OpenFreeMap and an independent layer list:
+Version 3.13.0 uses OpenStreetMap / OpenFreeMap and an independent layer list:
 EA LiDAR terrain, contributing area, EA present-day flood-risk overview,
-terrain-derived drainage network, and the 70 km study circle. Flood risk and
-the network are enabled by default, with separate opacity controls. The network
+terrain-derived drainage network, and the 70 km study circle. All five analysis
+overlays start **unchecked and off on every page load** and load only when selected,
+with separate opacity controls. The network
 also has minimum contributing-area controls (0.25, 1, or 5 km²).
+
+The map supports 2D / 3D city buttons, a 0–70° pitch slider, right-drag rotation
+and tilt, and touch rotation/pitch. The 3D button zooms into the current centre
+to show actual OSM building footprints from the existing OpenFreeMap tiles.
+Buildings use `render_height` / `render_min_height`, respect `hide_3d`, and render
+above the analytical rasters. Heights include estimates from levels and defaults;
+this is not a complete measured city model. Returning to 2D hides the extrusions.
+
+The always-visible search bar accepts place names, addresses and postcodes.
+Click Search or press Enter to query OSM Nominatim, jump to the first result
+and add a location marker; alternative matches can be selected below the bar.
+Results are fitted using their real WGS84 coordinates and bounding boxes, while
+preserving the current tilt. A search outside an active 70 km restriction removes
+that restriction so the requested location can be reached. Queries are explicit,
+not autocomplete: the client spaces requests by at least 1.1 s, caches the last
+30 queries, cancels outdated requests and shows errors without moving the map.
+The browser's HTTP Referer identifies the app to the public search service.
 
 At street zooms the flood layer now uses the official WMS polygons directly,
 instead of enlarging the 25 m regional overview. Standard EPSG:3857 XYZ tiles
