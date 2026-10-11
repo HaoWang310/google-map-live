@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.17.2';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.17.9';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -6,10 +6,10 @@ const SEL_LINE='local-flood-selection-line';
 const SEL_POINTS='local-flood-selection-points';
 const WATER_SOURCE='local-flood-water-source';
 const WATER_LAYER='local-flood-water-layer';
-const SELECTED_BUILDINGS_SOURCE='local-flood-selected-buildings-source';
-const SELECTED_BUILDINGS_LAYER='local-flood-selected-buildings-layer';
-const IMPACT_SOURCE='local-flood-impact-source';
-const IMPACT_LAYER='local-flood-impact-layer';
+const FALLBACK_SELECTED_SOURCE='local-flood-selected-outline-source';
+const FALLBACK_SELECTED_LAYER='local-flood-selected-outline-layer';
+const FALLBACK_IMPACT_SOURCE='local-flood-impact-outline-source';
+const FALLBACK_IMPACT_LAYER='local-flood-impact-outline-layer';
 const R=6378137;
 
 const $=id=>document.getElementById(id);
@@ -137,6 +137,10 @@ export function createLocalFloodUI({
   let prepared=false;
   let selectedBuildings=[];
   let buildingById=new Map();
+  let selectedStateRefs=[];
+  let impactedStateIds=new Set();
+  let buildingSourceId=null;
+  let buildingSourceLayer='building';
   let canvas=null;
   let canvasContext=null;
   let simulator=null;
@@ -196,33 +200,64 @@ export function createLocalFloodUI({
     $('localFloodReset').disabled=!prepared;
   }
 
-  function removeSelectedBuildings(){
-    if(map.getLayer(SELECTED_BUILDINGS_LAYER))map.removeLayer(SELECTED_BUILDINGS_LAYER);
-    if(map.getSource(SELECTED_BUILDINGS_SOURCE))map.removeSource(SELECTED_BUILDINGS_SOURCE);
+  function removeFallbackBuildingLayers(){
+    for(const layer of [FALLBACK_IMPACT_LAYER,FALLBACK_SELECTED_LAYER]){
+      if(map.getLayer(layer))map.removeLayer(layer);
+    }
+    for(const source of [FALLBACK_IMPACT_SOURCE,FALLBACK_SELECTED_SOURCE]){
+      if(map.getSource(source))map.removeSource(source);
+    }
   }
 
-  function showSelectedBuildings(features){
-    removeSelectedBuildings();
-    map.addSource(SELECTED_BUILDINGS_SOURCE,{
-      type:'geojson',
-      data:{type:'FeatureCollection',features}
-    });
-    map.addLayer({
-      id:SELECTED_BUILDINGS_LAYER,
-      type:'fill-extrusion',
-      source:SELECTED_BUILDINGS_SOURCE,
-      paint:{
-        'fill-extrusion-color':'#45c6ff',
-        'fill-extrusion-height':['get','simHeight'],
-        'fill-extrusion-base':['get','simBase'],
-        'fill-extrusion-opacity':0.72
-      }
-    },getFirstSymbolLayerId());
+  function ensureFallbackBuildingLayers(){
+    if(!map.getSource(FALLBACK_SELECTED_SOURCE)){
+      map.addSource(FALLBACK_SELECTED_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+      map.addLayer({
+        id:FALLBACK_SELECTED_LAYER,type:'line',source:FALLBACK_SELECTED_SOURCE,
+        paint:{'line-color':'#45c6ff','line-width':3,'line-opacity':0.95}
+      },getFirstSymbolLayerId());
+    }
+    if(!map.getSource(FALLBACK_IMPACT_SOURCE)){
+      map.addSource(FALLBACK_IMPACT_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+      map.addLayer({
+        id:FALLBACK_IMPACT_LAYER,type:'line',source:FALLBACK_IMPACT_SOURCE,
+        paint:{'line-color':'#ff5a36','line-width':4.5,'line-opacity':1}
+      },getFirstSymbolLayerId());
+    }
+  }
+
+  function setBuildingState(ref,state){
+    if(!ref)return false;
+    try{
+      map.setFeatureState(ref,state);
+      return true;
+    }catch(error){
+      console.warn('Building feature-state failed',ref,error);
+      return false;
+    }
+  }
+
+  function clearImpactedStates(){
+    for(const simId of impactedStateIds){
+      const entry=buildingById.get(simId);
+      if(entry?.stateRef)setBuildingState(entry.stateRef,{localFloodImpacted:false});
+    }
+    impactedStateIds.clear();
+    map.getSource(FALLBACK_IMPACT_SOURCE)?.setData({type:'FeatureCollection',features:[]});
+  }
+
+  function clearSelectedBuildingStates(){
+    clearImpactedStates();
+    for(const ref of selectedStateRefs){
+      setBuildingState(ref,{localFloodSelected:false,localFloodImpacted:false});
+    }
+    selectedStateRefs=[];
+    buildingSourceId=null;
+    buildingSourceLayer='building';
+    removeFallbackBuildingLayers();
   }
 
   function removeWaterLayers(){
-    if(map.getLayer(IMPACT_LAYER))map.removeLayer(IMPACT_LAYER);
-    if(map.getSource(IMPACT_SOURCE))map.removeSource(IMPACT_SOURCE);
     if(map.getLayer(WATER_LAYER))map.removeLayer(WATER_LAYER);
     if(map.getSource(WATER_SOURCE))map.removeSource(WATER_SOURCE);
     if(canvas){canvas.remove();canvas=null;canvasContext=null;}
@@ -230,9 +265,10 @@ export function createLocalFloodUI({
 
   function clearSimulation(keepSelection=false){
     simulator?.pause();
-    prepared=false;setupInfo=null;selectedBuildings=[];buildingById.clear();
+    prepared=false;setupInfo=null;selectedBuildings=[];
+    clearSelectedBuildingStates();
+    buildingById.clear();
     removeWaterLayers();
-    removeSelectedBuildings();
     if(!keepSelection){
       drawing=false;vertices=[];polygon=null;
       map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features:[]});
@@ -262,13 +298,17 @@ export function createLocalFloodUI({
     await prepareSimulation();
   }
 
-  function normaliseBuilding(feature,id){
+  function normaliseBuilding(feature,id,source,sourceLayer){
     const props=feature.properties||{};
     const height=Math.max(2,Number(props.render_height)||Number(props.height)||5);
     const base=Math.max(0,Number(props.render_min_height)||Number(props.min_height)||0);
+    const stateRef=(feature.id!==undefined&&feature.id!==null)
+      ?{source,sourceLayer,id:feature.id}
+      :null;
     return {
       id,
       geometry:feature.geometry,
+      stateRef,
       feature:{
         type:'Feature',
         properties:{_simId:id,simHeight:height,simBase:base},
@@ -279,14 +319,21 @@ export function createLocalFloodUI({
 
   function queryBuildings(bounds,selectionRing){
     ensureCityBuildings();
-    const style=map.getStyle();
-    const buildingLayer=(style?.layers||[]).find(layer=>layer['source-layer']==='building');
-    const source=buildingLayer?.source;
-    if(!source)return [];
+    const cityLayer=map.getLayer(cityBuildingsLayerId);
+    const source=cityLayer?.source;
+    const sourceLayer=cityLayer?.['source-layer']||'building';
+    if(!source)return {features:[],source:null,sourceLayer};
 
     let raw=[];
-    try{raw=map.querySourceFeatures(source,{sourceLayer:'building'})||[];}
-    catch(error){console.warn('Building query failed',error);return [];}
+    try{
+      raw=map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[];
+    }catch(error){
+      console.warn('Rendered building query failed',error);
+    }
+    if(!raw.length){
+      try{raw=map.querySourceFeatures(source,{sourceLayer})||[];}
+      catch(error){console.warn('Source building query failed',error);return {features:[],source,sourceLayer};}
+    }
 
     const seen=new Set(),out=[];
     for(const feature of raw){
@@ -298,7 +345,7 @@ export function createLocalFloodUI({
       seen.add(key);
       out.push(feature);
     }
-    return out;
+    return {features:out,source,sourceLayer};
   }
 
   function ensureSimulator(){
@@ -340,16 +387,6 @@ export function createLocalFloodUI({
       paint:{'raster-opacity':0.86,'raster-resampling':'linear','raster-fade-duration':0}
     },map.getLayer(cityBuildingsLayerId)?cityBuildingsLayerId:getFirstSymbolLayerId());
 
-    map.addSource(IMPACT_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
-    map.addLayer({
-      id:IMPACT_LAYER,type:'fill-extrusion',source:IMPACT_SOURCE,
-      paint:{
-        'fill-extrusion-color':'#ff5a36',
-        'fill-extrusion-height':['get','simHeight'],
-        'fill-extrusion-base':['get','simBase'],
-        'fill-extrusion-opacity':0.9
-      }
-    },getFirstSymbolLayerId());
   }
 
   async function prepareSimulation(){
@@ -364,25 +401,40 @@ export function createLocalFloodUI({
     map.fitBounds([[bounds.west,bounds.south],[bounds.east,bounds.north]],{
       padding:55,maxZoom:16.2,duration:500
     });
-    await onceIdle(map);
-    selectedBuildings=queryBuildings(bounds,ring);
+    setCityView(true);
+    await onceIdle(map,3200);
 
+    const queried=queryBuildings(bounds,ring);
+    selectedBuildings=queried.features;
+    clearSelectedBuildingStates();
+    buildingSourceId=queried.source;
+    buildingSourceLayer=queried.sourceLayer;
     buildingById.clear();
-    const selectedFeatures=[];
+    ensureFallbackBuildingLayers();
+
+    const fallbackSelected=[];
     const buildings=selectedBuildings.map((feature,id)=>{
-      const item=normaliseBuilding(feature,id);
-      buildingById.set(id,item.feature);
-      selectedFeatures.push(item.feature);
+      const item=normaliseBuilding(feature,id,buildingSourceId,buildingSourceLayer);
+      buildingById.set(id,item);
+      if(item.stateRef&&setBuildingState(item.stateRef,{
+        localFloodSelected:true,
+        localFloodImpacted:false
+      })){
+        selectedStateRefs.push(item.stateRef);
+      }else{
+        fallbackSelected.push(item.feature);
+      }
       return {id,geometry:item.geometry};
     });
-    showSelectedBuildings(selectedFeatures);
+    map.getSource(FALLBACK_SELECTED_SOURCE)?.setData({
+      type:'FeatureCollection',features:fallbackSelected
+    });
 
     try{
       const info=await ensureSimulator().setup({polygon,buildings});
       setupInfo=info;
       prepared=true;
       ensureWaterLayer(info);
-      setCityView(true);
       $('localFloodGridInfo').textContent=
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
@@ -405,12 +457,27 @@ export function createLocalFloodUI({
     canvasContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
     map.triggerRepaint();
 
-    const features=[];
-    for(const id of data.impactedIds||[]){
-      const feature=buildingById.get(id);
-      if(feature)features.push(feature);
+    const nextImpacted=new Set(data.impactedIds||[]);
+    for(const id of impactedStateIds){
+      if(nextImpacted.has(id))continue;
+      const entry=buildingById.get(id);
+      if(entry?.stateRef)setBuildingState(entry.stateRef,{localFloodImpacted:false});
     }
-    map.getSource(IMPACT_SOURCE)?.setData({type:'FeatureCollection',features});
+
+    const fallbackImpact=[];
+    for(const id of nextImpacted){
+      const entry=buildingById.get(id);
+      if(!entry)continue;
+      if(entry.stateRef){
+        setBuildingState(entry.stateRef,{localFloodImpacted:true});
+      }else{
+        fallbackImpact.push(entry.feature);
+      }
+    }
+    impactedStateIds=nextImpacted;
+    map.getSource(FALLBACK_IMPACT_SOURCE)?.setData({
+      type:'FeatureCollection',features:fallbackImpact
+    });
 
     const s=data.stats;
     $('localFloodStats').textContent=
@@ -473,7 +540,7 @@ export function createLocalFloodUI({
   $('localFloodPause').addEventListener('click',()=>simulator?.pause());
   $('localFloodReset').addEventListener('click',()=>{
     simulator?.reset();
-    map.getSource(IMPACT_SOURCE)?.setData({type:'FeatureCollection',features:[]});
+    clearImpactedStates();
   });
   for(const id of ['localFloodRain','localFloodInfil','localFloodDuration']){
     $(id).addEventListener('input',updateParamLabels);
