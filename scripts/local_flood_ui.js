@@ -6,6 +6,8 @@ const SEL_LINE='local-flood-selection-line';
 const SEL_POINTS='local-flood-selection-points';
 const WATER_SOURCE='local-flood-water-source';
 const WATER_LAYER='local-flood-water-layer';
+const SELECTED_BUILDINGS_SOURCE='local-flood-selected-buildings-source';
+const SELECTED_BUILDINGS_LAYER='local-flood-selected-buildings-layer';
 const IMPACT_SOURCE='local-flood-impact-source';
 const IMPACT_LAYER='local-flood-impact-layer';
 const R=6378137;
@@ -52,6 +54,61 @@ function geometryBBox(geometry){
 
 function boxesIntersect(a,b){
   return !(a.east<b.west||a.west>b.east||a.north<b.south||a.south>b.north);
+}
+
+function pointInRingLngLat(point,ring){
+  const [x,y]=point;
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const [xi,yi]=ring[i], [xj,yj]=ring[j];
+    const hit=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/((yj-yi)||1e-12)+xi);
+    if(hit)inside=!inside;
+  }
+  return inside;
+}
+
+function orientation(a,b,c){
+  const value=(b[1]-a[1])*(c[0]-b[0])-(b[0]-a[0])*(c[1]-b[1]);
+  if(Math.abs(value)<1e-12)return 0;
+  return value>0?1:2;
+}
+
+function onSegment(a,b,c){
+  return b[0]<=Math.max(a[0],c[0])+1e-12&&b[0]>=Math.min(a[0],c[0])-1e-12&&
+         b[1]<=Math.max(a[1],c[1])+1e-12&&b[1]>=Math.min(a[1],c[1])-1e-12;
+}
+
+function segmentsIntersect(a,b,c,d){
+  const o1=orientation(a,b,c),o2=orientation(a,b,d),o3=orientation(c,d,a),o4=orientation(c,d,b);
+  if(o1!==o2&&o3!==o4)return true;
+  if(o1===0&&onSegment(a,c,b))return true;
+  if(o2===0&&onSegment(a,d,b))return true;
+  if(o3===0&&onSegment(c,a,d))return true;
+  if(o4===0&&onSegment(c,b,d))return true;
+  return false;
+}
+
+function ringEdgesIntersect(a,b){
+  for(let i=1;i<a.length;i++){
+    for(let j=1;j<b.length;j++){
+      if(segmentsIntersect(a[i-1],a[i],b[j-1],b[j]))return true;
+    }
+  }
+  return false;
+}
+
+function geometryIntersectsSelection(geometry,selectionRing){
+  const polygons=geometry?.type==='Polygon'
+    ?[geometry.coordinates]
+    :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
+  for(const polygon of polygons){
+    const outer=polygon?.[0];
+    if(!outer?.length)continue;
+    if(outer.some(point=>pointInRingLngLat(point,selectionRing)))return true;
+    if(selectionRing.some(point=>pointInRingLngLat(point,outer)))return true;
+    if(ringEdgesIntersect(outer,selectionRing))return true;
+  }
+  return false;
 }
 
 function featureKey(feature){
@@ -139,6 +196,30 @@ export function createLocalFloodUI({
     $('localFloodReset').disabled=!prepared;
   }
 
+  function removeSelectedBuildings(){
+    if(map.getLayer(SELECTED_BUILDINGS_LAYER))map.removeLayer(SELECTED_BUILDINGS_LAYER);
+    if(map.getSource(SELECTED_BUILDINGS_SOURCE))map.removeSource(SELECTED_BUILDINGS_SOURCE);
+  }
+
+  function showSelectedBuildings(features){
+    removeSelectedBuildings();
+    map.addSource(SELECTED_BUILDINGS_SOURCE,{
+      type:'geojson',
+      data:{type:'FeatureCollection',features}
+    });
+    map.addLayer({
+      id:SELECTED_BUILDINGS_LAYER,
+      type:'fill-extrusion',
+      source:SELECTED_BUILDINGS_SOURCE,
+      paint:{
+        'fill-extrusion-color':'#45c6ff',
+        'fill-extrusion-height':['get','simHeight'],
+        'fill-extrusion-base':['get','simBase'],
+        'fill-extrusion-opacity':0.72
+      }
+    },getFirstSymbolLayerId());
+  }
+
   function removeWaterLayers(){
     if(map.getLayer(IMPACT_LAYER))map.removeLayer(IMPACT_LAYER);
     if(map.getSource(IMPACT_SOURCE))map.removeSource(IMPACT_SOURCE);
@@ -151,6 +232,7 @@ export function createLocalFloodUI({
     simulator?.pause();
     prepared=false;setupInfo=null;selectedBuildings=[];buildingById.clear();
     removeWaterLayers();
+    removeSelectedBuildings();
     if(!keepSelection){
       drawing=false;vertices=[];polygon=null;
       map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features:[]});
@@ -195,7 +277,7 @@ export function createLocalFloodUI({
     };
   }
 
-  function queryBuildings(bounds){
+  function queryBuildings(bounds,selectionRing){
     ensureCityBuildings();
     const style=map.getStyle();
     const buildingLayer=(style?.layers||[]).find(layer=>layer['source-layer']==='building');
@@ -210,6 +292,7 @@ export function createLocalFloodUI({
     for(const feature of raw){
       if(!feature.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))continue;
       if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
+      if(!geometryIntersectsSelection(feature.geometry,selectionRing))continue;
       const key=featureKey(feature);
       if(seen.has(key))continue;
       seen.add(key);
@@ -282,14 +365,17 @@ export function createLocalFloodUI({
       padding:55,maxZoom:16.2,duration:500
     });
     await onceIdle(map);
-    selectedBuildings=queryBuildings(bounds);
+    selectedBuildings=queryBuildings(bounds,ring);
 
     buildingById.clear();
+    const selectedFeatures=[];
     const buildings=selectedBuildings.map((feature,id)=>{
       const item=normaliseBuilding(feature,id);
       buildingById.set(id,item.feature);
+      selectedFeatures.push(item.feature);
       return {id,geometry:item.geometry};
     });
+    showSelectedBuildings(selectedFeatures);
 
     try{
       const info=await ensureSimulator().setup({polygon,buildings});
@@ -301,7 +387,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· OSM 建筑 '+info.buildingCount+'。'
+        '（'+info.cellSizeM+' m）· 圈内高亮建筑 '+info.buildingCount+'。'
       );
       setButtons();
     }catch(error){
