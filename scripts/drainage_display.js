@@ -1,7 +1,7 @@
 // Shared protocol loader for both hydrology layers.
 // Both protocols are served by one Worker instance, so the encoded 50 m accumulation
 // field is fetched/decoded once and reused for area rendering and thresholded networks.
-export {AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './drainage_worker.js?v=3.16.0';
+export {AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './drainage_worker.js?v=3.16.1';
 
 export function createDrainageDisplayLoader(config){
   let worker=null,nextId=0;
@@ -9,7 +9,7 @@ export function createDrainageDisplayLoader(config){
 
   function start(){
     if(worker)return;
-    worker=new Worker(new URL('./drainage_worker.js?v=3.16.0',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./drainage_worker.js?v=3.16.1',import.meta.url),{type:'module'});
     worker.postMessage({type:'init',config});
     worker.onmessage=({data})=>{
       const request=pending.get(data.id);if(!request)return;
