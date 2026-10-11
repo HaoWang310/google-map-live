@@ -266,7 +266,7 @@ export function createLocalFloodUI({
         'fill-extrusion-base':['get','simBase'],
         'fill-extrusion-opacity':0.9
       }
-    });
+    },getFirstSymbolLayerId());
   }
 
   async function prepareSimulation(){
