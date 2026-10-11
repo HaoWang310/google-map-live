@@ -182,6 +182,7 @@ async function setup(data){
     water:new Float32Array(cols*rows),
     delta:new Float32Array(cols*rows),
     timeSec:0,
+    visualPhase:0,
     buildings:data.buildings||[],
     polygon:data.polygon
   };
@@ -281,25 +282,57 @@ function simulationStep(dt=5){
   sim.timeSec+=dt;
 }
 
-function depthColour(depth){
+function depthColour(depth,pulse=0,flowStrength=0){
   if(depth<0.005)return [0,0,0,0];
   const stops=[
-    [0.005,160,232,255,35],
-    [0.03,82,207,255,105],
-    [0.10,31,163,255,155],
-    [0.30,16,116,222,190],
-    [0.60,18,73,167,215],
-    [1.20,13,44,110,235]
+    [0.005,160,232,255,38],
+    [0.03,82,207,255,112],
+    [0.10,31,163,255,165],
+    [0.30,16,116,222,198],
+    [0.60,18,73,167,220],
+    [1.20,13,44,110,238]
   ];
   let a=stops[0],b=stops[stops.length-1];
   for(let i=1;i<stops.length;i++)if(depth<=stops[i][0]){a=stops[i-1];b=stops[i];break;}
   const t=clamp((depth-a[0])/(b[0]-a[0]||1),0,1);
-  return [
-    Math.round(a[1]+(b[1]-a[1])*t),
-    Math.round(a[2]+(b[2]-a[2])*t),
-    Math.round(a[3]+(b[3]-a[3])*t),
-    Math.round(a[4]+(b[4]-a[4])*t)
-  ];
+  let r=a[1]+(b[1]-a[1])*t;
+  let g=a[2]+(b[2]-a[2])*t;
+  let blue=a[3]+(b[3]-a[3])*t;
+  let alpha=a[4]+(b[4]-a[4])*t;
+
+  // Display-only moving highlight: the hydrodynamic state remains unchanged.
+  const glint=clamp((pulse*.5+.5)*(0.05+0.18*flowStrength),0,0.24);
+  r=r+(255-r)*glint;
+  g=g+(255-g)*glint;
+  blue=blue+(255-blue)*glint*.75;
+  alpha*=0.88+0.12*(pulse*.5+.5);
+
+  return [Math.round(r),Math.round(g),Math.round(blue),Math.round(alpha)];
+}
+
+function flowVisual(simulation,row,col,i){
+  const {cols,rows,terrain,inside,obstacle,water,visualPhase}=simulation;
+  const head=terrain[i]+water[i];
+  const getHead=(r,c)=>{
+    if(r<0||c<0||r>=rows||c>=cols)return head;
+    const j=r*cols+c;
+    if(!inside[j]||obstacle[j])return head;
+    return terrain[j]+water[j];
+  };
+  const left=getHead(row,col-1),right=getHead(row,col+1);
+  const up=getHead(row-1,col),down=getHead(row+1,col);
+  const dx=left-right;
+  const dy=up-down;
+  const mag=Math.hypot(dx,dy);
+  const nx=mag>1e-6?dx/mag:0.7071;
+  const ny=mag>1e-6?dy/mag:0.7071;
+  const flowStrength=clamp(mag/0.25,0,1);
+  const stripe=Math.sin((col*nx+row*ny)*1.55-visualPhase*2.7);
+  const ripple=Math.sin((col+row)*0.52-visualPhase*1.9);
+  return {
+    pulse:stripe*0.72+ripple*0.28,
+    flowStrength:Math.max(0.16,flowStrength)
+  };
 }
 
 function sendFrame(){
@@ -308,14 +341,17 @@ function sendFrame(){
   const pixels=new Uint8ClampedArray(cols*rows*4);
   let maxDepth=0,wetCells=0,volume=0;
   const impacted=new Set();
+  sim.visualPhase+=0.19;
 
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
     const i=row*cols+col;
+    // Strict polygon mask: outside the selected area is always fully transparent.
     if(!inside[i]||obstacle[i])continue;
     const h=water[i];
     if(h>maxDepth)maxDepth=h;
     if(h>=0.02){wetCells++;volume+=h*cell*cell;}
-    const colour=depthColour(h);
+    const flow=flowVisual(sim,row,col,i);
+    const colour=depthColour(h,flow.pulse,flow.flowStrength);
     const p=i*4;
     pixels[p]=colour[0];pixels[p+1]=colour[1];pixels[p+2]=colour[2];pixels[p+3]=colour[3];
 
@@ -343,14 +379,15 @@ function sendFrame(){
 function tick(){
   if(!running||!sim)return;
   const endSec=Math.max(1,Number(params.duration)||60)*60;
-  for(let i=0;i<4&&sim.timeSec<endSec;i++)simulationStep(5);
+  // Smaller physical increments make the propagation visible instead of jumping.
+  for(let i=0;i<2&&sim.timeSec<endSec;i++)simulationStep(3);
   sendFrame();
   if(sim.timeSec>=endSec){
     running=false;
     postMessage({type:'status',state:'complete'});
     return;
   }
-  timer=setTimeout(tick,45);
+  timer=setTimeout(tick,48);
 }
 
 onmessage=async({data})=>{
@@ -390,7 +427,7 @@ onmessage=async({data})=>{
     }
     if(data.type==='reset'){
       running=false;clearTimeout(timer);timer=null;
-      if(sim){sim.water.fill(0);sim.timeSec=0;sendFrame();}
+      if(sim){sim.water.fill(0);sim.timeSec=0;sim.visualPhase=0;sendFrame();}
       postMessage({type:'status',state:'reset'});
     }
   }catch(error){
