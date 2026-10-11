@@ -356,7 +356,7 @@ export function createLocalFloodUI({
 
   map.on('dblclick',event=>{
     if(!drawing)return;
-    event.preventDefault();
+    event.originalEvent?.preventDefault?.();
     if(vertices.length>=3)finishDrawing();
   });
 
