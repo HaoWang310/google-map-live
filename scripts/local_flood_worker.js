@@ -107,6 +107,15 @@ function chooseCellSize(width,height){
   return clamp(Math.ceil(target/5)*5,10,50);
 }
 
+function polygonIntersectsCell(cx,cy,cell,rings){
+  if(pointInPolygon(cx,cy,rings))return true;
+  const h=cell*.5;
+  const corners=[[cx-h,cy-h],[cx+h,cy-h],[cx+h,cy+h],[cx-h,cy+h]];
+  if(corners.some(([x,y])=>pointInPolygon(x,y,rings)))return true;
+  const outer=rings[0]||[];
+  return outer.some(([x,y])=>x>=cx-h&&x<=cx+h&&y>=cy-h&&y<=cy+h);
+}
+
 function rasterizeBuilding(simulation,building){
   const polygons=geometryPolygons(building.geometry);
   for(const poly of polygons){
@@ -125,7 +134,7 @@ function rasterizeBuilding(simulation,building){
         const i=row*simulation.cols+col;
         if(!simulation.inside[i])continue;
         const x=simulation.left+(col+.5)*simulation.cell;
-        if(pointInPolygon(x,y,rings)){
+        if(polygonIntersectsCell(x,y,simulation.cell,rings)){
           simulation.obstacle[i]=1;
           simulation.buildingIds[i]=building.id+1;
         }
