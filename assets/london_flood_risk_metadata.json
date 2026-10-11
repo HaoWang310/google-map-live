@@ -971,5 +971,17 @@
         0
       ]
     }
-  ]
+  ],
+  "street_detail": {
+    "added_on": "2026-10-11",
+    "source": "Same official present-day rofrs_4band and rofsw flooding-extent layers; live WMS requests.",
+    "request_crs": "EPSG:3857",
+    "tile_grid": "Standard OSM/Web Mercator XYZ, 512×512 pixels, zoom 13–17",
+    "pixel_size": "2π×6378137/(512×2^z) projected metres; ground size multiplied by cos(latitude). At London z14 ~3 m, z15 ~1.5 m. These are map-rendering pixels, not new model resolution.",
+    "processing": "Keep official SLD filters and fill colours, disable antialiasing and polygon outlines, decode risk categories exactly, select the highest available category per map pixel. No 25 m max aggregation or smoothing that invents risk boundaries.",
+    "mask": "Same study circle centre/radius/spherical distance and hydrology rectangle; pixel-centre test in EPSG:3857 map coordinates.",
+    "switching": "Keep the cached 25 m regional overview at smaller zooms and while detail loads. Hide every overview tile when all visible fine tiles are loaded, so old coarse cells cannot show through transparent fine pixels. Preserve the overview and flag detail-service errors.",
+    "cache": "64 encoded tiles in memory; request queue limited to 6 WMS requests; abort stale requests; retry temporary service failures.",
+    "licence": "Environment Agency / Open Government Licence v3.0"
+  }
 }

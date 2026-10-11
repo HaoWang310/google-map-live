@@ -2,11 +2,25 @@
 
 Live map: https://haowang310.github.io/google-map-live/
 
-Version 3.12.0 uses OpenStreetMap / OpenFreeMap and an independent layer list:
+Version 3.12.1 uses OpenStreetMap / OpenFreeMap and an independent layer list:
 EA LiDAR terrain, contributing area, EA present-day flood-risk overview,
 terrain-derived drainage network, and the 70 km study circle. Flood risk and
 the network are enabled by default, with separate opacity controls. The network
 also has minimum contributing-area controls (0.25, 1, or 5 km²).
+
+At street zooms the flood layer now uses the official WMS polygons directly,
+instead of enlarging the 25 m regional overview. Standard EPSG:3857 XYZ tiles
+(512 px, z13–17) match OSM exactly; at London z14 a display pixel is about 3 m,
+and at z15 about 1.5 m. The two official categories are compared per map pixel,
+without the overview's 25 m max aggregation or invented boundary smoothing.
+The palette, source filters and study-circle mask stay consistent. Map pixels
+are rendering detail, not new flood-model accuracy.
+
+The regional overview stays visible while fine tiles load, then is fully hidden
+so its coarse blocks cannot bleed through transparent detail pixels. If either
+official source fails, the overview remains visible with a service-error notice.
+Failed requests are retried, queued requests can be cancelled, and the last 64
+detail tiles are cached. The new browser loader is `scripts/flood_detail.js`.
 
 The flood overview is reconstructed from **Environment Agency official WMS
 data**, rather than stretching the uploaded PNG. It uses the present-day

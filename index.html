@@ -165,7 +165,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.12.0</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.12.1</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -238,7 +238,7 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>现状洪水风险等级 · EA</strong>
-              <small>伦敦 70 km · 官方已发布等级总览 · 25 m 显示</small>
+              <small>伦敦 70 km · 放大自动加载官方街道精细图</small>
             </span>
             <input id="floodToggle" type="checkbox" checked>
           </label>
@@ -325,7 +325,7 @@
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
           <a href="assets/london_flood_risk_metadata.json?v=3.12.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
-        <p>洪水图层于 2026-10-11 从官方 WMS 的现状、&gt;0 m 淹没范围等级获取；EPSG:27700 按 12.5 m 采样，每个 25 m 显示格保留所采样的较高等级，再以最近邻重投影到与汇水／网络完全相同的 EPSG:3857 外边界。颜色沿用上传总览图的等级顺序；25 m 是显示网格，不是新增的预测精度。未发布、不可用或未采样到的风险不能按零风险解释。</p>
+        <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
 
       <div class="row">
@@ -375,9 +375,10 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.12.1';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.12.0';
+  const APP_VERSION='3.12.1';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -504,6 +505,9 @@
   const FLOOD_GRID_SIZE=2;
   const FLOOD_SOURCE_PREFIX='ea-flood-risk-source-';
   const FLOOD_LAYER_PREFIX='ea-flood-risk-layer-';
+  const FLOOD_DETAIL_SOURCE='ea-flood-detail-source';
+  const FLOOD_DETAIL_LAYER='ea-flood-detail-layer';
+  const FLOOD_DETAIL_TILES=['ea-flood://tiles/{z}/{x}/{y}'];
   function floodTileIds(row,col){
     const suffix=row+'-'+col;
     return {source:FLOOD_SOURCE_PREFIX+suffix,layer:FLOOD_LAYER_PREFIX+suffix};
@@ -650,6 +654,12 @@
   let floodRequestId=0;
   const floodImageUrls=new Map();
   let floodLoadingPromise=null;
+  let floodDetailError=null;
+  let floodDetailSeen=false;
+  let floodDetailRetryCount=0;
+  let floodDetailRetryTimer=null;
+  let floodAppliedMode=null;
+  let floodAppliedOpacity=null;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -1266,12 +1276,76 @@
         if(osmMap.getLayer(ids.layer))osmMap.moveLayer(ids.layer,firstSymbol);
       }
     }
+    if(osmMap.getLayer(FLOOD_DETAIL_LAYER))osmMap.moveLayer(FLOOD_DETAIL_LAYER,firstSymbol);
     if(osmMap.getLayer(NETWORK_LAYER))osmMap.moveLayer(NETWORK_LAYER,firstSymbol);
   }
 
   function setFloodStatus(message,error=false){
     $('floodStatus').textContent=message;
     $('floodStatus').className='layerStatus'+(error?' error':'');
+  }
+
+  function ensureFloodDetailLayer(){
+    if(!floodEnabled||!osmStyleReady||!osmMap||osmMap.getZoom()<DETAIL_MIN_ZOOM||
+       !osmMap.getLayer(floodTileIds(0,0).layer))return;
+    if(!osmMap.getSource(FLOOD_DETAIL_SOURCE)){
+      const nw=networkCoordinates()[0],se=networkCoordinates()[2];
+      osmMap.addSource(FLOOD_DETAIL_SOURCE,{
+        type:'raster',tiles:FLOOD_DETAIL_TILES,tileSize:DETAIL_TILE_SIZE,
+        minzoom:DETAIL_MIN_ZOOM,maxzoom:DETAIL_MAX_ZOOM,
+        bounds:[nw[0],se[1],se[0],nw[1]],
+        attribution:'© Environment Agency · Open Government Licence v3.0'
+      });
+    }
+    if(!osmMap.getLayer(FLOOD_DETAIL_LAYER)){
+      osmMap.addLayer({id:FLOOD_DETAIL_LAYER,type:'raster',source:FLOOD_DETAIL_SOURCE,
+        minzoom:DETAIL_MIN_ZOOM,
+        paint:{'raster-opacity':0,'raster-fade-duration':0,'raster-resampling':'nearest'}
+      },getFirstSymbolLayerId());
+      floodAppliedMode=null;
+      keepDrainageAboveTerrain();
+    }
+  }
+
+  function syncFloodView(){
+    if(!floodEnabled||!osmMap||!osmStyleReady||!osmMap.getLayer(floodTileIds(0,0).layer))return;
+    ensureFloodDetailLayer();
+    const close=osmMap.getZoom()>=DETAIL_MIN_ZOOM;
+    const ready=close&&floodDetailSeen&&!floodDetailError&&osmMap.getSource(FLOOD_DETAIL_SOURCE)&&
+      osmMap.isSourceLoaded(FLOOD_DETAIL_SOURCE);
+    const mode=ready?'detail':close?(floodDetailError?'error':'loading'):'overview';
+    if(mode===floodAppliedMode&&floodOpacity===floodAppliedOpacity)return;
+    floodAppliedMode=mode;floodAppliedOpacity=floodOpacity;
+    for(let row=0;row<FLOOD_GRID_SIZE;row++){
+      for(let col=0;col<FLOOD_GRID_SIZE;col++){
+        const layer=floodTileIds(row,col).layer;
+        if(osmMap.getLayer(layer))osmMap.setPaintProperty(layer,'raster-opacity',ready?0:floodOpacity);
+      }
+    }
+    if(osmMap.getLayer(FLOOD_DETAIL_LAYER)){
+      osmMap.setPaintProperty(FLOOD_DETAIL_LAYER,'raster-opacity',ready?floodOpacity:0);
+    }
+    if(mode==='detail')setFloodStatus('已显示 · EA 官方街道精细图 · 随缩放细化');
+    else if(mode==='loading')setFloodStatus('正在加载官方街道精细图… 暂时显示总览');
+    else if(mode==='error')setFloodStatus('精细服务暂不可用，保留总览；可重新开关重试',true);
+    else setFloodStatus('已显示 · 25 m 区域总览 · 放大自动切换精细图');
+  }
+
+  function handleFloodDetailError(error){
+    if(!floodEnabled)return;
+    floodDetailError=error?.message||String(error);
+    syncFloodView();
+    // Successful tiles are cached by the loader; retry only the failed view.
+    if(floodDetailRetryTimer||floodDetailRetryCount>=2)return;
+    floodDetailRetryTimer=setTimeout(()=>{
+      floodDetailRetryTimer=null;
+      const source=osmMap?.getSource(FLOOD_DETAIL_SOURCE);
+      if(!floodEnabled||!source||osmMap.getZoom()<DETAIL_MIN_ZOOM)return;
+      floodDetailRetryCount++;
+      floodDetailError=null;
+      source.setTiles(FLOOD_DETAIL_TILES);
+      syncFloodView();
+    },2000);
   }
 
   async function getFloodImageUrls(){
@@ -1307,6 +1381,10 @@
 
   function removeFloodLayer(){
     if(!osmMap)return;
+    clearTimeout(floodDetailRetryTimer);floodDetailRetryTimer=null;
+    if(osmMap.getLayer(FLOOD_DETAIL_LAYER))osmMap.removeLayer(FLOOD_DETAIL_LAYER);
+    if(osmMap.getSource(FLOOD_DETAIL_SOURCE))osmMap.removeSource(FLOOD_DETAIL_SOURCE);
+    floodDetailError=null;floodDetailSeen=false;floodDetailRetryCount=0;floodAppliedMode=null;
     for(let row=0;row<FLOOD_GRID_SIZE;row++){
       for(let col=0;col<FLOOD_GRID_SIZE;col++){
         const ids=floodTileIds(row,col);
@@ -1352,7 +1430,8 @@
         }
       }
       keepDrainageAboveTerrain();
-      setFloodStatus('已显示 · EA 2026-10-11 获取 · 25 m 显示 · 较高已发布等级');
+      floodAppliedMode=null;
+      syncFloodView();
       return true;
     }catch(err){
       if(requestId!==floodRequestId||!floodEnabled)return false;
@@ -1763,6 +1842,14 @@
   function initOSM(){
     if(osmMap)return;
     say('正在加载 OpenStreetMap…');
+    const detailLoader=createFloodDetailLoader({
+      center:FOCUS70_CENTER,radius:FOCUS70_RADIUS_M,bounds:DRAINAGE_3857,assetUrl
+    });
+    maplibregl.addProtocol('ea-flood',async(request,controller)=>{
+      const result=await detailLoader(request,controller);
+      if(floodEnabled)floodDetailSeen=true;
+      return result;
+    });
     osmMap=new maplibregl.Map({
       container:'osmMap',
       style:'https://tiles.openfreemap.org/styles/liberty',
@@ -1803,6 +1890,11 @@
 
     osmMap.on('zoom',()=>{
       if(currentProvider==='osm')terrainCameraChanged();
+      syncFloodView();
+    });
+
+    osmMap.on('sourcedata',e=>{
+      if(e.sourceId===FLOOD_DETAIL_SOURCE)syncFloodView();
     });
 
     osmMap.on('move',()=>{
@@ -1819,8 +1911,10 @@
 
     osmMap.on('moveend',()=>{
       if(currentProvider==='osm')terrainCameraEnded();
+      syncFloodView();
     });
     osmMap.on('error',e=>{
+      if(e.sourceId===FLOOD_DETAIL_SOURCE){handleFloodDetailError(e.error);return;}
       console.error(e.error||e);
     });
   }
@@ -1999,13 +2093,7 @@
   $('floodOpacity').addEventListener('input',e=>{
     floodOpacity=Number(e.target.value);
     $('floodOpacityValue').textContent=Math.round(floodOpacity*100)+'%';
-    if(!osmMap)return;
-    for(let row=0;row<FLOOD_GRID_SIZE;row++){
-      for(let col=0;col<FLOOD_GRID_SIZE;col++){
-        const ids=floodTileIds(row,col);
-        if(osmMap.getLayer(ids.layer))osmMap.setPaintProperty(ids.layer,'raster-opacity',floodOpacity);
-      }
-    }
+    syncFloodView();
   });
 
   $('networkToggle').addEventListener('change',e=>{
