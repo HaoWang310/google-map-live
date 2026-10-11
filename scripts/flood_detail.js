@@ -1,5 +1,6 @@
 // Official present-day risk polygons rendered at the map's own XYZ tile grid.
-// No upsampling, 25 m max aggregation, or invented boundary smoothing.
+// Risk classes are decoded exactly here. Any soft edge visible on the map is a
+// display-only MapLibre resampling effect; it does not alter the categorical rank.
 export const DETAIL_MIN_ZOOM=13;
 export const DETAIL_MAX_ZOOM=17;
 export const DETAIL_TILE_SIZE=512;
