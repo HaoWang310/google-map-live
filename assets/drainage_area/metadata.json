@@ -97,6 +97,26 @@
   "asset": "assets/drainage_area/area_log16.webp",
   "asset_sha256": "f8942f0547fad1233bd2dcb9028bb43e4ef9677a19caf346300c5dbbab0bb0d7",
   "asset_size_bytes": 4320390,
+  "terrain_dem_asset": {
+    "path": "assets/drainage_area/dem50_log16.webp",
+    "sha256": "1d5979fb9b4a3cb7f1ca33089007c410eb683b0100bab668647c4502b285abaf",
+    "size_bytes": 5154506,
+    "source_resolution_m": 50,
+    "web_grid": "same EPSG:3857 bounds and dimensions as the accumulation field",
+    "reprojection": "bilinear from native OS Terrain 50 elevations",
+    "encoding": {
+      "code": "R * 256 + G; 0 = NoData",
+      "minimum_elevation_m": -100.0,
+      "step_m": 0.1,
+      "decode": "minimum_elevation_m + (code - 1) * step_m"
+    },
+    "purpose": "Local browser flood-routing simulation terrain. It remains a 50 m terrain model even when the visual simulation grid is finer.",
+    "valid_cells": 8087327,
+    "min_elevation_m": -4.8305344581604,
+    "max_elevation_m": 289.3976745605469,
+    "encoding_min_m": -100.0,
+    "encoding_step_m": 0.1
+  },
   "encoding": {
     "code": "R * 256 + G; 0 = NoData",
     "minimum_area_km2": 0.0025,
