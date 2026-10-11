@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.17.1';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.17.2';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
