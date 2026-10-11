@@ -1,5 +1,5 @@
 {
-  "name": "EA LiDAR Composite DTM 1 m: fast London overview",
+  "name": "EA LiDAR Composite DTM 1 m: local cached terrain pyramid",
   "publisher": "Environment Agency",
   "catalogue": "https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m",
   "licence": "Open Government Licence",
@@ -20,22 +20,26 @@
     ]
   },
   "source_resolution_m": 1,
-  "overview_note": "A compressed official coloured terrain rendering for fast regional viewing, not a 1 m numerical DEM. Uses the exact contributing-area/network outer bounds.",
+  "overview_note": "Official coloured terrain rendering cached locally and aligned to the exact contributing-area/network EPSG:3857 outer bounds. It is the runtime source for the local tile pyramid and is not a 1 m numerical DEM.",
   "official_png_sha256": "d678abbadd5dbbfca890c4c5c1fc3dd7737e93e4bbd9a61e4b58d0b97c5ac94d",
   "overview_asset": "assets/terrain/overview.webp",
   "overview_asset_sha256": "15b55107603f4c16bf627413b489e987e0babb66a64a90a96358cd3da56716eb",
   "overview_asset_size_bytes": 768390,
-  "detail_service": "https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wmts",
-  "capabilities": "https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wmts?SERVICE=WMTS&REQUEST=GetCapabilities&VERSION=1.0.0",
-  "detail_layer": "Lidar_Composite_DTM_1m",
+  "detail_service": null,
+  "capabilities": null,
+  "detail_layer": null,
   "detail_style": "",
-  "tile_matrix_set": "WebMercatorQuad",
+  "tile_matrix_set": "Local WebMercator XYZ generated in browser Worker",
   "tile_crs": "EPSG:3857",
   "tile_size": 256,
-  "tile_matrix_order": "TILEMATRIX=z, TILEROW=y, TILECOL=x; north-west origin, same as OSM XYZ",
+  "tile_matrix_order": "XYZ z/x/y, north-west origin, aligned with OSM / MapLibre",
   "detail_zoom_range": [
     8,
     17
   ],
-  "display_rule": "Load local overview on selection; load official cached tiles at zoom >=11 or outside the overview. Keep sources on deselection to reuse browser/map caches. Retain overview while detail loads; fall back to tiled official WMS if WMTS fails."
+  "display_rule": "v3.15.0: no live EA WMS/WMTS requests at runtime. The cached local overview is cropped and resampled into WebMercator XYZ tiles in a browser Worker; MapLibre overzooms the local pyramid above maxzoom. This removes remote-service gaps and seams. Visible detail is limited by the cached overview resolution.",
+  "runtime_external_service_dependency": false,
+  "runtime_tile_protocol": "ea-terrain-local://tiles/{z}/{x}/{y}",
+  "runtime_worker": "scripts/terrain_worker.js",
+  "version": "3.15.0"
 }
