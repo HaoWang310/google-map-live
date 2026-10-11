@@ -1,7 +1,7 @@
 // Dynamic terrain-derived drainage-network protocol.
 // A single Worker loads/decodes the shared 50 m Thames accumulation raster once.
 // There is no separate visible contributing-area layer and no independent network dataset.
-export {AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './drainage_worker.js?v=3.16.2';
+export {AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './drainage_worker.js?v=3.16.3';
 
 export function createDrainageDisplayLoader(config){
   let worker=null,nextId=0;
@@ -9,7 +9,7 @@ export function createDrainageDisplayLoader(config){
 
   function start(){
     if(worker)return;
-    worker=new Worker(new URL('./drainage_worker.js?v=3.16.2',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./drainage_worker.js?v=3.16.3',import.meta.url),{type:'module'});
     worker.postMessage({type:'init',config});
     worker.onmessage=({data})=>{
       const request=pending.get(data.id);
