@@ -1,0 +1,391 @@
+const R=6378137;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let demConfig=null;
+let demPromise=null;
+let sim=null;
+let running=false;
+let timer=null;
+let params={rainfall:50,infiltration:5,duration:60,openBoundary:true};
+
+function mercator(lng,lat){
+  const lon=lng*Math.PI/180;
+  const phi=clamp(lat,-85.05112878,85.05112878)*Math.PI/180;
+  return [R*lon,R*Math.log(Math.tan(Math.PI/4+phi/2))];
+}
+
+function lngLat(x,y){
+  return [x/R*180/Math.PI,(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI];
+}
+
+function pointInRing(x,y,ring){
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+    const hit=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/((yj-yi)||1e-12)+xi);
+    if(hit)inside=!inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(x,y,rings){
+  if(!rings?.length||!pointInRing(x,y,rings[0]))return false;
+  for(let i=1;i<rings.length;i++)if(pointInRing(x,y,rings[i]))return false;
+  return true;
+}
+
+function geometryPolygons(geometry){
+  if(!geometry)return [];
+  if(geometry.type==='Polygon')return [geometry.coordinates];
+  if(geometry.type==='MultiPolygon')return geometry.coordinates;
+  return [];
+}
+
+function toMercatorRings(rings){
+  return rings.map(ring=>ring.map(([lng,lat])=>mercator(lng,lat)));
+}
+
+function bboxOfRings(rings){
+  let left=Infinity,right=-Infinity,bottom=Infinity,top=-Infinity;
+  for(const ring of rings)for(const [x,y] of ring){
+    if(x<left)left=x;if(x>right)right=x;if(y<bottom)bottom=y;if(y>top)top=y;
+  }
+  return {left,right,bottom,top};
+}
+
+async function loadDem(){
+  if(demPromise)return demPromise;
+  demPromise=(async()=>{
+    const response=await fetch(demConfig.demUrl,{cache:'force-cache'});
+    if(!response.ok)throw new Error('50 m 地形数据加载失败（'+response.status+'）');
+    const bitmap=await createImageBitmap(await response.blob());
+    if(bitmap.width!==demConfig.demWidth||bitmap.height!==demConfig.demHeight){
+      bitmap.close();
+      throw new Error('50 m 地形数据尺寸不匹配');
+    }
+    const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.drawImage(bitmap,0,0);
+    bitmap.close();
+    const rgba=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    const codes=new Uint16Array(canvas.width*canvas.height);
+    for(let i=0;i<codes.length;i++)codes[i]=(rgba[i*4]<<8)|rgba[i*4+1];
+    canvas.width=1;canvas.height=1;
+    return codes;
+  })().catch(error=>{demPromise=null;throw error;});
+  return demPromise;
+}
+
+function decodeDem(code){
+  if(!code)return NaN;
+  return demConfig.demEncoding.minimum + (code-1)*demConfig.demEncoding.step;
+}
+
+function sampleDem(codes,x,y){
+  const b=demConfig.demBounds;
+  if(x<b.left||x>b.right||y<b.bottom||y>b.top)return NaN;
+  const sx=(x-b.left)/(b.right-b.left)*demConfig.demWidth-.5;
+  const sy=(b.top-y)/(b.top-b.bottom)*demConfig.demHeight-.5;
+  const x0=clamp(Math.floor(sx),0,demConfig.demWidth-1),x1=clamp(x0+1,0,demConfig.demWidth-1);
+  const y0=clamp(Math.floor(sy),0,demConfig.demHeight-1),y1=clamp(y0+1,0,demConfig.demHeight-1);
+  const tx=clamp(sx-Math.floor(sx),0,1),ty=clamp(sy-Math.floor(sy),0,1);
+  const vals=[
+    decodeDem(codes[y0*demConfig.demWidth+x0]),
+    decodeDem(codes[y0*demConfig.demWidth+x1]),
+    decodeDem(codes[y1*demConfig.demWidth+x0]),
+    decodeDem(codes[y1*demConfig.demWidth+x1])
+  ];
+  const valid=vals.filter(Number.isFinite);
+  if(!valid.length)return NaN;
+  for(let i=0;i<4;i++)if(!Number.isFinite(vals[i]))vals[i]=valid[0];
+  const a=vals[0]*(1-tx)+vals[1]*tx;
+  const btm=vals[2]*(1-tx)+vals[3]*tx;
+  return a*(1-ty)+btm*ty;
+}
+
+function chooseCellSize(width,height){
+  const target=Math.max(width/240,height/240,10);
+  return clamp(Math.ceil(target/5)*5,10,50);
+}
+
+function rasterizeBuilding(simulation,building){
+  const polygons=geometryPolygons(building.geometry);
+  for(const poly of polygons){
+    const rings=toMercatorRings(poly);
+    if(!rings.length)continue;
+    const box=bboxOfRings(rings);
+    if(box.right<simulation.left||box.left>simulation.right||
+       box.top<simulation.bottom||box.bottom>simulation.top)continue;
+    const c0=clamp(Math.floor((box.left-simulation.left)/simulation.cell),0,simulation.cols-1);
+    const c1=clamp(Math.ceil((box.right-simulation.left)/simulation.cell),0,simulation.cols-1);
+    const r0=clamp(Math.floor((simulation.top-box.top)/simulation.cell),0,simulation.rows-1);
+    const r1=clamp(Math.ceil((simulation.top-box.bottom)/simulation.cell),0,simulation.rows-1);
+    for(let row=r0;row<=r1;row++){
+      const y=simulation.top-(row+.5)*simulation.cell;
+      for(let col=c0;col<=c1;col++){
+        const i=row*simulation.cols+col;
+        if(!simulation.inside[i])continue;
+        const x=simulation.left+(col+.5)*simulation.cell;
+        if(pointInPolygon(x,y,rings)){
+          simulation.obstacle[i]=1;
+          simulation.buildingIds[i]=building.id+1;
+        }
+      }
+    }
+  }
+}
+
+async function setup(data){
+  const codes=await loadDem();
+  const selectionRings=toMercatorRings(data.polygon);
+  const box=bboxOfRings(selectionRings);
+  const width=box.right-box.left,height=box.top-box.bottom;
+  if(!(width>0&&height>0))throw new Error('圈选范围无效');
+  if(width>12000||height>12000)throw new Error('圈选范围过大；请控制在约 12 km × 12 km 内');
+
+  const cell=chooseCellSize(width,height);
+  const cols=Math.max(1,Math.ceil(width/cell));
+  const rows=Math.max(1,Math.ceil(height/cell));
+  if(cols*rows>70000)throw new Error('圈选范围过大；模拟网格超过 70,000 个单元');
+
+  const terrain=new Float32Array(cols*rows);
+  const inside=new Uint8Array(cols*rows);
+  const obstacle=new Uint8Array(cols*rows);
+  const buildingIds=new Uint32Array(cols*rows);
+  const boundary=new Uint8Array(cols*rows);
+  terrain.fill(NaN);
+
+  for(let row=0;row<rows;row++){
+    const y=box.top-(row+.5)*cell;
+    for(let col=0;col<cols;col++){
+      const x=box.left+(col+.5)*cell;
+      const i=row*cols+col;
+      if(!pointInPolygon(x,y,selectionRings))continue;
+      const z=sampleDem(codes,x,y);
+      if(!Number.isFinite(z))continue;
+      inside[i]=1;
+      terrain[i]=z;
+    }
+  }
+
+  sim={
+    left:box.left,right:box.right,bottom:box.bottom,top:box.top,
+    cols,rows,cell,terrain,inside,obstacle,buildingIds,boundary,
+    water:new Float32Array(cols*rows),
+    delta:new Float32Array(cols*rows),
+    timeSec:0,
+    buildings:data.buildings||[],
+    polygon:data.polygon
+  };
+
+  for(const building of sim.buildings)rasterizeBuilding(sim,building);
+
+  for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
+    const i=row*cols+col;
+    if(!inside[i]||obstacle[i])continue;
+    if(row===0||col===0||row===rows-1||col===cols-1){boundary[i]=1;continue;}
+    const n=[i-cols,i+1,i+cols,i-1];
+    if(n.some(j=>!inside[j]))boundary[i]=1;
+  }
+
+  let insideCount=0,buildingCells=0,minZ=Infinity,maxZ=-Infinity;
+  for(let i=0;i<inside.length;i++){
+    if(inside[i]){
+      insideCount++;
+      if(terrain[i]<minZ)minZ=terrain[i];
+      if(terrain[i]>maxZ)maxZ=terrain[i];
+    }
+    if(obstacle[i])buildingCells++;
+  }
+
+  postMessage({
+    type:'setup-complete',
+    requestId:data.requestId,
+    cols,rows,cellSizeM:cell,
+    widthM:width,heightM:height,
+    insideCells:insideCount,buildingCells,
+    buildingCount:sim.buildings.length,
+    terrainMinM:Number.isFinite(minZ)?minZ:null,
+    terrainMaxM:Number.isFinite(maxZ)?maxZ:null,
+    boundsLngLat:[
+      lngLat(box.left,box.top),
+      lngLat(box.right,box.top),
+      lngLat(box.right,box.bottom),
+      lngLat(box.left,box.bottom)
+    ]
+  });
+  sendFrame();
+}
+
+function simulationStep(dt=5){
+  if(!sim)return;
+  const {cols,rows,terrain,inside,obstacle,water,delta,boundary}=sim;
+  const rain=Math.max(0,Number(params.rainfall)||0)/1000/3600*dt;
+  const infil=Math.max(0,Number(params.infiltration)||0)/1000/3600*dt;
+
+  for(let i=0;i<water.length;i++){
+    if(!inside[i]||obstacle[i])continue;
+    water[i]=Math.max(0,water[i]+rain-infil);
+  }
+
+  delta.fill(0);
+  for(let row=0;row<rows;row++){
+    for(let col=0;col<cols;col++){
+      const i=row*cols+col;
+      const h=water[i];
+      if(h<0.0001||!inside[i]||obstacle[i])continue;
+      const head=terrain[i]+h;
+      const neigh=[];
+      if(row>0)neigh.push(i-cols);
+      if(col<cols-1)neigh.push(i+1);
+      if(row<rows-1)neigh.push(i+cols);
+      if(col>0)neigh.push(i-1);
+
+      let sumDrop=0;
+      const drops=[];
+      for(const j of neigh){
+        if(!inside[j]||obstacle[j]){drops.push(0);continue;}
+        const drop=Math.max(0,head-(terrain[j]+water[j]));
+        drops.push(drop);sumDrop+=drop;
+      }
+
+      if(sumDrop>0){
+        const transferable=Math.min(h*0.36,sumDrop*0.08);
+        for(let k=0;k<neigh.length;k++){
+          const drop=drops[k];
+          if(drop<=0)continue;
+          const q=transferable*drop/sumDrop;
+          delta[i]-=q;
+          delta[neigh[k]]+=q;
+        }
+      }
+
+      if(params.openBoundary&&boundary[i]){
+        delta[i]-=Math.min(Math.max(0,h+delta[i]),h*0.035);
+      }
+    }
+  }
+
+  for(let i=0;i<water.length;i++){
+    if(!inside[i]||obstacle[i]){water[i]=0;continue;}
+    water[i]=Math.max(0,water[i]+delta[i]);
+  }
+  sim.timeSec+=dt;
+}
+
+function depthColour(depth){
+  if(depth<0.005)return [0,0,0,0];
+  const stops=[
+    [0.005,160,232,255,35],
+    [0.03,82,207,255,105],
+    [0.10,31,163,255,155],
+    [0.30,16,116,222,190],
+    [0.60,18,73,167,215],
+    [1.20,13,44,110,235]
+  ];
+  let a=stops[0],b=stops[stops.length-1];
+  for(let i=1;i<stops.length;i++)if(depth<=stops[i][0]){a=stops[i-1];b=stops[i];break;}
+  const t=clamp((depth-a[0])/(b[0]-a[0]||1),0,1);
+  return [
+    Math.round(a[1]+(b[1]-a[1])*t),
+    Math.round(a[2]+(b[2]-a[2])*t),
+    Math.round(a[3]+(b[3]-a[3])*t),
+    Math.round(a[4]+(b[4]-a[4])*t)
+  ];
+}
+
+function sendFrame(){
+  if(!sim)return;
+  const {cols,rows,inside,obstacle,buildingIds,water,cell}=sim;
+  const pixels=new Uint8ClampedArray(cols*rows*4);
+  let maxDepth=0,wetCells=0,volume=0;
+  const impacted=new Set();
+
+  for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
+    const i=row*cols+col;
+    if(!inside[i]||obstacle[i])continue;
+    const h=water[i];
+    if(h>maxDepth)maxDepth=h;
+    if(h>=0.02){wetCells++;volume+=h*cell*cell;}
+    const colour=depthColour(h);
+    const p=i*4;
+    pixels[p]=colour[0];pixels[p+1]=colour[1];pixels[p+2]=colour[2];pixels[p+3]=colour[3];
+
+    if(h>=0.05){
+      if(row>0&&obstacle[i-cols]&&buildingIds[i-cols])impacted.add(buildingIds[i-cols]-1);
+      if(col<cols-1&&obstacle[i+1]&&buildingIds[i+1])impacted.add(buildingIds[i+1]-1);
+      if(row<rows-1&&obstacle[i+cols]&&buildingIds[i+cols])impacted.add(buildingIds[i+cols]-1);
+      if(col>0&&obstacle[i-1]&&buildingIds[i-1])impacted.add(buildingIds[i-1]-1);
+    }
+  }
+
+  postMessage({
+    type:'frame',width:cols,height:rows,pixels:pixels.buffer,
+    stats:{
+      timeMin:sim.timeSec/60,
+      maxDepthM:maxDepth,
+      wetAreaM2:wetCells*cell*cell,
+      volumeM3:volume,
+      impactedCount:impacted.size
+    },
+    impactedIds:[...impacted]
+  },[pixels.buffer]);
+}
+
+function tick(){
+  if(!running||!sim)return;
+  const endSec=Math.max(1,Number(params.duration)||60)*60;
+  for(let i=0;i<4&&sim.timeSec<endSec;i++)simulationStep(5);
+  sendFrame();
+  if(sim.timeSec>=endSec){
+    running=false;
+    postMessage({type:'status',state:'complete'});
+    return;
+  }
+  timer=setTimeout(tick,45);
+}
+
+onmessage=async({data})=>{
+  try{
+    if(data.type==='init'){
+      demConfig={
+        demUrl:data.demUrl,
+        demBounds:data.demBounds,
+        demWidth:data.demWidth,
+        demHeight:data.demHeight,
+        demEncoding:data.demEncoding
+      };
+      return;
+    }
+    if(data.type==='setup'){
+      running=false;clearTimeout(timer);timer=null;
+      await setup(data);
+      return;
+    }
+    if(data.type==='params'){
+      params={...params,...data.params};
+      return;
+    }
+    if(data.type==='start'){
+      params={...params,...data.params};
+      if(!sim)throw new Error('请先圈选并准备模拟区域');
+      if(running)return;
+      running=true;
+      postMessage({type:'status',state:'running'});
+      tick();
+      return;
+    }
+    if(data.type==='pause'){
+      running=false;clearTimeout(timer);timer=null;
+      postMessage({type:'status',state:'paused'});
+      return;
+    }
+    if(data.type==='reset'){
+      running=false;clearTimeout(timer);timer=null;
+      if(sim){sim.water.fill(0);sim.timeSec=0;sendFrame();}
+      postMessage({type:'status',state:'reset'});
+    }
+  }catch(error){
+    running=false;clearTimeout(timer);timer=null;
+    postMessage({type:'error',requestId:data.requestId||0,message:error?.message||String(error)});
+  }
+};
