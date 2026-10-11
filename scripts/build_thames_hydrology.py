@@ -179,15 +179,29 @@ def extract_recursive(zip_path: Path, dest: Path) -> None:
 
 
 def read_ascii(path: Path):
+    # OS Terrain 50 ASCII grids normally use five header lines (no NODATA line),
+    # while generic ArcGrid files may use six. Stop as soon as the first numeric
+    # elevation row is encountered rather than assuming a fixed header length.
     header = {}
+    known = {"ncols", "nrows", "xllcorner", "yllcorner",
+             "xllcenter", "yllcenter", "cellsize", "nodata_value"}
     with path.open("r", encoding="utf-8", errors="ignore") as f:
-        for _ in range(6):
+        while True:
+            pos = f.tell()
             line = f.readline()
             if not line:
-                raise RuntimeError(f"Incomplete ASCII header: {path}")
-            k, v = line.strip().split(None, 1)
-            header[k.lower()] = float(v)
+                break
+            parts = line.strip().split(None, 1)
+            key = parts[0].lower() if parts else ""
+            if len(parts) == 2 and key in known:
+                header[key] = float(parts[1])
+            else:
+                f.seek(pos)
+                break
         text = f.read()
+    for required in ("ncols","nrows","cellsize"):
+        if required not in header:
+            raise RuntimeError(f"Missing {required} in ASCII header: {path}")
     ncols, nrows = int(header["ncols"]), int(header["nrows"])
     cell = float(header["cellsize"])
     arr = np.fromstring(text, sep=" ", dtype=np.float32)
