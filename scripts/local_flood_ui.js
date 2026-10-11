@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.17.9';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.18.0';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -6,8 +6,6 @@ const SEL_LINE='local-flood-selection-line';
 const SEL_POINTS='local-flood-selection-points';
 const WATER_SOURCE='local-flood-water-source';
 const WATER_LAYER='local-flood-water-layer';
-const FALLBACK_SELECTED_SOURCE='local-flood-selected-outline-source';
-const FALLBACK_SELECTED_LAYER='local-flood-selected-outline-layer';
 const FALLBACK_IMPACT_SOURCE='local-flood-impact-outline-source';
 const FALLBACK_IMPACT_LAYER='local-flood-impact-outline-layer';
 const R=6378137;
@@ -129,7 +127,8 @@ function onceIdle(map,timeout=2200){
 
 export function createLocalFloodUI({
   map,maplibregl,assetUrl,demBounds,demWidth,demHeight,
-  ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId
+  ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId,
+  setCityBuildingFloodSelection
 }){
   let drawing=false;
   let vertices=[];
@@ -137,7 +136,6 @@ export function createLocalFloodUI({
   let prepared=false;
   let selectedBuildings=[];
   let buildingById=new Map();
-  let selectedStateRefs=[];
   let impactedStateIds=new Set();
   let buildingSourceId=null;
   let buildingSourceLayer='building';
@@ -201,22 +199,11 @@ export function createLocalFloodUI({
   }
 
   function removeFallbackBuildingLayers(){
-    for(const layer of [FALLBACK_IMPACT_LAYER,FALLBACK_SELECTED_LAYER]){
-      if(map.getLayer(layer))map.removeLayer(layer);
-    }
-    for(const source of [FALLBACK_IMPACT_SOURCE,FALLBACK_SELECTED_SOURCE]){
-      if(map.getSource(source))map.removeSource(source);
-    }
+    if(map.getLayer(FALLBACK_IMPACT_LAYER))map.removeLayer(FALLBACK_IMPACT_LAYER);
+    if(map.getSource(FALLBACK_IMPACT_SOURCE))map.removeSource(FALLBACK_IMPACT_SOURCE);
   }
 
   function ensureFallbackBuildingLayers(){
-    if(!map.getSource(FALLBACK_SELECTED_SOURCE)){
-      map.addSource(FALLBACK_SELECTED_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
-      map.addLayer({
-        id:FALLBACK_SELECTED_LAYER,type:'line',source:FALLBACK_SELECTED_SOURCE,
-        paint:{'line-color':'#45c6ff','line-width':3,'line-opacity':0.95}
-      },getFirstSymbolLayerId());
-    }
     if(!map.getSource(FALLBACK_IMPACT_SOURCE)){
       map.addSource(FALLBACK_IMPACT_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
       map.addLayer({
@@ -248,10 +235,7 @@ export function createLocalFloodUI({
 
   function clearSelectedBuildingStates(){
     clearImpactedStates();
-    for(const ref of selectedStateRefs){
-      setBuildingState(ref,{localFloodSelected:false,localFloodImpacted:false});
-    }
-    selectedStateRefs=[];
+    setCityBuildingFloodSelection?.(null);
     buildingSourceId=null;
     buildingSourceLayer='building';
     removeFallbackBuildingLayers();
@@ -412,22 +396,16 @@ export function createLocalFloodUI({
     buildingById.clear();
     ensureFallbackBuildingLayers();
 
-    const fallbackSelected=[];
+    // Strict visual rule: the native OSM extrusion layer is coloured blue only
+    // where the building geometry is inside the user polygon. No global ID-only
+    // selection is used, avoiding repeated vector-tile IDs colouring buildings elsewhere.
+    setCityBuildingFloodSelection?.(polygon);
+
     const buildings=selectedBuildings.map((feature,id)=>{
       const item=normaliseBuilding(feature,id,buildingSourceId,buildingSourceLayer);
       buildingById.set(id,item);
-      if(item.stateRef&&setBuildingState(item.stateRef,{
-        localFloodSelected:true,
-        localFloodImpacted:false
-      })){
-        selectedStateRefs.push(item.stateRef);
-      }else{
-        fallbackSelected.push(item.feature);
-      }
+      if(item.stateRef)setBuildingState(item.stateRef,{localFloodImpacted:false});
       return {id,geometry:item.geometry};
-    });
-    map.getSource(FALLBACK_SELECTED_SOURCE)?.setData({
-      type:'FeatureCollection',features:fallbackSelected
     });
 
     try{
