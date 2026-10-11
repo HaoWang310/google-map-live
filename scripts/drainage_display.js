@@ -1,12 +1,12 @@
 // The worker starts on first selection, and renders only requested map tiles.
-export {AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './drainage_worker.js?v=3.14.0';
+export {AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './drainage_worker.js?v=3.15.1';
 
 export function createDrainageDisplayLoader(config){
   let worker=null,nextId=0;
   const pending=new Map();
   function start(){
     if(worker)return;
-    worker=new Worker(new URL('./drainage_worker.js?v=3.14.0',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./drainage_worker.js?v=3.15.1',import.meta.url),{type:'module'});
     worker.postMessage({type:'init',config});
     worker.onmessage=({data})=>{
       const request=pending.get(data.id);if(!request)return;
