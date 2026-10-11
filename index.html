@@ -91,6 +91,7 @@
     .networkLegend{display:flex;flex-wrap:wrap;gap:5px 10px;padding:0 10px 8px;font-size:9px;color:#cbd5e1}
     .networkLegend span{display:inline-flex;align-items:center;gap:4px}
     .networkLegend i{display:inline-block;width:15px;height:3px;background:var(--swatch);border-radius:2px}
+    .floodLegend i{width:10px;height:10px;border-radius:2px}
     .layerStatus{padding:0 10px 9px;font-size:10px;color:#7dd3fc;min-height:14px}
     .layerStatus.error{color:#ffb8b8}
     .layerSources{margin-top:10px;font-size:10px;line-height:1.6;color:#b2c0d1}
@@ -164,7 +165,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.11.0</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.12.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -233,6 +234,32 @@
           </div>
         </div>
 
+        <div class="layerItem focusActive" id="floodItem">
+          <label class="layerRow">
+            <span class="layerName">
+              <strong>现状洪水风险等级 · EA</strong>
+              <small>伦敦 70 km · 官方已发布等级总览 · 25 m 显示</small>
+            </span>
+            <input id="floodToggle" type="checkbox" checked>
+          </label>
+          <div class="rangeRow">
+            <span>透明度</span>
+            <input id="floodOpacity" aria-label="洪水风险透明度" type="range" min="0" max="1" step="0.05" value="0.7">
+            <span id="floodOpacityValue">70%</span>
+          </div>
+          <div class="networkLegend floodLegend" aria-label="各来源的年洪水发生概率等级">
+            <span><i style="--swatch:#9cddea"></i>很低 &lt;0.1%</span>
+            <span><i style="--swatch:#f7d359"></i>低 0.1–&lt;1%</span>
+            <span><i style="--swatch:#f29d38"></i>中 1–&lt;3.3%</span>
+            <span><i style="--swatch:#d73731"></i>高 ≥3.3%</span>
+            <span><i style="--swatch:#999c9e"></i>不可用</span>
+          </div>
+          <div class="layerMeta">
+            河流／海洋与地表水两套现状风险图中，取可获得的较高等级；不是合并洪水概率，也不是洪水深度。空白不代表无风险。
+          </div>
+          <div id="floodStatus" class="layerStatus" role="status" aria-live="polite">等待地图加载…</div>
+        </div>
+
         <div class="layerItem focusActive" id="networkItem">
           <label class="layerRow">
             <span class="layerName">
@@ -289,10 +316,16 @@
         </p>
         <p>汇水与网络：本项目的 50 m 汇水栅格（每格 0.0025 km²），并非官方实测河网。现有元数据标注其地形来源为 EA DTM；原文件未附 DEM→汇水的完整处理日志。本次网络直接按该栅格的实际 km² 数值提取。
           <a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm" target="_blank" rel="noopener noreferrer">阈值提取方法</a> ·
-          <a href="assets/london_drainage_network_metadata.json?v=3.11.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
+          <a href="assets/london_drainage_network_metadata.json?v=3.12.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
         </p>
         <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。</p>
         <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
+        <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
+          <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
+          <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
+          <a href="assets/london_flood_risk_metadata.json?v=3.12.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
+        </p>
+        <p>洪水图层于 2026-10-11 从官方 WMS 的现状、&gt;0 m 淹没范围等级获取；EPSG:27700 按 12.5 m 采样，每个 25 m 显示格保留所采样的较高等级，再以最近邻重投影到与汇水／网络完全相同的 EPSG:3857 外边界。颜色沿用上传总览图的等级顺序；25 m 是显示网格，不是新增的预测精度。未发布、不可用或未采样到的风险不能按零风险解释。</p>
       </details>
 
       <div class="row">
@@ -344,7 +377,7 @@
 <script type="module">
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.11.0';
+  const APP_VERSION='3.12.0';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -419,16 +452,16 @@
     return [lng,lat];
   }
 
-  function drainageTileCoordinates(row,col){
+  function drainageTileCoordinates(row,col,gridSize=DRAINAGE_GRID_SIZE){
     const x0=DRAINAGE_3857.left+
-      (DRAINAGE_3857.right-DRAINAGE_3857.left)*(col/DRAINAGE_GRID_SIZE);
+      (DRAINAGE_3857.right-DRAINAGE_3857.left)*(col/gridSize);
     const x1=DRAINAGE_3857.left+
-      (DRAINAGE_3857.right-DRAINAGE_3857.left)*((col+1)/DRAINAGE_GRID_SIZE);
+      (DRAINAGE_3857.right-DRAINAGE_3857.left)*((col+1)/gridSize);
 
     const yTop=DRAINAGE_3857.top-
-      (DRAINAGE_3857.top-DRAINAGE_3857.bottom)*(row/DRAINAGE_GRID_SIZE);
+      (DRAINAGE_3857.top-DRAINAGE_3857.bottom)*(row/gridSize);
     const yBottom=DRAINAGE_3857.top-
-      (DRAINAGE_3857.top-DRAINAGE_3857.bottom)*((row+1)/DRAINAGE_GRID_SIZE);
+      (DRAINAGE_3857.top-DRAINAGE_3857.bottom)*((row+1)/gridSize);
 
     // MapLibre image coordinates: NW, NE, SE, SW.
     return [
@@ -466,6 +499,15 @@
     '1':'assets/drainage_network/network_1.webp',
     '5':'assets/drainage_network/network_5.webp'
   };
+  // 25 m display: twice the base hydrology dimensions, split below 4096 px.
+  // Outer bounds and every image coordinate share the existing EPSG:3857 grid.
+  const FLOOD_GRID_SIZE=2;
+  const FLOOD_SOURCE_PREFIX='ea-flood-risk-source-';
+  const FLOOD_LAYER_PREFIX='ea-flood-risk-layer-';
+  function floodTileIds(row,col){
+    const suffix=row+'-'+col;
+    return {source:FLOOD_SOURCE_PREFIX+suffix,layer:FLOOD_LAYER_PREFIX+suffix};
+  }
 
   function networkCoordinates(){
     // Identical geometry to the contributing-area raster, in NW/NE/SE/SW order.
@@ -603,6 +645,11 @@
   let networkAppliedThreshold=null;
   let networkRequestId=0;
   const networkImageUrls=new Map();
+  let floodEnabled=true;
+  let floodOpacity=0.7;
+  let floodRequestId=0;
+  const floodImageUrls=new Map();
+  let floodLoadingPromise=null;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -1211,8 +1258,109 @@
         }
       }
     }
-    // Re-assert network order after either terrain slot is refreshed.
+    // Categories sit above terrain/contributing area; the blue network and labels
+    // remain readable above the flood overview, regardless of load order.
+    for(let row=0;row<FLOOD_GRID_SIZE;row++){
+      for(let col=0;col<FLOOD_GRID_SIZE;col++){
+        const ids=floodTileIds(row,col);
+        if(osmMap.getLayer(ids.layer))osmMap.moveLayer(ids.layer,firstSymbol);
+      }
+    }
     if(osmMap.getLayer(NETWORK_LAYER))osmMap.moveLayer(NETWORK_LAYER,firstSymbol);
+  }
+
+  function setFloodStatus(message,error=false){
+    $('floodStatus').textContent=message;
+    $('floodStatus').className='layerStatus'+(error?' error':'');
+  }
+
+  async function getFloodImageUrls(){
+    if(floodLoadingPromise)return floodLoadingPromise;
+    const tasks=[];
+    for(let row=0;row<FLOOD_GRID_SIZE;row++){
+      for(let col=0;col<FLOOD_GRID_SIZE;col++){
+        const key=row+'-'+col;
+        tasks.push((async()=>{
+          if(floodImageUrls.has(key))return floodImageUrls.get(key);
+          const response=await fetch(assetUrl('assets/flood_risk/flood_'+key+'.webp'),{cache:'force-cache'});
+          if(!response.ok)throw new Error('洪水图层文件加载失败（'+response.status+'）');
+          const blob=await response.blob();
+          const bitmap=await createImageBitmap(blob);
+          const valid=bitmap.width===DRAINAGE_3857.baseWidth50m&&
+            bitmap.height===DRAINAGE_3857.baseHeight50m;
+          bitmap.close?.();
+          if(!valid)throw new Error('洪水栅格尺寸与配准网格不一致');
+          const url=URL.createObjectURL(blob);
+          if(floodImageUrls.has(key)){
+            URL.revokeObjectURL(url);
+            return floodImageUrls.get(key);
+          }
+          floodImageUrls.set(key,url);
+          return url;
+        })());
+      }
+    }
+    // All files must pass validation before installing any visible tile.
+    floodLoadingPromise=Promise.all(tasks);
+    try{return await floodLoadingPromise;}finally{floodLoadingPromise=null;}
+  }
+
+  function removeFloodLayer(){
+    if(!osmMap)return;
+    for(let row=0;row<FLOOD_GRID_SIZE;row++){
+      for(let col=0;col<FLOOD_GRID_SIZE;col++){
+        const ids=floodTileIds(row,col);
+        if(osmMap.getLayer(ids.layer))osmMap.removeLayer(ids.layer);
+        if(osmMap.getSource(ids.source))osmMap.removeSource(ids.source);
+      }
+    }
+  }
+
+  async function updateFloodLayer(){
+    const requestId=++floodRequestId;
+    $('floodItem').classList.toggle('focusActive',floodEnabled);
+    if(!floodEnabled){
+      removeFloodLayer();
+      setFloodStatus('已关闭');
+      return true;
+    }
+    if(!osmMap||!osmStyleReady){
+      setFloodStatus('等待地图加载…');
+      return false;
+    }
+    setFloodStatus('正在加载 EA 现状洪水风险图…');
+    try{
+      const urls=await getFloodImageUrls();
+      if(requestId!==floodRequestId||!floodEnabled||!osmStyleReady)return false;
+      for(let row=0;row<FLOOD_GRID_SIZE;row++){
+        for(let col=0;col<FLOOD_GRID_SIZE;col++){
+          const ids=floodTileIds(row,col);
+          if(!osmMap.getSource(ids.source)){
+            osmMap.addSource(ids.source,{
+              type:'image',url:urls[row*FLOOD_GRID_SIZE+col],
+              coordinates:drainageTileCoordinates(row,col,FLOOD_GRID_SIZE)
+            });
+          }
+          if(!osmMap.getLayer(ids.layer)){
+            osmMap.addLayer({
+              id:ids.layer,type:'raster',source:ids.source,
+              paint:{'raster-opacity':floodOpacity,'raster-fade-duration':0,'raster-resampling':'nearest'}
+            },getFirstSymbolLayerId());
+          }else{
+            osmMap.setPaintProperty(ids.layer,'raster-opacity',floodOpacity);
+          }
+        }
+      }
+      keepDrainageAboveTerrain();
+      setFloodStatus('已显示 · EA 2026-10-11 获取 · 25 m 显示 · 较高已发布等级');
+      return true;
+    }catch(err){
+      if(requestId!==floodRequestId||!floodEnabled)return false;
+      console.error('EA flood risk:',err);
+      removeFloodLayer();
+      setFloodStatus('加载失败：'+(err?.message||err),true);
+      return false;
+    }
   }
 
   function setNetworkStatus(message,error=false){
@@ -1636,6 +1784,7 @@
       osmStyleReady=true;
       ensureOsmFocus70();
       updateNetworkLayer();
+      updateFloodLayer();
       updateDrainageLayer();
       if(currentProvider==='osm'){
         updateTerrainLayers();
@@ -1838,6 +1987,23 @@
         if(osmMap.getLayer(ids.layer)){
           osmMap.setPaintProperty(ids.layer,'raster-opacity',drainageOpacity);
         }
+      }
+    }
+  });
+
+  $('floodToggle').addEventListener('change',e=>{
+    floodEnabled=e.target.checked;
+    updateFloodLayer();
+  });
+
+  $('floodOpacity').addEventListener('input',e=>{
+    floodOpacity=Number(e.target.value);
+    $('floodOpacityValue').textContent=Math.round(floodOpacity*100)+'%';
+    if(!osmMap)return;
+    for(let row=0;row<FLOOD_GRID_SIZE;row++){
+      for(let col=0;col<FLOOD_GRID_SIZE;col++){
+        const ids=floodTileIds(row,col);
+        if(osmMap.getLayer(ids.layer))osmMap.setPaintProperty(ids.layer,'raster-opacity',floodOpacity);
       }
     }
   });

@@ -1,0 +1,975 @@
+{
+  "name": "London 70 km higher published present-day flood category",
+  "derived_display_product": true,
+  "generated_utc": "2026-10-11T13:04:05.637621+00:00",
+  "attribution": "© Environment Agency copyright and/or database right 2025. All rights reserved.",
+  "licence": "Open Government Licence v3.0",
+  "licence_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+  "sources": {
+    "rivers_sea": {
+      "title": "Risk of Flooding from Rivers and Sea",
+      "catalogue": "https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2",
+      "wms": "https://environment.data.gov.uk/spatialdata/nafra2-risk-of-flooding-from-rivers-and-sea/wms",
+      "service": "https://environment.data.gov.uk/geoservices/datasets/96ab4342-82c1-4095-87f1-0082e8d84ef1/wms",
+      "layer": "rofrs_4band",
+      "revision": "2026-06-18",
+      "official_style_sha256": "32812a1f26d4b8a526e354b5dc22be7be7bc2a81641d78834afb5b3bd29dca5f",
+      "fill_only_style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "capabilities_sha256": "08c2ad32109f961699fc7765d67d651848d9efa069aa73cd674ce445a63412e4",
+      "wms_fill_rgb_to_class": {
+        "(85, 91, 157)": 4,
+        "(154, 159, 222)": 3,
+        "(195, 224, 255)": 2,
+        "(200, 247, 255)": 1,
+        "(176, 179, 180)": 5
+      },
+      "catalogue_updated": "2026-07-06"
+    },
+    "surface_water": {
+      "title": "Risk of Flooding from Surface Water",
+      "catalogue": "https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3",
+      "wms": "https://environment.data.gov.uk/spatialdata/nafra2-risk-of-flooding-from-surface-water/wms",
+      "service": "https://environment.data.gov.uk/geoservices/datasets/b5aaa28d-6eb9-460e-8d6f-43caa71fbe0e/wms",
+      "layer": "rofsw",
+      "revision": "2025-09-17",
+      "official_style_sha256": "b606b9a41554fe0da35d70abb0e0dd9246f824d0fd3d47a6a64253ac63f4689f",
+      "fill_only_style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "capabilities_sha256": "fe1eac6876916bd50dd52f0d696cfb7c1d2cc1d630ef961c287a28456fb2538f",
+      "wms_fill_rgb_to_class": {
+        "(85, 91, 157)": 4,
+        "(154, 159, 222)": 3,
+        "(195, 224, 255)": 2,
+        "(176, 179, 180)": 5
+      },
+      "catalogue_updated": "2026-07-06"
+    }
+  },
+  "depth_layer": "Present-day flooding extent / water depth > 0 m, not climate-change layers.",
+  "source_request_grid": {
+    "crs": "EPSG:27700",
+    "bounds_m": [
+      460012.0,
+      110348.0,
+      600062.0,
+      250398.0
+    ],
+    "width": 11204,
+    "height": 11204,
+    "sample_m": 12.5
+  },
+  "method": "Decode exact official risk-band fills with unchanged filters, no polygon outlines and no antialiasing. For each 2×2 sample block, retain the highest available band. At each 25 m cell select the higher available RoFRS/RoFSW band, then nearest-neighbour warp to the shared map grid. Unavailable is kept only when no known band is available. Transparent areas are not assigned a Very Low band.",
+  "probability_interpretation": "An ordinal display comparison only: not a union, sum, joint probability or combined annual chance. If one source is unavailable, the other source does not establish total flood risk.",
+  "display_resolution_m": 25,
+  "accuracy_limit": "WMS map sampling and max aggregation are display operations, not new modelling or survey accuracy. Features below the 12.5 m sampling grid can be missed; a 25 m cell may be coloured by a smaller sampled feature. Blank is not no risk. Image pixels do not represent flood depth.",
+  "classes": [
+    {
+      "code": 0,
+      "name": "No published sampled band / outside study circle",
+      "rgba": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "code": 1,
+      "name": "Very low",
+      "annual_chance": "<0.1%",
+      "rgba": [
+        156,
+        221,
+        234,
+        255
+      ]
+    },
+    {
+      "code": 2,
+      "name": "Low",
+      "annual_chance": ">=0.1% and <1%",
+      "rgba": [
+        247,
+        211,
+        89,
+        255
+      ]
+    },
+    {
+      "code": 3,
+      "name": "Medium",
+      "annual_chance": ">=1% and <3.3%",
+      "rgba": [
+        242,
+        157,
+        56,
+        255
+      ]
+    },
+    {
+      "code": 4,
+      "name": "High",
+      "annual_chance": ">=3.3%",
+      "rgba": [
+        215,
+        55,
+        49,
+        255
+      ]
+    },
+    {
+      "code": 5,
+      "name": "Unavailable",
+      "rgba": [
+        153,
+        156,
+        158,
+        255
+      ]
+    }
+  ],
+  "web_grid": {
+    "crs": "EPSG:3857",
+    "bounds_m": [
+      -127813.8696191665,
+      6596204.025752107,
+      102461.98815442335,
+      6827041.923624865
+    ],
+    "width": 5736,
+    "height": 5750,
+    "affine": [
+      40.145721369175355,
+      0.0,
+      -127813.8696191665,
+      0.0,
+      -40.14572136917532,
+      6827041.923624865
+    ],
+    "tiles": "2×2; each 2868×2875 pixels"
+  },
+  "registration": "Same exact EPSG:3857 outer bounds as contributing area and terrain-derived network, twice their base width/height. Terrain requests use EPSG:3857 viewport bounds. No screenshot cropping, control-point guess, or manual offset.",
+  "study_mask": {
+    "center_lat_lon": [
+      51.50733434456047,
+      -0.12768375058439654
+    ],
+    "radius_m": 70000,
+    "method": "Spherical distance in WGS84 map coordinates, R=6378137; same as the existing focus circle. Pixel-centre mask."
+  },
+  "class_counts": [
+    27821442,
+    207734,
+    1585139,
+    621888,
+    2745797,
+    0
+  ],
+  "products": [
+    {
+      "path": "assets/flood_risk/flood_0-0.webp",
+      "row": 0,
+      "col": 0,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "8f1ac5ef686e9995eee8ef3f211c98d9b2c387f8a90f4c673846797857a9b8ba",
+      "size_bytes": 554330
+    },
+    {
+      "path": "assets/flood_risk/flood_0-1.webp",
+      "row": 0,
+      "col": 1,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "991c1d34ff16daf1e712d918f9f1f7fa672828eb103d62ef077789cfedc08fcf",
+      "size_bytes": 654828
+    },
+    {
+      "path": "assets/flood_risk/flood_1-0.webp",
+      "row": 1,
+      "col": 0,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "a541c7f3cd7c2ae8b50354095160030b46b3e3e8e4b749f3078584168b5afbc5",
+      "size_bytes": 617464
+    },
+    {
+      "path": "assets/flood_risk/flood_1-1.webp",
+      "row": 1,
+      "col": 1,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "28e3303612b740ef4ead1f1894d7d67393dab51f4fd8d09b9eeeab84bc81eaff",
+      "size_bytes": 524800
+    }
+  ],
+  "wms_requests": [
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        460012.0,
+        110348.0,
+        495037.0,
+        145323.0
+      ],
+      "width": 2802,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "cd414b8d4adb1a2a746b4c2125b18fc425cfe8bede72be90b4ac7e6c399c20a9",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:55.554061+00:00",
+      "sampled_class_counts": [
+        7674091,
+        514,
+        27697,
+        13347,
+        124347,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        495037.0,
+        110348.0,
+        530062.0,
+        145323.0
+      ],
+      "width": 2802,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "c68fd3ec3226a526ef4a40cad5e935035c0da13a96d403dfdf25eb2e5ca03927",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:02:02.657644+00:00",
+      "sampled_class_counts": [
+        7346503,
+        4430,
+        74620,
+        42218,
+        372225,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        530062.0,
+        110348.0,
+        565087.0,
+        145323.0
+      ],
+      "width": 2802,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "6b817129afe1daa97a8ed1165825f3be7e4b6a4676de60db0e427656c2de5e05",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:02:09.482840+00:00",
+      "sampled_class_counts": [
+        7414491,
+        2439,
+        65406,
+        40900,
+        316760,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        565087.0,
+        110348.0,
+        600062.0,
+        145323.0
+      ],
+      "width": 2798,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "3842409df502451f87f0d0df4e6a7cf368b91381e67c894035257b47e0240587",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:02:09.532234+00:00",
+      "sampled_class_counts": [
+        6580239,
+        416366,
+        114940,
+        114858,
+        602401,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        460012.0,
+        145323.0,
+        495037.0,
+        180348.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "44d7fb65029b32b94166633f12b6e880206f1b3f85d2c1c096e703c37ac5b134",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:44.826641+00:00",
+      "sampled_class_counts": [
+        7125573,
+        13505,
+        176486,
+        73622,
+        462018,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        495037.0,
+        145323.0,
+        530062.0,
+        180348.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "d0999802723ab8c804c80e4949542ae78e84f5a098b4720e28248d1f88ad87bb",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:44.676389+00:00",
+      "sampled_class_counts": [
+        6837286,
+        141955,
+        277576,
+        114653,
+        479734,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        530062.0,
+        145323.0,
+        565087.0,
+        180348.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "3c781a1e8c68a52882e46ee6790adbd6be558cdab7f3b95e28b42ed1d972663f",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:02:02.489177+00:00",
+      "sampled_class_counts": [
+        7107222,
+        325047,
+        79368,
+        46727,
+        292840,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        565087.0,
+        145323.0,
+        600062.0,
+        180348.0
+      ],
+      "width": 2798,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "4a1d70314a87a5431cdd1bf29483ecb161796eb0d93678ff610b161e8e458d42",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:56.275748+00:00",
+      "sampled_class_counts": [
+        6097398,
+        369129,
+        259692,
+        78718,
+        1035059,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        460012.0,
+        180348.0,
+        495037.0,
+        215373.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "fe67061b65655237901bf45ea1a0ee7a241072b8579a5e7c69956dfc23520c44",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:27.719862+00:00",
+      "sampled_class_counts": [
+        7352903,
+        12139,
+        109512,
+        60732,
+        315918,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        495037.0,
+        180348.0,
+        530062.0,
+        215373.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "d8e5221343be3d4bdd1e3154abb39666dfa457b9184ea4b4b07b9a193f992045",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:37.505001+00:00",
+      "sampled_class_counts": [
+        7570061,
+        8567,
+        79709,
+        35284,
+        157583,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        530062.0,
+        180348.0,
+        565087.0,
+        215373.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "0b31064613f948a6aa4dc38be9cf51442808e34ee0ba8e7d3a5da15fe13a9442",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:38.028264+00:00",
+      "sampled_class_counts": [
+        7090487,
+        176138,
+        212387,
+        73387,
+        298805,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        565087.0,
+        180348.0,
+        600062.0,
+        215373.0
+      ],
+      "width": 2798,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "56deba2447b129a60c550be07918229c3488cde1599504ba4b02a1eb9f013946",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:44.531042+00:00",
+      "sampled_class_counts": [
+        5867537,
+        340357,
+        155776,
+        154778,
+        1321548,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        460012.0,
+        215373.0,
+        495037.0,
+        250398.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "480639204ac6f1dc35215b67293fbe9331fe30eccf50514369cb8be7104a0c51",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:19.935774+00:00",
+      "sampled_class_counts": [
+        7303670,
+        4691,
+        90869,
+        44449,
+        407525,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        495037.0,
+        215373.0,
+        530062.0,
+        250398.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "99323fb67177905c44e7b6968b57e5a9b3ba2832101b3d2b9440ad8ed922ad8a",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:27.916829+00:00",
+      "sampled_class_counts": [
+        7517658,
+        9099,
+        108110,
+        44248,
+        172089,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        530062.0,
+        215373.0,
+        565087.0,
+        250398.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "0b7674862b2c9e189e0c8cbd7ced050efe29528fb50ad1d13255ca888f0c8cb1",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:19.786903+00:00",
+      "sampled_class_counts": [
+        7586808,
+        813,
+        59340,
+        25683,
+        178560,
+        0
+      ]
+    },
+    {
+      "source": "rivers_sea",
+      "bbox_m": [
+        565087.0,
+        215373.0,
+        600062.0,
+        250398.0
+      ],
+      "width": 2798,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "eb5b5ba87bb73478548fbed211f541f48da991b37e3834b21e527a59fb3f812d",
+      "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
+      "retrieved_utc": "2026-10-11T13:01:27.713650+00:00",
+      "sampled_class_counts": [
+        7486636,
+        6250,
+        52415,
+        27106,
+        267589,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        460012.0,
+        110348.0,
+        495037.0,
+        145323.0
+      ],
+      "width": 2802,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "d2aa158dd7d118744c15735ae01a7b0f75272a37acd91bfa60ff27b0f423f536",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:37.188825+00:00",
+      "sampled_class_counts": [
+        7697886,
+        0,
+        61512,
+        19769,
+        60829,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        495037.0,
+        110348.0,
+        530062.0,
+        145323.0
+      ],
+      "width": 2802,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "1ecdf77768ad8109bb7e6e68422cf278851b052a977e3e1b7f3f9bcf4e0d9524",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:48.807963+00:00",
+      "sampled_class_counts": [
+        7459129,
+        0,
+        133976,
+        47866,
+        199025,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        530062.0,
+        110348.0,
+        565087.0,
+        145323.0
+      ],
+      "width": 2802,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "3eee15af0f15d72f7af912538441519165cec2b36f6e34022fb583a8eebff93e",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:55.699535+00:00",
+      "sampled_class_counts": [
+        7514078,
+        0,
+        107358,
+        39671,
+        178889,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        565087.0,
+        110348.0,
+        600062.0,
+        145323.0
+      ],
+      "width": 2798,
+      "height": 2798,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "2bdc616f257fb2bb14014849cc1d724c16d3d1f79dce825b853bab829989f095",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:57.947236+00:00",
+      "sampled_class_counts": [
+        7332591,
+        0,
+        193528,
+        64786,
+        237899,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        460012.0,
+        145323.0,
+        495037.0,
+        180348.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "9bff2e4e640c1e3d62208c19c83972cae035874ae9d1544132cdd9ecf3db6ff9",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:24.109791+00:00",
+      "sampled_class_counts": [
+        7419579,
+        0,
+        193387,
+        62194,
+        176044,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        495037.0,
+        145323.0,
+        530062.0,
+        180348.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "3330586230b33842ec72035a6a06b0b0f533ab0fdb7abe5e7ddc441a50958678",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:24.934669+00:00",
+      "sampled_class_counts": [
+        7186931,
+        0,
+        367795,
+        120315,
+        176163,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        530062.0,
+        145323.0,
+        565087.0,
+        180348.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "54a7ec880cd3c1d1f99e376dbbfe24f7fddd7bb4a11d02cc3f5d432d80c410a6",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:31.163117+00:00",
+      "sampled_class_counts": [
+        7290028,
+        0,
+        247907,
+        95955,
+        217314,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        565087.0,
+        145323.0,
+        600062.0,
+        180348.0
+      ],
+      "width": 2798,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "af2fb422fffeeabfbbb2e0de3fd1f948eb2f655031f3a9bfefb847b98ab9f9f4",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:40.518864+00:00",
+      "sampled_class_counts": [
+        7425682,
+        0,
+        203903,
+        77579,
+        132832,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        460012.0,
+        180348.0,
+        495037.0,
+        215373.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "b1c5068c414797aa29e46238f3b6f3e4ae64ff24439baa2ddbc43c99eaed6822",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:02:36.656505+00:00",
+      "sampled_class_counts": [
+        7466494,
+        0,
+        181141,
+        51777,
+        151792,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        495037.0,
+        180348.0,
+        530062.0,
+        215373.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "ed30a91359d497da851e353734297e7dd4e81b356207390db34d0539f392eab7",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:04.779305+00:00",
+      "sampled_class_counts": [
+        7235436,
+        0,
+        280955,
+        97595,
+        237218,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        530062.0,
+        180348.0,
+        565087.0,
+        215373.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "fd680dfd57607c43c05f9f32fece9dafd06a02dbe7f89c3434608b88d049144f",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:14.230390+00:00",
+      "sampled_class_counts": [
+        6975396,
+        0,
+        422324,
+        132930,
+        320554,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        565087.0,
+        180348.0,
+        600062.0,
+        215373.0
+      ],
+      "width": 2798,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "8def17dccbd5b2337c15e8a19754e9845c1d985ce88fc8c5df0ee86608210644",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:03:10.344859+00:00",
+      "sampled_class_counts": [
+        6951343,
+        0,
+        442260,
+        103187,
+        343206,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        460012.0,
+        215373.0,
+        495037.0,
+        250398.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "ade61c4741e3a9a4f0fc16ec976fc2032ed91710a1389b1eef16583e87641c54",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:02:24.618679+00:00",
+      "sampled_class_counts": [
+        7137089,
+        0,
+        292265,
+        92548,
+        329302,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        495037.0,
+        215373.0,
+        530062.0,
+        250398.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "b69e63f637181d5c55e143626b2c2e1701384c5dd39c4bbab3c8e4f636863268",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:02:22.622802+00:00",
+      "sampled_class_counts": [
+        7310512,
+        0,
+        258682,
+        71504,
+        210506,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        530062.0,
+        215373.0,
+        565087.0,
+        250398.0
+      ],
+      "width": 2802,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "160df08320c3db16f9c971e65c230b375854749137c28d0c3511a06cc2b39dbc",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:02:28.054812+00:00",
+      "sampled_class_counts": [
+        7550414,
+        0,
+        162921,
+        37580,
+        100289,
+        0
+      ]
+    },
+    {
+      "source": "surface_water",
+      "bbox_m": [
+        565087.0,
+        215373.0,
+        600062.0,
+        250398.0
+      ],
+      "width": 2798,
+      "height": 2802,
+      "crs": "EPSG:27700",
+      "sample_m": 12.5,
+      "png_sha256": "d91bf9887c4ab0be81d5d280ef4eb88ee79ad6d61abe15f5cefd68096736fb37",
+      "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+      "retrieved_utc": "2026-10-11T13:02:37.962186+00:00",
+      "sampled_class_counts": [
+        7513121,
+        0,
+        164568,
+        39941,
+        122366,
+        0
+      ]
+    }
+  ]
+}
