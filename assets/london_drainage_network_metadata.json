@@ -1,0 +1,90 @@
+{
+  "name": "London 70 km terrain-derived drainage network",
+  "derived_product": true,
+  "generated_on": "2026-10-11",
+  "source": {
+    "file_name": "London_Drainage_70km_contributing_area_km2(2).tif",
+    "sha256": "79c1b130b434f133f5704c49fc7cf4b6135738f2d4a37e3d2ee1e835ccb348ac",
+    "crs": "EPSG:27700",
+    "width": 2801,
+    "height": 2801,
+    "bounds_m": [
+      460012.0,
+      110348.0,
+      600062.0,
+      250398.0
+    ],
+    "cell_size_m": 50,
+    "cell_area_km2": 0.0025,
+    "valid_cells": 6139995,
+    "max_contributing_area_km2": 7924.00732421875
+  },
+  "method": "Select contributing-area cells A >= threshold; nearest-neighbour reprojection to the existing contributing-area overlay grid; transparent background.",
+  "upstream_attribution": "Existing repository metadata attributes the input contributing-area raster to Environment Agency LiDAR Composite DTM.",
+  "provenance_limit": "The input GeoTIFF contains geometry and values but no original DEM identifier, flow-direction raster or hydrological processing log. DEM-to-accumulation processing is not independently verified here.",
+  "interpretation": "Terrain-derived potential drainage paths; not a surveyed river network, underground drainage inventory or flood-inundation extent. Thresholds are display/analysis choices, not calibrated channel-initiation values.",
+  "source_analysis_resolution_m": 50,
+  "web_grid": {
+    "crs": "EPSG:3857",
+    "bounds_m": [
+      -127813.8696191665,
+      6596204.025752107,
+      102461.98815442335,
+      6827041.923624865
+    ],
+    "width": 2868,
+    "height": 2875,
+    "affine": [
+      80.29144273835071,
+      0.0,
+      -127813.8696191665,
+      0.0,
+      -80.29144273835064,
+      6827041.923624865
+    ]
+  },
+  "registration": "Same exact Web Mercator bounds and base grid as the existing contributing-area overlay. No screenshot margins, manual offsets, or second BNG warp.",
+  "area_classes_km2": [
+    0.25,
+    1,
+    5,
+    25,
+    100
+  ],
+  "products": [
+    {
+      "threshold_km2": 0.25,
+      "minimum_source_cells": 100,
+      "path": "assets/drainage_network/network_025.webp",
+      "source_selected_cells": 365793,
+      "display_selected_cells": 365586,
+      "size_bytes": 306796
+    },
+    {
+      "threshold_km2": 1.0,
+      "minimum_source_cells": 400,
+      "path": "assets/drainage_network/network_1.webp",
+      "source_selected_cells": 199153,
+      "display_selected_cells": 199034,
+      "size_bytes": 174672
+    },
+    {
+      "threshold_km2": 5.0,
+      "minimum_source_cells": 2000,
+      "path": "assets/drainage_network/network_5.webp",
+      "source_selected_cells": 93687,
+      "display_selected_cells": 93634,
+      "size_bytes": 82914
+    }
+  ],
+  "sources": [
+    {
+      "name": "EA official DTM catalogue (upstream terrain attribution)",
+      "url": "https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m"
+    },
+    {
+      "name": "Esri: Identifying stream networks (threshold method)",
+      "url": "https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm"
+    }
+  ]
+}

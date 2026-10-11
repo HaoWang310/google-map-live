@@ -33,8 +33,12 @@
       position:absolute;z-index:20;top:14px;left:14px;
       width:min(370px,calc(100vw - 28px));padding:14px;border-radius:14px;
       background:rgba(24,32,47,.95);color:#fff;
-      box-shadow:0 16px 45px rgba(0,0,0,.28);backdrop-filter:blur(12px)
+      box-shadow:0 16px 45px rgba(0,0,0,.28);backdrop-filter:blur(12px);
+      box-sizing:border-box;max-height:calc(100dvh - 28px);
+      display:flex;flex-direction:column
     }
+    .head{flex-shrink:0}
+    .content{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
     .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
     .title{font-size:18px;font-weight:750}
     .sub{margin-top:3px;color:#aeb8c8;font-size:11px;line-height:1.5}
@@ -76,11 +80,23 @@
     }
     .layerItem .rangeRow{padding:0 10px 8px}
     .layerMeta{
-      padding:0 10px 9px;font-size:8px;line-height:1.45;color:#8fa0b5
+      padding:0 10px 9px;font-size:10px;line-height:1.5;color:#a5b5c9
     }
     .layerName{display:flex;flex-direction:column;gap:2px}
     .layerName strong{font-size:11px;color:#edf3fb;font-weight:700}
     .layerName small{font-size:8px;color:#92a3b8;font-weight:500}
+    .layerOptions{padding:0 10px 8px}
+    .layerOptions label{display:block;font-size:10px;color:#cbd5e1;margin-bottom:4px}
+    .layerOptions select{min-height:32px;font-size:11px}
+    .networkLegend{display:flex;flex-wrap:wrap;gap:5px 10px;padding:0 10px 8px;font-size:9px;color:#cbd5e1}
+    .networkLegend span{display:inline-flex;align-items:center;gap:4px}
+    .networkLegend i{display:inline-block;width:15px;height:3px;background:var(--swatch);border-radius:2px}
+    .layerStatus{padding:0 10px 9px;font-size:10px;color:#7dd3fc;min-height:14px}
+    .layerStatus.error{color:#ffb8b8}
+    .layerSources{margin-top:10px;font-size:10px;line-height:1.6;color:#b2c0d1}
+    .layerSources summary{cursor:pointer;color:#d7deea}
+    .layerSources p{margin:7px 0}
+    .layerSources a{color:#93c5fd}
     .layerLegend{
       display:flex;align-items:center;gap:7px;padding:0 10px 9px;
       font-size:8px;color:#9fb0c4
@@ -133,7 +149,7 @@
 
     .focusActive{box-shadow:0 0 0 1px rgba(96,165,250,.55) inset}
     @media(max-width:600px){
-      .panel{top:8px;left:8px;width:calc(100vw - 16px);padding:12px}
+      .panel{top:8px;left:8px;width:min(370px,calc(100vw - 16px));padding:12px;max-height:calc(100dvh - 16px)}
     }
   </style>
 </head>
@@ -148,7 +164,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.8</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.11.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -175,8 +191,8 @@
       </select>
 
       <div class="divider"></div>
-      <div class="section">地图图层</div>
-      <div class="layerList">
+      <div class="section" id="layerListTitle">分析图层 · 独立开关</div>
+      <div class="layerList" id="analysisLayerList" role="group" aria-labelledby="layerListTitle">
 
         <div class="layerItem">
           <label class="layerRow">
@@ -192,7 +208,7 @@
             <span id="terrainOpacityValue">42%</span>
           </div>
           <div class="layerMeta">
-            LiDAR Composite DTM 1 m · WMS · EPSG:3857 · Open Government Licence
+            Environment Agency 官方地形服务 · DTM 1 m · Open Government Licence
           </div>
         </div>
 
@@ -213,8 +229,42 @@
             <span>弱</span><span class="layerLegendBar"></span><span>强</span>
           </div>
           <div class="layerMeta">
-            10 m 为显示重采样；分析源数据仍为 50 m × 50 m = 0.0025 km² / cell。源 TIFF：EPSG:27700，真实地面范围 140.05 × 140.05 km。显示栅格已预先投影到 EPSG:3857，因此现在直接按真实 Web Mercator 边界与 OpenStreetMap 配准，不再进行二次 BNG→WGS84 拉伸。
+            红色表示上游汇水面积强弱（km²）。50 m 分析栅格；10 m 仅显示重采样。与排水网络采用相同 EPSG:3857 边界。
           </div>
+        </div>
+
+        <div class="layerItem focusActive" id="networkItem">
+          <label class="layerRow">
+            <span class="layerName">
+              <strong>地形推导排水网络</strong>
+              <small>Terrain-derived drainage network · 50 m 源分析</small>
+            </span>
+            <input id="networkToggle" type="checkbox" checked>
+          </label>
+          <div class="rangeRow">
+            <span>透明度</span>
+            <input id="networkOpacity" aria-label="排水网络透明度" type="range" min="0" max="1" step="0.05" value="0.9">
+            <span id="networkOpacityValue">90%</span>
+          </div>
+          <div class="layerOptions">
+            <label for="networkThreshold">最小汇水面积 · 网络密度</label>
+            <select id="networkThreshold">
+              <option value="025">0.25 km² · 细支流</option>
+              <option value="1" selected>1 km² · 默认网络</option>
+              <option value="5">5 km² · 主通道</option>
+            </select>
+          </div>
+          <div class="networkLegend" aria-label="蓝色按汇水面积分级">
+            <span><i style="--swatch:#4ba9ff"></i>0.25–1</span>
+            <span><i style="--swatch:#2398ff"></i>1–5</span>
+            <span><i style="--swatch:#00b7e4"></i>5–25</span>
+            <span><i style="--swatch:#00e0e6"></i>25–100</span>
+            <span><i style="--swatch:#70fff1"></i>≥100 km²</span>
+          </div>
+          <div class="layerMeta">
+            从原始汇水数值按阈值提取的潜在排水路径。蓝色不是积水范围；网络密度阈值可调整。
+          </div>
+          <div id="networkStatus" class="layerStatus" role="status" aria-live="polite">等待地图加载…</div>
         </div>
 
         <div class="layerItem">
@@ -228,6 +278,22 @@
         </div>
 
       </div>
+
+      <details class="layerSources">
+        <summary>数据来源、分析精度与坐标配准</summary>
+        <p>底图：© OpenStreetMap contributors；OpenFreeMap 提供地图瓦片。
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OSM 来源</a>
+        </p>
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a>
+        </p>
+        <p>汇水与网络：本项目的 50 m 汇水栅格（每格 0.0025 km²），并非官方实测河网。现有元数据标注其地形来源为 EA DTM；原文件未附 DEM→汇水的完整处理日志。本次网络直接按该栅格的实际 km² 数值提取。
+          <a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm" target="_blank" rel="noopener noreferrer">阈值提取方法</a> ·
+          <a href="assets/london_drainage_network_metadata.json?v=3.11.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
+        </p>
+        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。</p>
+        <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
+      </details>
 
       <div class="row">
         <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
@@ -277,6 +343,9 @@
 
 <script type="module">
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
+
+  const APP_VERSION='3.11.0';
+  const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
   const CENTER={lat:51.5074,lng:-0.1278};
@@ -390,6 +459,23 @@
   ];
   const DRAINAGE_SOURCE_PREFIX='drainage-contributing-area-source-';
   const DRAINAGE_LAYER_PREFIX='drainage-contributing-area-layer-';
+  const NETWORK_SOURCE='terrain-drainage-network-source';
+  const NETWORK_LAYER='terrain-drainage-network-layer';
+  const NETWORK_FILES={
+    '025':'assets/drainage_network/network_025.webp',
+    '1':'assets/drainage_network/network_1.webp',
+    '5':'assets/drainage_network/network_5.webp'
+  };
+
+  function networkCoordinates(){
+    // Identical geometry to the contributing-area raster, in NW/NE/SE/SW order.
+    return [
+      mercator3857ToLngLat(DRAINAGE_3857.left,DRAINAGE_3857.top),
+      mercator3857ToLngLat(DRAINAGE_3857.right,DRAINAGE_3857.top),
+      mercator3857ToLngLat(DRAINAGE_3857.right,DRAINAGE_3857.bottom),
+      mercator3857ToLngLat(DRAINAGE_3857.left,DRAINAGE_3857.bottom)
+    ];
+  }
 
   function makeCircleGeoJson(center,radiusM,steps=180){
     const coords=[];
@@ -485,6 +571,7 @@
 
   let googleMap=null;
   let osmMap=null;
+  let osmStyleReady=false;
   let googleMarker=null;
   let osmMarker=null;
   let googleLoading=false;
@@ -509,6 +596,13 @@
   let drainageImageUrl=null;
   let drainageLoadingPromise=null;
   let drainageTileUrls=[];
+  let drainageRequestId=0;
+  let networkEnabled=true;
+  let networkOpacity=0.9;
+  let networkThreshold='1';
+  let networkAppliedThreshold=null;
+  let networkRequestId=0;
+  const networkImageUrls=new Map();
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -871,7 +965,7 @@
   }
 
   async function refreshOsmTerrainGround(quality='final'){
-    if(!osmMap||!osmMap.loaded()||!terrainEnabled)return;
+    if(!osmMap||!osmStyleReady||!terrainEnabled)return;
 
     const visible=osmVisibleBounds();
     const bounds=visible?expandBounds(visible,quality==='preview'?1.10:1.16):null;
@@ -1055,7 +1149,7 @@
     drainageLoadingPromise=(async()=>{
       const parts=await Promise.all(
         DRAINAGE_FILES.map(path=>
-          fetch(path,{cache:'force-cache'})
+          fetch(assetUrl(path),{cache:'force-cache'})
             .then(r=>{
               if(!r.ok)throw new Error('Drainage asset load failed: '+path+' · '+r.status);
               return r.text();
@@ -1102,11 +1196,11 @@
   }
 
   function keepDrainageAboveTerrain(){
-    if(!osmMap||!osmMap.loaded()||!drainageEnabled)return;
+    if(!osmMap||!osmStyleReady)return;
     const firstSymbol=getFirstSymbolLayerId();
     if(!firstSymbol)return;
 
-    for(let row=0;row<DRAINAGE_GRID_SIZE;row++){
+    if(drainageEnabled)for(let row=0;row<DRAINAGE_GRID_SIZE;row++){
       for(let col=0;col<DRAINAGE_GRID_SIZE;col++){
         const ids=drainageTileIds(row,col);
         if(!osmMap.getLayer(ids.layer))continue;
@@ -1117,10 +1211,101 @@
         }
       }
     }
+    // Re-assert network order after either terrain slot is refreshed.
+    if(osmMap.getLayer(NETWORK_LAYER))osmMap.moveLayer(NETWORK_LAYER,firstSymbol);
+  }
+
+  function setNetworkStatus(message,error=false){
+    $('networkStatus').textContent=message;
+    $('networkStatus').className='layerStatus'+(error?' error':'');
+  }
+
+  async function getNetworkImageUrl(threshold){
+    if(networkImageUrls.has(threshold))return networkImageUrls.get(threshold);
+    const path=NETWORK_FILES[threshold];
+    if(!path)throw new Error('未知的网络阈值');
+    const response=await fetch(assetUrl(path),{cache:'force-cache'});
+    if(!response.ok)throw new Error('网络图层文件加载失败（'+response.status+'）');
+    const blob=await response.blob();
+    const bitmap=await createImageBitmap(blob);
+    const valid=bitmap.width===DRAINAGE_3857.baseWidth50m&&
+      bitmap.height===DRAINAGE_3857.baseHeight50m;
+    bitmap.close?.();
+    if(!valid)throw new Error('网络栅格尺寸与配准网格不一致');
+    const url=URL.createObjectURL(blob);
+    // Concurrent toggles may complete the same asset more than once.
+    if(networkImageUrls.has(threshold)){
+      URL.revokeObjectURL(url);
+      return networkImageUrls.get(threshold);
+    }
+    networkImageUrls.set(threshold,url);
+    return url;
+  }
+
+  function removeNetworkLayer(){
+    if(!osmMap)return;
+    if(osmMap.getLayer(NETWORK_LAYER))osmMap.removeLayer(NETWORK_LAYER);
+    if(osmMap.getSource(NETWORK_SOURCE))osmMap.removeSource(NETWORK_SOURCE);
+    networkAppliedThreshold=null;
+  }
+
+  async function updateNetworkLayer(){
+    const requestId=++networkRequestId;
+    $('networkItem').classList.toggle('focusActive',networkEnabled);
+    if(!networkEnabled){
+      removeNetworkLayer();
+      setNetworkStatus('已关闭');
+      return true;
+    }
+    if(!osmMap||!osmStyleReady){
+      setNetworkStatus('等待地图加载…');
+      return false;
+    }
+    const threshold=networkThreshold;
+    const value=threshold==='025'?0.25:Number(threshold);
+    setNetworkStatus('正在加载 ≥ '+value+' km² 的网络…');
+    try{
+      const url=await getNetworkImageUrl(threshold);
+      if(requestId!==networkRequestId||!networkEnabled||!osmStyleReady)return false;
+      const coordinates=networkCoordinates();
+      const source=osmMap.getSource(NETWORK_SOURCE);
+      if(source){
+        source.updateImage({url,coordinates});
+      }else{
+        osmMap.addSource(NETWORK_SOURCE,{type:'image',url,coordinates});
+      }
+      if(!osmMap.getLayer(NETWORK_LAYER)){
+        osmMap.addLayer({
+          id:NETWORK_LAYER,type:'raster',source:NETWORK_SOURCE,
+          paint:{
+            'raster-opacity':networkOpacity,
+            'raster-fade-duration':0,
+            'raster-resampling':'linear'
+          }
+        },getFirstSymbolLayerId());
+      }else{
+        osmMap.setPaintProperty(NETWORK_LAYER,'raster-opacity',networkOpacity);
+      }
+      networkAppliedThreshold=threshold;
+      keepDrainageAboveTerrain();
+      setNetworkStatus('已显示 · 汇水面积 ≥ '+value+' km² · 50 m 源分析');
+      return true;
+    }catch(err){
+      if(requestId!==networkRequestId||!networkEnabled)return false;
+      console.error('Drainage network:',err);
+      if(networkAppliedThreshold){
+        networkThreshold=networkAppliedThreshold;
+        $('networkThreshold').value=networkThreshold;
+      }
+      setNetworkStatus((networkAppliedThreshold?'加载失败，保留上一次网络：':'加载失败：')+
+        (err?.message||err),true);
+      return false;
+    }
   }
 
   async function updateDrainageLayer(){
-    if(!osmMap||!osmMap.loaded())return;
+    const requestId=++drainageRequestId;
+    if(!osmMap||!osmStyleReady)return;
 
     if(!drainageEnabled){
       removeDrainageLayer();
@@ -1137,7 +1322,7 @@
       });
       const bitmap=await createImageBitmap(wholeBlob);
 
-      if(!drainageEnabled||!osmMap||!osmMap.loaded()){
+      if(requestId!==drainageRequestId||!drainageEnabled||!osmMap||!osmStyleReady){
         bitmap.close?.();
         return;
       }
@@ -1154,7 +1339,7 @@
         const ty1=Math.round(DRAINAGE_DISPLAY_HEIGHT*(row+1)/DRAINAGE_GRID_SIZE);
 
         for(let col=0;col<DRAINAGE_GRID_SIZE;col++){
-          if(!drainageEnabled){
+          if(requestId!==drainageRequestId||!drainageEnabled){
             bitmap.close?.();
             return;
           }
@@ -1237,6 +1422,7 @@
         '位置采用原始 EPSG:3857 投影边界直接对齐 OpenStreetMap；没有二次投影变形。'
       );
     }catch(err){
+      if(requestId!==drainageRequestId)return;
       console.error(err);
       removeDrainageLayer();
       say('汇水贡献面积图层加载失败：'+(err?.message||err),true);
@@ -1287,7 +1473,7 @@
   }
 
   function ensureOsmFocus70(){
-    if(!osmMap || !osmMap.loaded())return;
+    if(!osmMap || !osmStyleReady)return;
 
     const sourceId='focus70-circle-source';
     const fillId='focus70-circle-fill';
@@ -1447,7 +1633,9 @@
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
     osmMap.on('load',()=>{
+      osmStyleReady=true;
       ensureOsmFocus70();
+      updateNetworkLayer();
       updateDrainageLayer();
       if(currentProvider==='osm'){
         updateTerrainLayers();
@@ -1652,6 +1840,24 @@
         }
       }
     }
+  });
+
+  $('networkToggle').addEventListener('change',e=>{
+    networkEnabled=e.target.checked;
+    updateNetworkLayer();
+  });
+
+  $('networkOpacity').addEventListener('input',e=>{
+    networkOpacity=Number(e.target.value);
+    $('networkOpacityValue').textContent=Math.round(networkOpacity*100)+'%';
+    if(osmMap?.getLayer(NETWORK_LAYER)){
+      osmMap.setPaintProperty(NETWORK_LAYER,'raster-opacity',networkOpacity);
+    }
+  });
+
+  $('networkThreshold').addEventListener('change',e=>{
+    networkThreshold=e.target.value;
+    updateNetworkLayer();
   });
 
   $('focus70Toggle').addEventListener('change',e=>{
