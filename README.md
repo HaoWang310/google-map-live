@@ -2,19 +2,52 @@
 
 Live map: https://haowang310.github.io/google-map-live/
 
-Version 3.13.0 uses OpenStreetMap / OpenFreeMap and an independent layer list:
+Version 3.14.0 uses OpenStreetMap / OpenFreeMap and an independent layer list:
 EA LiDAR terrain, contributing area, EA present-day flood-risk overview,
 terrain-derived drainage network, and the 70 km study circle. All five analysis
 overlays start **unchecked and off on every page load** and load only when selected,
 with separate opacity controls. The network
 also has minimum contributing-area controls (0.25, 1, or 5 km²).
 
-The map supports 2D / 3D city buttons, a 0–70° pitch slider, right-drag rotation
+The map supports 2D / 3D city buttons, right-drag rotation
 and tilt, and touch rotation/pitch. The 3D button zooms into the current centre
 to show actual OSM building footprints from the existing OpenFreeMap tiles.
 Buildings use `render_height` / `render_min_height`, respect `hide_3d`, and render
 above the analytical rasters. Heights include estimates from levels and defaults;
 this is not a complete measured city model. Returning to 2D hides the extrusions.
+The pitch slider and its explanatory strip have been removed.
+
+Terrain now starts with a 2048 × 2048 official EA WMS overview served as a small
+WebP asset, using the exact contributing-area/network EPSG:3857 outer bounds.
+At zoom 11 or outside that overview, it progressively loads official EA WMTS
+`Lidar_Composite_DTM_1m` tiles in `WebMercatorQuad`: 256 px, XYZ column/row order,
+z8–17. There are no repeated full-viewport WMS downloads on every camera move.
+Sources remain cached when switched off, and small pans reuse overlapping tiles.
+The overview remains visible while details load; a failed WMTS request switches
+to tiled official WMS. The source DTM is 1 m; the compressed regional colour
+overview is a display preview, not a 1 m numerical DEM.
+
+Contributing area now uses the actual complete 2868 × 2875 reprojected 50 m
+source grid, replacing the old 320 × 321 thumbnail. A lossless WebP encodes
+16-bit log area, preserving NoData. A worker renders only visible 512 px XYZ
+tiles at z8–18, with clamped cubic interpolation and a continuous yellow-to-red
+palette. At London z14–15 the display pixels are about 3–1.5 m; this is visual
+resampling, and the analysis remains 50 m. Pixel centres, the shared projection
+bounds, and the 70 km circle match the other hydrology layers. Cubic values are
+clamped to neighbouring source values to avoid artificial overshoot. The
+worker caches the last 64 tiles, cancels abandoned views, and keeps processing
+off the UI thread. It no longer builds 100 large image textures for the whole
+study area. Source checksums, log encoding and display rules are recorded in
+[`assets/drainage_area/metadata.json`](assets/drainage_area/metadata.json);
+official terrain URLs and checksums are in
+[`assets/terrain/metadata.json`](assets/terrain/metadata.json).
+
+To reproduce these two display assets, install `numpy`, `rasterio` and `Pillow`:
+
+```sh
+python3 scripts/build_drainage_display.py /path/to/contributing_area.tif
+python3 scripts/build_terrain_overview.py
+```
 
 The always-visible search bar accepts place names, addresses and postcodes.
 Click Search or press Enter to query OSM Nominatim, jump to the first result
@@ -91,8 +124,8 @@ and 2868 × 2875 base grid already used by the contributing-area display.
 Outside the selected network, the image is fully transparent. Lossless WebP
 assets preserve its mask and values' colour classes.
 
-The source analysis remains **50 m**. The existing contributing-area display's
-10 m resampling does not add analytical detail. This is a terrain-derived
+The source analysis remains **50 m**. The contributing-area display's
+smooth, smaller pixels do not add analytical detail. This is a terrain-derived
 potential drainage network; it is not a surveyed river inventory, underground
 drainage inventory, or flood-inundation extent. The thresholds are selectable
 analysis/display choices, not calibrated channel-initiation thresholds.

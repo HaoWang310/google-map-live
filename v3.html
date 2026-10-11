@@ -186,7 +186,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.13.0</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.14.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -215,13 +215,6 @@
         <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D 平面</button>
         <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D 城市</button>
       </div>
-      <div class="rangeRow">
-        <label for="viewPitch">倾斜</label>
-        <input id="viewPitch" type="range" min="0" max="70" step="1" value="0" disabled>
-        <span id="viewPitchValue">0°</span>
-      </div>
-      <div class="note" id="viewHint">点击“3D 城市”查看建筑；右键拖动可旋转与倾斜。</div>
-
       <select id="provider" class="googleOnly">
         <option value="osm" selected>OpenStreetMap / OpenFreeMap</option>
       </select>
@@ -251,15 +244,16 @@
             <span id="terrainOpacityValue">42%</span>
           </div>
           <div class="layerMeta">
-            Environment Agency 官方地形服务 · DTM 1 m · Open Government Licence
+            官方地形总览快速加载，放大自动加载细节 · DTM 1 m · Open Government Licence
           </div>
+          <div id="terrainStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem">
           <label class="layerRow">
             <span class="layerName">
               <strong>汇水贡献面积 · Contributing Area</strong>
-              <small>10 m 显示重采样 · 源数据 50 m · Web Mercator 精确配准</small>
+              <small>随缩放细化显示 · 源分析 50 m · Web Mercator 精确配准</small>
             </span>
             <input id="drainageToggle" type="checkbox" autocomplete="off" disabled>
           </label>
@@ -272,8 +266,9 @@
             <span>弱</span><span class="layerLegendBar"></span><span>强</span>
           </div>
           <div class="layerMeta">
-            红色表示上游汇水面积强弱（km²）。50 m 分析栅格；10 m 仅显示重采样。与排水网络采用相同 EPSG:3857 边界。
+            黄至红色表示上游汇水面积强弱（km²）。采用完整 50 m 源栅格，街道尺度约 1–3 m 显示像元与平滑插值；显示细分不增加分析精度。与排水网络采用相同 EPSG:3857 边界。
           </div>
+          <div id="drainageStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem" id="floodItem">
@@ -359,19 +354,19 @@
         <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。
-          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a>
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。总览于 2026-10-11 从官方 WMS 获取，使用汇水图相同的 EPSG:3857 外边界；放大后按 OSM 的 WebMercatorQuad 网格加载官方 WMTS 缓存瓦片。
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
         <p>汇水与网络：本项目的 50 m 汇水栅格（每格 0.0025 km²），并非官方实测河网。现有元数据标注其地形来源为 EA DTM；原文件未附 DEM→汇水的完整处理日志。本次网络直接按该栅格的实际 km² 数值提取。
           <a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm" target="_blank" rel="noopener noreferrer">阈值提取方法</a> ·
-          <a href="assets/london_drainage_network_metadata.json?v=3.13.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
+          <a href="assets/london_drainage_network_metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
         </p>
-        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。</p>
+        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
         <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
         <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
           <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
-          <a href="assets/london_flood_risk_metadata.json?v=3.13.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
+          <a href="assets/london_flood_risk_metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
         <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
@@ -423,11 +418,12 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.13.0';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.13.0';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.14.0';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.14.0';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.14.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.13.0';
+  const APP_VERSION='3.14.0';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
@@ -439,6 +435,12 @@
   // Dynamic WMS: requests a fresh raster tile for every zoom level.
   const EA_WMS_BASE='https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wms';
   const EA_WMS_LAYER='Lidar_Composite_DTM_1m';
+  // Official WebMercatorQuad is the same 256 px XYZ grid used by OSM.
+  const EA_WMTS_TILES=EA_WMS_BASE.replace(/wms$/,'wmts')+
+    '?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER='+EA_WMS_LAYER+
+    '&STYLE=&TILEMATRIXSET=WebMercatorQuad&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png';
+  const TERRAIN_TILE_SOURCE='ea-terrain-tiles-source',TERRAIN_TILE_LAYER='ea-terrain-tiles-layer';
+  const TERRAIN_OVERVIEW_SOURCE='ea-terrain-overview-source',TERRAIN_OVERVIEW_LAYER='ea-terrain-overview-layer';
 
   // Original 70 km study extent centred on Charing Cross E530037 N180373.
   const TERRAIN_BOUNDS={
@@ -480,10 +482,8 @@
   //   bottom 6596204.025752107
   //   top    6827041.923624865
   //
-  // Fivefold display resampling gives a nominal 10 m-equivalent visual grid.
-  // It improves screen granularity only; analytical resolution remains 50 m.
+  // Shared exact projection bounds; source analysis remains 50 m.
   const DRAINAGE_GRID_SIZE=10;
-  const DRAINAGE_DISPLAY_CELL_M=10;
   const DRAINAGE_3857={
     left:-127813.8696191665,
     right:102461.98815442335,
@@ -492,10 +492,6 @@
     baseWidth50m:2868,
     baseHeight50m:2875
   };
-  const DRAINAGE_DISPLAY_SCALE=5;
-  const DRAINAGE_DISPLAY_WIDTH=DRAINAGE_3857.baseWidth50m*DRAINAGE_DISPLAY_SCALE;
-  const DRAINAGE_DISPLAY_HEIGHT=DRAINAGE_3857.baseHeight50m*DRAINAGE_DISPLAY_SCALE;
-
   function mercator3857ToLngLat(x,y){
     const R=6378137;
     const lng=x/R*180/Math.PI;
@@ -523,26 +519,8 @@
     ];
   }
 
-  const DRAINAGE_FILES=[
-    'assets/drainage_b64/0a.txt',
-    'assets/drainage_b64/0b.txt',
-    'assets/drainage_b64/0c.txt',
-    'assets/drainage_b64/1.txt',
-    'assets/drainage_b64/2.txt',
-    'assets/drainage_b64/3a.txt',
-    'assets/drainage_b64/3b.txt',
-    'assets/drainage_b64/3c.txt',
-    'assets/drainage_b64/4a.txt',
-    'assets/drainage_b64/4b.txt',
-    'assets/drainage_b64/4c.txt',
-    'assets/drainage_b64/5.txt',
-    'assets/drainage_b64/6.txt',
-    'assets/drainage_b64/7.txt',
-    'assets/drainage_b64/8.txt',
-    'assets/drainage_b64/9.txt'
-  ];
-  const DRAINAGE_SOURCE_PREFIX='drainage-contributing-area-source-';
-  const DRAINAGE_LAYER_PREFIX='drainage-contributing-area-layer-';
+  const DRAINAGE_SOURCE='drainage-contributing-area-source';
+  const DRAINAGE_LAYER='drainage-contributing-area-layer';
   const NETWORK_SOURCE='terrain-drainage-network-source';
   const NETWORK_LAYER='terrain-drainage-network-layer';
   const NETWORK_FILES={
@@ -680,19 +658,14 @@
   let googleTerrainGround=null;
   let googleTerrainBounds=null;
 
-  let osmTerrainActiveSlot='a';
-  let osmTerrainBounds=null;
-  const osmTerrainSlots={
-    a:{source:'ea-ground-a-source',layer:'ea-ground-a-layer'},
-    b:{source:'ea-ground-b-source',layer:'ea-ground-b-layer'}
-  };
-
+  let terrainTileFallback=false;
+  let terrainTileError=null;
+  let terrainViewMode=null;
   let drainageEnabled=false;
   let drainageOpacity=1;
-  let drainageImageUrl=null;
-  let drainageLoadingPromise=null;
-  let drainageTileUrls=[];
-  let drainageRequestId=0;
+  let drainageDisplayError=null;
+  let drainageDisplaySeen=false;
+  let drainageDisplayMode=null;
   let networkEnabled=false;
   let networkOpacity=0.9;
   let networkThreshold='1';
@@ -981,17 +954,13 @@
     googleTerrainBounds=null;
   }
 
-  function removeOsmTerrainSlot(key){
-    if(!osmMap)return;
-    const slot=osmTerrainSlots[key];
-    if(osmMap.getLayer(slot.layer))osmMap.removeLayer(slot.layer);
-    if(osmMap.getSource(slot.source))osmMap.removeSource(slot.source);
-  }
-
   function removeOsmTerrain(){
-    removeOsmTerrainSlot('a');
-    removeOsmTerrainSlot('b');
-    osmTerrainBounds=null;
+    if(!osmMap)return;
+    for(const layer of [TERRAIN_OVERVIEW_LAYER,TERRAIN_TILE_LAYER]){
+      if(osmMap.getLayer(layer))osmMap.setLayoutProperty(layer,'visibility','none');
+    }
+    terrainViewMode=null;
+    $('terrainStatus').textContent='已关闭';$('terrainStatus').className='layerStatus';
   }
 
   function scheduleTerrainRefresh(delay=70,quality='preview'){
@@ -1041,75 +1010,58 @@
     }
   }
 
-  function ensureOsmTerrainLayer(slotKey,url,bounds){
-    const slot=osmTerrainSlots[slotKey];
-    const coords=[
-      [bounds.west,bounds.north],
-      [bounds.east,bounds.north],
-      [bounds.east,bounds.south],
-      [bounds.west,bounds.south]
-    ];
-
-    removeOsmTerrainSlot(slotKey);
-
-    osmMap.addSource(slot.source,{
-      type:'image',
-      url,
-      coordinates:coords
-    });
-
-    const layers=osmMap.getStyle()?.layers||[];
-    const firstSymbol=layers.find(layer=>layer.type==='symbol')?.id;
-
-    osmMap.addLayer({
-      id:slot.layer,
-      type:'raster',
-      source:slot.source,
-      layout:{visibility:'visible'},
-      paint:{
-        'raster-opacity':terrainOpacity,
-        'raster-fade-duration':0,
-        'raster-resampling':'linear'
-      }
-    },firstSymbol);
-
-    keepDrainageAboveTerrain();
-  }
-
-  async function refreshOsmTerrainGround(quality='final'){
+  function ensureOsmTerrainLayer(){
     if(!osmMap||!osmStyleReady||!terrainEnabled)return;
-
-    const visible=osmVisibleBounds();
-    const bounds=visible?expandBounds(visible,quality==='preview'?1.10:1.16):null;
-    if(!bounds)return;
-
-    const {width,height}=requestSizeForMap(osmMap.getContainer(),quality);
-    const url=eaViewportWmsUrl(bounds,width,height);
-    const requestId=++terrainRequestId;
-
-    try{
-      await preloadImage(url);
-      if(requestId!==terrainRequestId||
-         !terrainEnabled||
-         currentProvider!=='osm'){
-        return;
-      }
-
-      const nextSlot=osmTerrainActiveSlot==='a'?'b':'a';
-      ensureOsmTerrainLayer(nextSlot,url,bounds);
-      removeOsmTerrainSlot(osmTerrainActiveSlot);
-      osmTerrainActiveSlot=nextSlot;
-      osmTerrainBounds={...bounds};
-
-      say(quality==='preview'
-        ? 'EA 地形已按 OSM 地面四角配准，倾斜/旋转会随地图变形。'
-        : 'EA 地形高清图已按 OSM 地面坐标精确配准。');
-    }catch(err){
-      if(requestId!==terrainRequestId)return;
-      console.warn(err);
-      say('EA 地形本次加载失败，保留上一张地理配准图层。',true);
+    if(!osmMap.getSource(TERRAIN_OVERVIEW_SOURCE)){
+      osmMap.addSource(TERRAIN_OVERVIEW_SOURCE,{type:'image',
+        url:assetUrl('assets/terrain/overview.webp'),coordinates:networkCoordinates()});
+      osmMap.addLayer({id:TERRAIN_OVERVIEW_LAYER,type:'raster',source:TERRAIN_OVERVIEW_SOURCE,
+        paint:{'raster-opacity':terrainOpacity,'raster-fade-duration':0,'raster-resampling':'linear'}
+      },getFirstSymbolLayerId());
     }
+    if(!osmMap.getSource(TERRAIN_TILE_SOURCE)){
+      osmMap.addSource(TERRAIN_TILE_SOURCE,{type:'raster',tiles:[EA_WMTS_TILES],tileSize:256,
+        minzoom:8,maxzoom:17,bounds:[-6.236,49.943,2.072,55.816],
+        attribution:'© Environment Agency 2022 · Open Government Licence'});
+      osmMap.addLayer({id:TERRAIN_TILE_LAYER,type:'raster',source:TERRAIN_TILE_SOURCE,
+        layout:{visibility:'none'},
+        paint:{'raster-opacity':terrainOpacity,'raster-fade-duration':100,'raster-resampling':'linear'}
+      },getFirstSymbolLayerId());
+    }
+    osmMap.setLayoutProperty(TERRAIN_OVERVIEW_LAYER,'visibility','visible');
+    keepDrainageAboveTerrain();syncTerrainView();
   }
+
+  function syncTerrainView(){
+    if(!terrainEnabled||!osmMap||!osmStyleReady||!osmMap.getLayer(TERRAIN_TILE_LAYER))return;
+    const nw=networkCoordinates()[0],se=networkCoordinates()[2],v=osmVisibleBounds();
+    const inOverview=v&&v.west>=nw[0]&&v.east<=se[0]&&v.north<=nw[1]&&v.south>=se[1];
+    const detailed=osmMap.getZoom()>=11||!inOverview;
+    const visibility=detailed?'visible':'none';
+    if(osmMap.getLayoutProperty(TERRAIN_TILE_LAYER,'visibility')!==visibility){
+      osmMap.setLayoutProperty(TERRAIN_TILE_LAYER,'visibility',visibility);
+    }
+    const loaded=detailed&&osmMap.isSourceLoaded(TERRAIN_TILE_SOURCE);
+    // Show one terrain rendering at a time so opacity never compounds.
+    const paints=[[TERRAIN_OVERVIEW_LAYER,loaded?0:terrainOpacity],
+                  [TERRAIN_TILE_LAYER,loaded?terrainOpacity:0]];
+    for(const [layer,opacity] of paints){
+      if(osmMap.getPaintProperty(layer,'raster-opacity')!==opacity){
+        osmMap.setPaintProperty(layer,'raster-opacity',opacity);
+      }
+    }
+    const mode=terrainTileError?'error':loaded?'detail':detailed?'loading':
+      osmMap.isSourceLoaded(TERRAIN_OVERVIEW_SOURCE)?'overview':'overview-loading';
+    if(mode===terrainViewMode)return;terrainViewMode=mode;
+    $('terrainStatus').className='layerStatus'+(mode==='error'?' error':'');
+    $('terrainStatus').textContent=mode==='overview'?'已显示 · EA 官方地形总览 · 放大加载细节':
+      mode==='overview-loading'?'正在加载地形总览…':
+      mode==='detail'?'已显示 · EA 官方地形瓦片 · 已加载区域可复用':
+      mode==='error'?'官方细节服务暂不可用，保留总览；重新勾选可重试':
+      '正在加载官方地形细节… 总览持续显示';
+  }
+
+  function refreshOsmTerrainGround(){ensureOsmTerrainLayer();}
 
   async function refreshTerrainGround(quality='final'){
     if(currentProvider==='google'){
@@ -1123,47 +1075,39 @@
     if(googleTerrainGround){
       googleTerrainGround.setOpacity(terrainOpacity);
     }
-    if(osmMap){
-      for(const key of ['a','b']){
-        const layer=osmTerrainSlots[key].layer;
-        if(osmMap.getLayer(layer)){
-          osmMap.setPaintProperty(layer,'raster-opacity',terrainOpacity);
-        }
-      }
-    }
+    if(osmMap)syncTerrainView();
   }
 
   function terrainCameraStarted(){
-    terrainRequestId++;
-    clearTimeout(terrainRefreshTimer);
+    if(currentProvider==='osm')return;
+    terrainRequestId++;clearTimeout(terrainRefreshTimer);
   }
 
   function terrainCameraChanged(){
     if(!terrainEnabled)return;
-    terrainRequestId++;
-    clearTimeout(terrainRefreshTimer);
-    scheduleTerrainRefresh(70,'preview');
+    if(currentProvider==='osm'){syncTerrainView();return;}
+    terrainRequestId++;clearTimeout(terrainRefreshTimer);scheduleTerrainRefresh(70,'preview');
   }
 
   function terrainCameraEnded(){
     if(!terrainEnabled)return;
+    if(currentProvider==='osm'){syncTerrainView();return;}
     scheduleTerrainRefresh(50,'preview');
-    setTimeout(()=>{
-      if(terrainEnabled)scheduleTerrainRefresh(260,'final');
-    },100);
+    setTimeout(()=>{if(terrainEnabled)scheduleTerrainRefresh(260,'final');},100);
   }
 
   function updateTerrainLayers(){
     if(!terrainEnabled){
-      terrainRequestId++;
-      clearTimeout(terrainRefreshTimer);
-      removeGoogleTerrain();
-      removeOsmTerrain();
-      return;
+      terrainRequestId++;clearTimeout(terrainRefreshTimer);
+      removeGoogleTerrain();removeOsmTerrain();return;
     }
-
-    applyTerrainOpacity();
-    terrainCameraChanged();
+    if(currentProvider==='osm'){
+      if(terrainTileError){
+        osmMap.getSource(TERRAIN_TILE_SOURCE)?.setTiles([EA_WMTS_TILES]);
+        terrainTileError=null;terrainTileFallback=false;terrainViewMode=null;
+      }
+      ensureOsmTerrainLayer();applyTerrainOpacity();
+    }else{applyTerrainOpacity();terrainCameraChanged();}
   }
 
   function getFirstSymbolLayerId(){
@@ -1171,140 +1115,10 @@
     return (osmMap.getStyle()?.layers||[]).find(layer=>layer.type==='symbol')?.id;
   }
 
-  async function makeDrainageHighContrastBlob(sourceBlob){
-    // Colour/smoothing preview only. The analytical source remains 50 m.
-    // Exact 10 m display-cell dimensions are created later per map tile.
-    try{
-      const bitmap=await createImageBitmap(sourceBlob);
-
-      const scale=4;
-      const canvas=document.createElement('canvas');
-      canvas.width=bitmap.width*scale;
-      canvas.height=bitmap.height*scale;
-
-      const ctx=canvas.getContext('2d',{willReadFrequently:true});
-      ctx.imageSmoothingEnabled=true;
-      ctx.imageSmoothingQuality='high';
-      ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
-      bitmap.close?.();
-
-      const image=ctx.getImageData(0,0,canvas.width,canvas.height);
-      const d=image.data;
-
-      const clamp=v=>Math.max(0,Math.min(1,v));
-      const mix=(a,b,t)=>Math.round(a+(b-a)*t);
-      const smoothstep=t=>{
-        t=clamp(t);
-        return t*t*(3-2*t);
-      };
-
-      for(let i=0;i<d.length;i+=4){
-        const a=d[i+3];
-
-        // Fade the broad low-value field out gradually instead of creating
-        // hard square thresholds.
-        const visibility=smoothstep((a-108)/22);
-        if(visibility<=0.01){
-          d[i+3]=0;
-          continue;
-        }
-
-        // Continuous strength response, avoiding discrete class blocks.
-        const t=clamp((a-118)/(190-118));
-
-        let r,g,b;
-        if(t<0.40){
-          const q=t/0.40;
-          // pale yellow -> orange
-          r=255;
-          g=mix(224,153,q);
-          b=mix(120,0,q);
-        }else if(t<0.75){
-          const q=(t-0.40)/0.35;
-          // orange -> red
-          r=mix(255,239,q);
-          g=mix(153,68,q);
-          b=mix(0,68,q);
-        }else{
-          const q=(t-0.75)/0.25;
-          // red -> dark red
-          r=mix(239,127,q);
-          g=mix(68,29,q);
-          b=mix(68,29,q);
-        }
-
-        d[i]=r;
-        d[i+1]=g;
-        d[i+2]=b;
-        d[i+3]=Math.round((45+205*Math.pow(t,0.72))*visibility);
-      }
-
-      ctx.putImageData(image,0,0);
-
-      return await new Promise((resolve,reject)=>{
-        canvas.toBlob(
-          blob=>blob?resolve(blob):reject(new Error('Drainage smooth rendering failed')),
-          'image/webp',
-          0.94
-        );
-      });
-    }catch(err){
-      console.warn('Smooth drainage rendering unavailable; using source preview.',err);
-      return sourceBlob;
-    }
-  }
-
-  async function getDrainageImageUrl(){
-    if(drainageImageUrl)return drainageImageUrl;
-    if(drainageLoadingPromise)return drainageLoadingPromise;
-
-    drainageLoadingPromise=(async()=>{
-      const parts=await Promise.all(
-        DRAINAGE_FILES.map(path=>
-          fetch(assetUrl(path),{cache:'force-cache'})
-            .then(r=>{
-              if(!r.ok)throw new Error('Drainage asset load failed: '+path+' · '+r.status);
-              return r.text();
-            })
-        )
-      );
-
-      // trim() also protects against harmless whitespace in repository chunks.
-      const b64=parts.map(s=>s.trim()).join('');
-      const binary=atob(b64);
-      const bytes=new Uint8Array(binary.length);
-      for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
-
-      const sourceBlob=new Blob([bytes],{type:'image/webp'});
-      const displayBlob=await makeDrainageHighContrastBlob(sourceBlob);
-      return URL.createObjectURL(displayBlob);
-    })();
-
-    try{
-      drainageImageUrl=await drainageLoadingPromise;
-      return drainageImageUrl;
-    }finally{
-      drainageLoadingPromise=null;
-    }
-  }
-
-  function drainageTileIds(row,col){
-    const suffix=row+'-'+col;
-    return {
-      source:DRAINAGE_SOURCE_PREFIX+suffix,
-      layer:DRAINAGE_LAYER_PREFIX+suffix
-    };
-  }
-
   function removeDrainageLayer(){
-    if(!osmMap)return;
-    for(let row=0;row<DRAINAGE_GRID_SIZE;row++){
-      for(let col=0;col<DRAINAGE_GRID_SIZE;col++){
-        const ids=drainageTileIds(row,col);
-        if(osmMap.getLayer(ids.layer))osmMap.removeLayer(ids.layer);
-        if(osmMap.getSource(ids.source))osmMap.removeSource(ids.source);
-      }
-    }
+    if(osmMap?.getLayer(DRAINAGE_LAYER))osmMap.setLayoutProperty(DRAINAGE_LAYER,'visibility','none');
+    drainageDisplayMode=null;
+    $('drainageStatus').textContent='已关闭';$('drainageStatus').className='layerStatus';
   }
 
   function keepDrainageAboveTerrain(){
@@ -1312,17 +1126,7 @@
     const firstSymbol=getFirstSymbolLayerId();
     if(!firstSymbol)return;
 
-    if(drainageEnabled)for(let row=0;row<DRAINAGE_GRID_SIZE;row++){
-      for(let col=0;col<DRAINAGE_GRID_SIZE;col++){
-        const ids=drainageTileIds(row,col);
-        if(!osmMap.getLayer(ids.layer))continue;
-        try{
-          osmMap.moveLayer(ids.layer,firstSymbol);
-        }catch(err){
-          console.warn('Could not reorder drainage tile',row,col,err);
-        }
-      }
-    }
+    if(osmMap.getLayer(DRAINAGE_LAYER))osmMap.moveLayer(DRAINAGE_LAYER,firstSymbol);
     // Categories sit above terrain/contributing area; the blue network and labels
     // remain readable above the flood overview, regardless of load order.
     for(let row=0;row<FLOOD_GRID_SIZE;row++){
@@ -1586,130 +1390,37 @@
     }
   }
 
-  async function updateDrainageLayer(){
-    const requestId=++drainageRequestId;
+  function syncDrainageStatus(){
+    if(!drainageEnabled||!osmMap||!osmStyleReady)return;
+    const mode=drainageDisplayError?'error':osmMap.getZoom()<AREA_MIN_ZOOM?'zoom':
+      drainageDisplaySeen&&osmMap.isSourceLoaded(DRAINAGE_SOURCE)?'ready':'loading';
+    if(mode===drainageDisplayMode)return;drainageDisplayMode=mode;
+    $('drainageStatus').className='layerStatus'+(mode==='error'?' error':'');
+    $('drainageStatus').textContent=mode==='ready'?'已显示 · 完整 50 m 源分析 · 放大平滑细分':
+      mode==='error'?'汇水显示加载失败，请重新勾选图层重试':
+      mode==='zoom'?'请放大到区域尺度查看汇水图层':'正在加载汇水图层… 仅生成当前视野';
+  }
+
+  function updateDrainageLayer(){
     if(!osmMap||!osmStyleReady)return;
-
-    if(!drainageEnabled){
-      removeDrainageLayer();
-      return;
+    if(!drainageEnabled){removeDrainageLayer();return;}
+    if(drainageDisplayError){
+      if(osmMap.getLayer(DRAINAGE_LAYER))osmMap.removeLayer(DRAINAGE_LAYER);
+      if(osmMap.getSource(DRAINAGE_SOURCE))osmMap.removeSource(DRAINAGE_SOURCE);
+      drainageDisplayError=null;drainageDisplayMode=null;
     }
-
-    say('正在生成 10 m 显示栅格并按 EPSG:3857 精确配准… 0/100');
-
-    try{
-      const wholeUrl=await getDrainageImageUrl();
-      const wholeBlob=await fetch(wholeUrl).then(r=>{
-        if(!r.ok)throw new Error('Drainage display image unavailable');
-        return r.blob();
-      });
-      const bitmap=await createImageBitmap(wholeBlob);
-
-      if(requestId!==drainageRequestId||!drainageEnabled||!osmMap||!osmStyleReady){
-        bitmap.close?.();
-        return;
-      }
-
-      removeDrainageLayer();
-      const firstSymbol=getFirstSymbolLayerId();
-      const total=DRAINAGE_GRID_SIZE*DRAINAGE_GRID_SIZE;
-      let loaded=0;
-
-      for(let row=0;row<DRAINAGE_GRID_SIZE;row++){
-        const sy0=Math.round(bitmap.height*row/DRAINAGE_GRID_SIZE);
-        const sy1=Math.round(bitmap.height*(row+1)/DRAINAGE_GRID_SIZE);
-        const ty0=Math.round(DRAINAGE_DISPLAY_HEIGHT*row/DRAINAGE_GRID_SIZE);
-        const ty1=Math.round(DRAINAGE_DISPLAY_HEIGHT*(row+1)/DRAINAGE_GRID_SIZE);
-
-        for(let col=0;col<DRAINAGE_GRID_SIZE;col++){
-          if(requestId!==drainageRequestId||!drainageEnabled){
-            bitmap.close?.();
-            return;
-          }
-
-          const index=row*DRAINAGE_GRID_SIZE+col;
-          const ids=drainageTileIds(row,col);
-
-          let url=drainageTileUrls[index];
-          if(!url){
-            const sx0=Math.round(bitmap.width*col/DRAINAGE_GRID_SIZE);
-            const sx1=Math.round(bitmap.width*(col+1)/DRAINAGE_GRID_SIZE);
-            const tx0=Math.round(DRAINAGE_DISPLAY_WIDTH*col/DRAINAGE_GRID_SIZE);
-            const tx1=Math.round(DRAINAGE_DISPLAY_WIDTH*(col+1)/DRAINAGE_GRID_SIZE);
-
-            // The already-warped 50 m Web Mercator raster is resampled 5×.
-            // This is a nominal 10 m-equivalent DISPLAY grid, not new analysis data.
-            const w=Math.max(1,tx1-tx0);
-            const h=Math.max(1,ty1-ty0);
-
-            const canvas=document.createElement('canvas');
-            canvas.width=w;
-            canvas.height=h;
-            const ctx=canvas.getContext('2d');
-            ctx.imageSmoothingEnabled=true;
-            ctx.imageSmoothingQuality='high';
-            ctx.drawImage(
-              bitmap,
-              sx0,sy0,Math.max(1,sx1-sx0),Math.max(1,sy1-sy0),
-              0,0,w,h
-            );
-
-            const tileBlob=await new Promise((resolve,reject)=>{
-              canvas.toBlob(
-                b=>b?resolve(b):reject(new Error('Drainage tile conversion failed')),
-                'image/webp',
-                0.92
-              );
-            });
-            url=URL.createObjectURL(tileBlob);
-            drainageTileUrls[index]=url;
-          }
-
-          const coords=drainageTileCoordinates(row,col);
-
-          osmMap.addSource(ids.source,{
-            type:'image',
-            url,
-            coordinates:coords
-          });
-
-          osmMap.addLayer({
-            id:ids.layer,
-            type:'raster',
-            source:ids.source,
-            paint:{
-              'raster-opacity':drainageOpacity,
-              'raster-contrast':0.08,
-              'raster-saturation':0.18,
-              'raster-brightness-min':0.02,
-              'raster-brightness-max':1,
-              'raster-fade-duration':0,
-              'raster-resampling':'linear'
-            }
-          },firstSymbol);
-
-          loaded++;
-          say('正在按真实 EPSG:27700 尺寸加载汇水图层… '+loaded+'/'+total);
-
-          // Give MapLibre a render frame so tiles become visible progressively
-          // instead of waiting for the entire georeferencing mesh.
-          await new Promise(resolve=>requestAnimationFrame(resolve));
-        }
-      }
-
-      bitmap.close?.();
-      keepDrainageAboveTerrain();
-
-      say(
-        '汇水图层已显示：10 m 等效显示重采样（源分析分辨率 50 m）。\n'+
-        '位置采用原始 EPSG:3857 投影边界直接对齐 OpenStreetMap；没有二次投影变形。'
-      );
-    }catch(err){
-      if(requestId!==drainageRequestId)return;
-      console.error(err);
-      removeDrainageLayer();
-      say('汇水贡献面积图层加载失败：'+(err?.message||err),true);
+    if(!osmMap.getSource(DRAINAGE_SOURCE)){
+      const nw=networkCoordinates()[0],se=networkCoordinates()[2];
+      osmMap.addSource(DRAINAGE_SOURCE,{type:'raster',tiles:['drainage-area://tiles/{z}/{x}/{y}'],
+        tileSize:AREA_TILE_SIZE,minzoom:AREA_MIN_ZOOM,maxzoom:AREA_MAX_ZOOM,
+        bounds:[nw[0],se[1],se[0],nw[1]],attribution:'汇水贡献面积 · 项目 50 m 分析栅格'});
+      osmMap.addLayer({id:DRAINAGE_LAYER,type:'raster',source:DRAINAGE_SOURCE,minzoom:AREA_MIN_ZOOM,
+        paint:{'raster-opacity':drainageOpacity,'raster-fade-duration':0,'raster-resampling':'linear'}
+      },getFirstSymbolLayerId());
     }
+    osmMap.setLayoutProperty(DRAINAGE_LAYER,'visibility','visible');
+    osmMap.setPaintProperty(DRAINAGE_LAYER,'raster-opacity',drainageOpacity);
+    keepDrainageAboveTerrain();syncDrainageStatus();
   }
 
   function fitGoogleTo70(){
@@ -1921,17 +1632,12 @@
   function syncCityView(){
     if(!osmMap||!osmStyleReady)return;
     const pitch=osmMap.getPitch(),is3D=pitch>.5;
-    $('viewPitch').value=String(Math.round(pitch));
-    $('viewPitchValue').textContent=Math.round(pitch)+'°';
     $('view2D').setAttribute('aria-pressed',String(!is3D));
     $('view3D').setAttribute('aria-pressed',String(is3D));
     if(osmMap.getLayer(CITY_BUILDINGS_LAYER)&&is3D!==cityBuildingsShown){
       osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',is3D?'visible':'none');
       cityBuildingsShown=is3D;
     }
-    $('viewHint').textContent=is3D?
-      (osmMap.getZoom()<14?'3D 视角已开启；放大到街道尺度可见建筑。':'右键拖动旋转与倾斜；触屏双指旋转。建筑高度含估计值。'):
-      '点击“3D 城市”查看建筑；右键拖动可旋转与倾斜。';
   }
 
   function setCityView(is3D){
@@ -2027,6 +1733,14 @@
       if(floodEnabled)floodDetailSeen=true;
       return result;
     });
+    const areaLoader=createDrainageDisplayLoader({
+      sourceUrl:new URL(assetUrl('assets/drainage_area/area_log16.webp'),location.href).href,
+      width:DRAINAGE_3857.baseWidth50m,height:DRAINAGE_3857.baseHeight50m,
+      center:FOCUS70_CENTER,radius:FOCUS70_RADIUS_M,bounds:DRAINAGE_3857
+    });
+    maplibregl.addProtocol('drainage-area',async(request,controller)=>{
+      const result=await areaLoader(request,controller);drainageDisplaySeen=true;return result;
+    });
     osmMap=new maplibregl.Map({
       container:'osmMap',
       style:'https://tiles.openfreemap.org/styles/liberty',
@@ -2045,10 +1759,23 @@
     osmMap.addControl(new maplibregl.NavigationControl({showCompass:true,visualizePitch:true}),'top-right');
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
+    osmMap.on('sourcedata',e=>{
+      if(e.sourceId===TERRAIN_TILE_SOURCE||e.sourceId===TERRAIN_OVERVIEW_SOURCE)syncTerrainView();
+      if(e.sourceId===DRAINAGE_SOURCE)syncDrainageStatus();
+    });
+    osmMap.on('moveend',syncDrainageStatus);
+    osmMap.on('error',e=>{
+      if(e.sourceId===DRAINAGE_SOURCE){drainageDisplayError=e.error?.message||'加载失败';syncDrainageStatus();}
+      if(e.sourceId===TERRAIN_TILE_SOURCE&&terrainEnabled){
+        if(!terrainTileFallback){
+          terrainTileFallback=true;osmMap.getSource(TERRAIN_TILE_SOURCE)?.setTiles([EA_WMS_MAPLIBRE]);
+        }else{terrainTileError=e.error?.message||'加载失败';syncTerrainView();}
+      }
+    });
     osmMap.on('load',()=>{
       osmStyleReady=true;
       ensureCityBuildings();syncCityView();
-      $('view2D').disabled=false;$('view3D').disabled=false;$('viewPitch').disabled=false;
+      $('view2D').disabled=false;$('view3D').disabled=false;
       $('placeSearchButton').disabled=false;
       for(const id of ['terrainToggle','drainageToggle','floodToggle','networkToggle','focus70Toggle']){
         $(id).disabled=false;
@@ -2229,9 +1956,6 @@
   $('provider').addEventListener('change',e=>{ switchProvider(e.target.value); });
   $('view2D').addEventListener('click',()=>setCityView(false));
   $('view3D').addEventListener('click',()=>setCityView(true));
-  $('viewPitch').addEventListener('input',e=>{
-    if(osmMap&&osmStyleReady)osmMap.setPitch(Math.max(0,Math.min(70,Number(e.target.value))));
-  });
   $('placeSearchForm').addEventListener('submit',e=>{e.preventDefault();runPlaceSearch();});
   $('placeSearchInput').addEventListener('input',()=>{
     cancelPlaceSearch();$('placeSearchResults').replaceChildren();setSearchStatus('');
@@ -2270,14 +1994,7 @@
     drainageOpacity=Number(e.target.value);
     $('drainageOpacityValue').textContent=Math.round(drainageOpacity*100)+'%';
     if(!osmMap)return;
-    for(let row=0;row<DRAINAGE_GRID_SIZE;row++){
-      for(let col=0;col<DRAINAGE_GRID_SIZE;col++){
-        const ids=drainageTileIds(row,col);
-        if(osmMap.getLayer(ids.layer)){
-          osmMap.setPaintProperty(ids.layer,'raster-opacity',drainageOpacity);
-        }
-      }
-    }
+    if(osmMap.getLayer(DRAINAGE_LAYER))osmMap.setPaintProperty(DRAINAGE_LAYER,'raster-opacity',drainageOpacity);
   });
 
   $('floodToggle').addEventListener('change',e=>{

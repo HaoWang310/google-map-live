@@ -1,0 +1,31 @@
+{
+  "name": "London contributing area: full 50 m source preview",
+  "generated_on": "2026-10-11",
+  "source_file": "London_Drainage_70km_contributing_area_km2(2).tif",
+  "source_sha256": "79c1b130b434f133f5704c49fc7cf4b6135738f2d4a37e3d2ee1e835ccb348ac",
+  "source_analysis_resolution_m": 50,
+  "units": "km² upstream contributing area",
+  "web_grid": {
+    "crs": "EPSG:3857",
+    "bounds_m": [
+      -127813.8696191665,
+      6596204.025752107,
+      102461.98815442335,
+      6827041.923624865
+    ],
+    "width": 2868,
+    "height": 2875
+  },
+  "asset": "assets/drainage_area/area_log16.webp",
+  "asset_sha256": "db243a427f4314232dea87704e1f87b057d72625b85cc2e29685155ed5dc8414",
+  "asset_size_bytes": 3460076,
+  "encoding": {
+    "code": "R * 256 + G; 0 = NoData",
+    "minimum_area_km2": 0.0025,
+    "maximum_area_km2": 8192.0,
+    "decode": "0.0025 * exp((code - 1) / 65534 * log(8192 / 0.0025))"
+  },
+  "reprojection": "Nearest neighbour onto the exact existing hydrology EPSG:3857 grid; no hand offsets.",
+  "display": "Viewport-only 512 px XYZ tiles, z8–18. Clamped cubic interpolation of log area, continuous yellow-to-red palette, original NoData and 70 km mask. This interpolation is visual only; source analysis remains 50 m.",
+  "provenance": "Existing project metadata attributes the analytical raster to EA LiDAR DTM. The TIFF has no original DEM ID, flow-direction raster or complete processing log; upstream analysis is not independently reproduced."
+}
