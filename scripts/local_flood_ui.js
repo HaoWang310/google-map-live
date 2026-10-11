@@ -72,7 +72,7 @@ function onceIdle(map,timeout=2200){
 
 export function createLocalFloodUI({
   map,maplibregl,assetUrl,demBounds,demWidth,demHeight,
-  ensureCityBuildings,setCityView,getFirstSymbolLayerId
+  ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId
 }){
   let drawing=false;
   let vertices=[];
@@ -255,7 +255,7 @@ export function createLocalFloodUI({
     map.addLayer({
       id:WATER_LAYER,type:'raster',source:WATER_SOURCE,
       paint:{'raster-opacity':0.86,'raster-resampling':'linear','raster-fade-duration':0}
-    },getFirstSymbolLayerId());
+    },map.getLayer(cityBuildingsLayerId)?cityBuildingsLayerId:getFirstSymbolLayerId());
 
     map.addSource(IMPACT_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
     map.addLayer({
