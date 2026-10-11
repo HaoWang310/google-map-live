@@ -1,5 +1,5 @@
-// Smooth display of the actual 50 m contributing-area values, on OSM's grid.
-// Interpolation changes the appearance only; it creates no new hydrology data.
+// Smooth display of the stored 50 m contributing-area values, on OSM's grid.
+// B-spline interpolation changes appearance only; it does not change the source raster.
 export const AREA_MIN_ZOOM=8,AREA_MAX_ZOOM=18,AREA_TILE_SIZE=512;
 const R=6378137,HALF=Math.PI*R;
 const MIN_AREA=.0025,MAX_AREA=8192;
@@ -16,8 +16,17 @@ export function areaTileBounds(z,x,y){
 }
 
 export function cubicWeights(t){
-  const t2=t*t,t3=t2*t;
-  return [-.5*t+t2-.5*t3,1-2.5*t2+1.5*t3,.5*t+2*t2-1.5*t3,-.5*t2+.5*t3];
+  // Cubic B-spline weights: all weights are non-negative and sum to 1.
+  // The previous Catmull-Rom kernel used negative lobes, which produced
+  // cell-centred "beads"/ringing along one-cell-wide D8 drainage paths.
+  // This is display-only smoothing; the stored 50 m source values are unchanged.
+  const t2=t*t,t3=t2*t,u=1-t;
+  return [
+    u*u*u/6,
+    (3*t3-6*t2+4)/6,
+    (-3*t3+3*t2+3*t+1)/6,
+    t3/6
+  ];
 }
 
 function palette(){
