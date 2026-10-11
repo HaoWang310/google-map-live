@@ -1,6 +1,8 @@
-// Dynamic threshold view of one authoritative 50 m Thames upstream-accumulation field.
-// The encoded field is fetched once per Worker and reused for all threshold changes.
-// No second drainage-network dataset and no visible contributing-area raster are created.
+// Dynamic threshold display of one authoritative 50 m Thames upstream-accumulation field.
+// IMPORTANT: the network threshold is applied to RAW 50 m accumulation cells BEFORE
+// any display resampling. This preserves one-cell-wide D8 flow paths.
+// At low zoom, max-pooling keeps narrow channels visible; a 1 px display dilation improves
+// legibility only and does not change the underlying hydrology or threshold.
 export const AREA_MIN_ZOOM=8,AREA_MAX_ZOOM=18,AREA_TILE_SIZE=512;
 const R=6378137,HALF=Math.PI*R;
 const MIN_AREA=.0025,MAX_AREA=20000;
@@ -16,11 +18,6 @@ export function areaTileBounds(z,x,y){
   return [-HALF+x*side,HALF-(y+1)*side,-HALF+(x+1)*side,HALF-y*side];
 }
 
-function cubicWeights(t){
-  const t2=t*t,t3=t2*t,u=1-t;
-  return [u*u*u/6,(3*t3-6*t2+4)/6,(-3*t3+3*t2+3*t+1)/6,t3/6];
-}
-
 function areaCode(km2){
   const ratio=Math.log(clamp(km2,MIN_AREA,MAX_AREA)/MIN_AREA)/Math.log(MAX_AREA/MIN_AREA);
   return 1+Math.round(ratio*65534);
@@ -33,43 +30,12 @@ function decodeArea(code){
 
 function networkColour(code){
   const a=decodeArea(code);
-  if(a>=100)return [112,255,241,235];
-  if(a>=25)return [0,224,230,230];
-  if(a>=5)return [0,183,228,225];
-  if(a>=1)return [35,152,255,220];
-  return [75,169,255,210];
+  if(a>=100)return [112,255,241,245];
+  if(a>=25)return [0,224,230,242];
+  if(a>=5)return [0,183,228,238];
+  if(a>=1)return [35,152,255,235];
+  return [75,169,255,228];
 }
-
-function sourceSampler({field,width,bounds,bbox,size}){
-  const dx=(bbox[2]-bbox[0])/size,dy=(bbox[3]-bbox[1])/size;
-  const scaleX=width/(bounds.right-bounds.left);
-  const columns=Array.from({length:size},(_,col)=>{
-    const mx=bbox[0]+(col+.5)*dx,sx=(mx-bounds.left)*scaleX-.5;
-    const base=Math.floor(sx);
-    return {
-      mx,
-      nx:clamp(Math.round(sx),0,width-1),
-      weights:cubicWeights(sx-base),
-      ix:[-1,0,1,2].map(k=>clamp(base+k,0,width-1))
-    };
-  });
-  const horizontalRows=new Map();
-  function horizontal(y){
-    y=clamp(y,0,configHeight-1);
-    if(horizontalRows.has(y))return horizontalRows.get(y);
-    const values=new Float32Array(size),offset=y*width;
-    for(let col=0;col<size;col++){
-      const {ix,weights:w}=columns[col];
-      values[col]=w[0]*(field[offset+ix[0]]||1)+w[1]*(field[offset+ix[1]]||1)+
-                  w[2]*(field[offset+ix[2]]||1)+w[3]*(field[offset+ix[3]]||1);
-    }
-    horizontalRows.set(y,values);
-    return values;
-  }
-  return {dy,columns,horizontal};
-}
-
-let configHeight=0;
 
 function insideRadius(mx,my,clat,clon,radius){
   const lat=2*Math.atan(Math.exp(my/R))-Math.PI/2;
@@ -78,51 +44,107 @@ function insideRadius(mx,my,clat,clon,radius){
   return 2*R*Math.asin(Math.sqrt(Math.min(1,hav)))<=radius;
 }
 
-async function renderNetworkTile({field,width,height,bounds,center,radius,threshold,z,x,y,
-                                  size=AREA_TILE_SIZE,cancelled=()=>false,
-                                  pause=()=>new Promise(resolve=>setTimeout(resolve,0))}){
-  configHeight=height;
-  const bbox=areaTileBounds(z,x,y),pixels=new Uint8ClampedArray(size*size*4);
+async function renderNetworkTile({
+  field,width,height,bounds,center,radius,threshold,z,x,y,
+  size=AREA_TILE_SIZE,cancelled=()=>false,
+  pause=()=>new Promise(resolve=>setTimeout(resolve,0))
+}){
+  const bbox=areaTileBounds(z,x,y);
+  const pixels=new Uint8ClampedArray(size*size*4);
   if(bbox[2]<=bounds.left||bbox[0]>=bounds.right||
      bbox[3]<=bounds.bottom||bbox[1]>=bounds.top)return pixels;
   if(field.length!==width*height)throw new Error('Drainage-network dimensions mismatch');
 
   const thresholdCode=areaCode(threshold);
-  const {dy,columns,horizontal}=sourceSampler({field,width,bounds,bbox,size});
+  const dx=(bbox[2]-bbox[0])/size;
+  const dy=(bbox[3]-bbox[1])/size;
+  const scaleX=width/(bounds.right-bounds.left);
   const scaleY=height/(bounds.top-bounds.bottom);
   const clat=center.lat*Math.PI/180,clon=center.lng*Math.PI/180;
 
+  // Source-cell footprint of one output pixel. At small scales we take the maximum
+  // raw contributing-area code within that footprint, so a 50 m D8 channel cannot
+  // vanish simply because it falls between output pixel centres.
+  const rx=Math.max(.55,dx*scaleX*.55);
+  const ry=Math.max(.55,dy*scaleY*.55);
+
+  const xRanges=Array.from({length:size},(_,col)=>{
+    const mx=bbox[0]+(col+.5)*dx;
+    const sx=(mx-bounds.left)*scaleX-.5;
+    return {
+      mx,
+      c0:clamp(Math.floor(sx-rx),0,width-1),
+      c1:clamp(Math.ceil(sx+rx),0,width-1)
+    };
+  });
+
+  // First pass: exact threshold on raw encoded source values + max-pool display.
+  const mask=new Uint8Array(size*size);
+  const maxCodes=new Uint16Array(size*size);
+
   for(let row=0;row<size;row++){
-    if(row%32===0){
+    if(row%24===0){
       await pause();
       if(cancelled())throw new DOMException('Aborted','AbortError');
     }
+
     const my=bbox[3]-(row+.5)*dy;
     if(my<bounds.bottom||my>bounds.top)continue;
 
-    const sy=(bounds.top-my)*scaleY-.5,baseY=Math.floor(sy),wy=cubicWeights(sy-baseY);
-    const ny=clamp(Math.round(sy),0,height-1);
-    const h0=horizontal(baseY-1),h1=horizontal(baseY),h2=horizontal(baseY+1),h3=horizontal(baseY+2);
-    const y0=clamp(baseY,0,height-1)*width,y1=clamp(baseY+1,0,height-1)*width;
+    const sy=(bounds.top-my)*scaleY-.5;
+    const r0=clamp(Math.floor(sy-ry),0,height-1);
+    const r1=clamp(Math.ceil(sy+ry),0,height-1);
 
     for(let col=0;col<size;col++){
-      const {mx,nx,ix}=columns[col];
-      if(mx<bounds.left||mx>bounds.right||!insideRadius(mx,my,clat,clon,radius))continue;
+      const {mx,c0,c1}=xRanges[col];
+      if(mx<bounds.left||mx>bounds.right||
+         !insideRadius(mx,my,clat,clon,radius))continue;
 
-      const nearest=field[ny*width+nx];
-      if(!nearest)continue;
+      let maxCode=0;
+      for(let rr=r0;rr<=r1;rr++){
+        const offset=rr*width;
+        for(let cc=c0;cc<=c1;cc++){
+          const code=field[offset+cc];
+          if(code>maxCode)maxCode=code;
+        }
+      }
+      if(maxCode>=thresholdCode){
+        const i=row*size+col;
+        mask[i]=1;
+        maxCodes[i]=maxCode;
+      }
+    }
+  }
 
-      const value=wy[0]*h0[col]+wy[1]*h1[col]+wy[2]*h2[col]+wy[3]*h3[col];
-      const a=field[y0+ix[1]]||1,b=field[y0+ix[2]]||1,
-            c=field[y1+ix[1]]||1,d=field[y1+ix[2]]||1;
-      const code=clamp(Math.round(value),Math.min(a,b,c,d),Math.max(a,b,c,d));
-      if(code<thresholdCode)continue;
-
-      const colour=networkColour(code),index=(row*size+col)*4;
-      pixels[index]=colour[0];
-      pixels[index+1]=colour[1];
-      pixels[index+2]=colour[2];
-      pixels[index+3]=colour[3];
+  // Second pass: 1 CSS-pixel visual dilation. This is intentionally display-only:
+  // the threshold is already evaluated on the raw 50 m cells above.
+  const DISPLAY_RADIUS=1;
+  for(let row=0;row<size;row++){
+    if(row%48===0){
+      await pause();
+      if(cancelled())throw new DOMException('Aborted','AbortError');
+    }
+    for(let col=0;col<size;col++){
+      const i=row*size+col;
+      if(!mask[i])continue;
+      const code=maxCodes[i];
+      const colour=networkColour(code);
+      for(let oy=-DISPLAY_RADIUS;oy<=DISPLAY_RADIUS;oy++){
+        const yy=row+oy;
+        if(yy<0||yy>=size)continue;
+        for(let ox=-DISPLAY_RADIUS;ox<=DISPLAY_RADIUS;ox++){
+          const xx=col+ox;
+          if(xx<0||xx>=size)continue;
+          if(ox*ox+oy*oy>DISPLAY_RADIUS*DISPLAY_RADIUS+0.01)continue;
+          const j=(yy*size+xx)*4;
+          // Keep the stronger upstream class if multiple paths overlap.
+          if(pixels[j+3] && maxCodes[yy*size+xx]>code)continue;
+          pixels[j]=colour[0];
+          pixels[j+1]=colour[1];
+          pixels[j+2]=colour[2];
+          pixels[j+3]=Math.max(pixels[j+3],colour[3]);
+        }
+      }
     }
   }
   return pixels;
@@ -146,9 +168,9 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
         const canvas=new OffscreenCanvas(width,height);
         const ctx=canvas.getContext('2d',{willReadFrequently:true});
         ctx.drawImage(bitmap,0,0);
-        const pixels=ctx.getImageData(0,0,width,height).data;
+        const rgba=ctx.getImageData(0,0,width,height).data;
         const field=new Uint16Array(width*height);
-        for(let i=0;i<field.length;i++)field[i]=(pixels[i*4]<<8)|pixels[i*4+1];
+        for(let i=0;i<field.length;i++)field[i]=(rgba[i*4]<<8)|rgba[i*4+1];
         canvas.width=1;canvas.height=1;
         return {field,width,height};
       }finally{
@@ -176,6 +198,7 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
           }else{
             const input=await source();
             if(cancelled.has(id))continue;
+
             const pixels=await renderNetworkTile({
               ...config,...input,threshold,z,x,y,
               cancelled:()=>cancelled.has(id)
@@ -192,6 +215,7 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
             cache.set(key,data);
             while(cache.size>96)cache.delete(cache.keys().next().value);
           }
+
           const copy=data.slice(0);
           postMessage({id,data:copy},[copy]);
         }catch(error){
