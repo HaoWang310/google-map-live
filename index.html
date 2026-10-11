@@ -186,7 +186,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.14.0</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.15.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -234,7 +234,7 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>EA LiDAR DTM 1 m</strong>
-              <small>裸地地形高程 · Environment Agency</small>
+              <small>裸地地形高程 · 本地分级瓦片 · Environment Agency</small>
             </span>
             <input id="terrainToggle" type="checkbox" autocomplete="off" disabled>
           </label>
@@ -244,7 +244,7 @@
             <span id="terrainOpacityValue">42%</span>
           </div>
           <div class="layerMeta">
-            官方地形总览快速加载，放大自动加载细节 · DTM 1 m · Open Government Licence
+            官方地形已缓存到本站并按缩放分级生成瓦片 · 不再实时请求 WMS/WMTS · DTM 1 m 来源 · Open Government Licence
           </div>
           <div id="terrainStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
@@ -354,19 +354,19 @@
         <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。总览于 2026-10-11 从官方 WMS 获取，使用汇水图相同的 EPSG:3857 外边界；放大后按 OSM 的 WebMercatorQuad 网格加载官方 WMTS 缓存瓦片。
-          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.15.0 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
         <p>汇水与网络：本项目的 50 m 汇水栅格（每格 0.0025 km²），并非官方实测河网。现有元数据标注其地形来源为 EA DTM；原文件未附 DEM→汇水的完整处理日志。本次网络直接按该栅格的实际 km² 数值提取。
           <a href="https://pro.arcgis.com/en/pro-app/latest/tool-reference/spatial-analyst/identifying-stream-networks.htm" target="_blank" rel="noopener noreferrer">阈值提取方法</a> ·
-          <a href="assets/london_drainage_network_metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
+          <a href="assets/london_drainage_network_metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">网络元数据</a>
         </p>
-        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
+        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
         <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
         <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
           <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
-          <a href="assets/london_flood_risk_metadata.json?v=3.14.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
+          <a href="assets/london_flood_risk_metadata.json?v=3.15.0" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
         <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
@@ -418,12 +418,13 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.14.0';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.14.0';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.14.0';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.15.0';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.15.0';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.15.0';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.15.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.14.0';
+  const APP_VERSION='3.15.0';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
@@ -431,16 +432,12 @@
   const CENTER={lat:51.5074,lng:-0.1278};
   const ZOOM=10;
 
-  // Official Environment Agency LiDAR Composite DTM 1 m.
-  // Dynamic WMS: requests a fresh raster tile for every zoom level.
-  const EA_WMS_BASE='https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wms';
-  const EA_WMS_LAYER='Lidar_Composite_DTM_1m';
-  // Official WebMercatorQuad is the same 256 px XYZ grid used by OSM.
-  const EA_WMTS_TILES=EA_WMS_BASE.replace(/wms$/,'wmts')+
-    '?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER='+EA_WMS_LAYER+
-    '&STYLE=&TILEMATRIXSET=WebMercatorQuad&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png';
-  const TERRAIN_TILE_SOURCE='ea-terrain-tiles-source',TERRAIN_TILE_LAYER='ea-terrain-tiles-layer';
-  const TERRAIN_OVERVIEW_SOURCE='ea-terrain-overview-source',TERRAIN_OVERVIEW_LAYER='ea-terrain-overview-layer';
+  // Environment Agency LiDAR Composite DTM 1 m source.
+  // v3.15.0 uses only the locally cached official terrain rendering at runtime.
+  // The browser builds WebMercator XYZ tiles in a worker, so no EA WMS/WMTS
+  // request is made while panning, zooming or pitching the map.
+  const TERRAIN_LOCAL_TILES=['ea-terrain-local://tiles/{z}/{x}/{y}'];
+  const TERRAIN_TILE_SOURCE='ea-terrain-local-source',TERRAIN_TILE_LAYER='ea-terrain-local-layer';
 
   // Original 70 km study extent centred on Charing Cross E530037 N180373.
   const TERRAIN_BOUNDS={
@@ -578,71 +575,6 @@
     };
   }
 
-  function tileBBox3857(x,y,z){
-    const origin=20037508.342789244;
-    const world=origin*2;
-    const size=world/Math.pow(2,z);
-    const minx=-origin+x*size;
-    const maxx=minx+size;
-    const maxy= origin-y*size;
-    const miny=maxy-size;
-    return [minx,miny,maxx,maxy].join(',');
-  }
-
-  function tileBoundsLngLat(x,y,z){
-    const n=Math.pow(2,z);
-    const west=x/n*360-180;
-    const east=(x+1)/n*360-180;
-    const north=Math.atan(Math.sinh(Math.PI*(1-2*y/n)))*180/Math.PI;
-    const south=Math.atan(Math.sinh(Math.PI*(1-2*(y+1)/n)))*180/Math.PI;
-    return {west,east,north,south};
-  }
-
-  function intersectsTerrainBounds(b){
-    return !(
-      b.east<TERRAIN_BOUNDS.west ||
-      b.west>TERRAIN_BOUNDS.east ||
-      b.north<TERRAIN_BOUNDS.south ||
-      b.south>TERRAIN_BOUNDS.north
-    );
-  }
-
-  const EMPTY_TILE=
-    'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-
-  function eaWmsUrlForGoogle(coord,zoom){
-    // Do not request 1 m LiDAR when zoomed far out.
-    if(zoom<8)return EMPTY_TILE;
-
-    // Only request tiles intersecting the original 70 km London study area.
-    const ll=tileBoundsLngLat(coord.x,coord.y,zoom);
-    if(!intersectsTerrainBounds(ll))return EMPTY_TILE;
-
-    const bbox=tileBBox3857(coord.x,coord.y,zoom);
-    const q=new URLSearchParams({
-      SERVICE:'WMS',
-      VERSION:'1.3.0',
-      REQUEST:'GetMap',
-      LAYERS:EA_WMS_LAYER,
-      STYLES:'',
-      FORMAT:'image/png',
-      TRANSPARENT:'TRUE',
-      CRS:'EPSG:3857',
-      WIDTH:'256',
-      HEIGHT:'256',
-      BBOX:bbox
-    });
-    return EA_WMS_BASE+'?'+q.toString();
-  }
-
-  const EA_WMS_MAPLIBRE =
-    EA_WMS_BASE+
-    '?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'+
-    '&LAYERS='+encodeURIComponent(EA_WMS_LAYER)+
-    '&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE'+
-    '&CRS=EPSG:3857&WIDTH=256&HEIGHT=256'+
-    '&BBOX={bbox-epsg-3857}';
-
   let googleMap=null;
   let osmMap=null;
   let osmStyleReady=false;
@@ -658,8 +590,7 @@
   let googleTerrainGround=null;
   let googleTerrainBounds=null;
 
-  let terrainTileFallback=false;
-  let terrainTileError=null;
+  let terrainLocalError=null;
   let terrainViewMode=null;
   let drainageEnabled=false;
   let drainageOpacity=1;
@@ -825,127 +756,6 @@
     });
   }
 
-  function mercatorX(lng){
-    return lng * 20037508.342789244 / 180;
-  }
-
-  function mercatorY(lat){
-    const clamped=Math.max(-85.05112878,Math.min(85.05112878,lat));
-    const rad=clamped*Math.PI/180;
-    return 6378137*Math.log(Math.tan(Math.PI/4+rad/2));
-  }
-
-  function normalizeViewportBounds(b){
-    if(!b)return null;
-    const south=Math.max(-85.05112878,b.south);
-    const north=Math.min(85.05112878,b.north);
-    if(!Number.isFinite(b.west)||!Number.isFinite(b.east)||
-       !Number.isFinite(south)||!Number.isFinite(north)||
-       b.west>=b.east||south>=north){
-      return null;
-    }
-    return {west:b.west,south,east:b.east,north};
-  }
-
-  function googleVisibleBounds(){
-    const bounds=googleMap?.getBounds();
-    if(!bounds)return null;
-    const ne=bounds.getNorthEast();
-    const sw=bounds.getSouthWest();
-    return normalizeViewportBounds({
-      west:sw.lng(),south:sw.lat(),
-      east:ne.lng(),north:ne.lat()
-    });
-  }
-
-  function osmVisibleBounds(){
-    if(!osmMap)return null;
-    const b=osmMap.getBounds();
-    return normalizeViewportBounds({
-      west:b.getWest(),south:b.getSouth(),
-      east:b.getEast(),north:b.getNorth()
-    });
-  }
-
-  function expandBounds(b,factor=1.14){
-    const valid=normalizeViewportBounds(b);
-    if(!valid)return null;
-    const cx=(valid.west+valid.east)/2;
-    const cy=(valid.south+valid.north)/2;
-    const hw=(valid.east-valid.west)*factor/2;
-    const hh=(valid.north-valid.south)*factor/2;
-
-    let out=normalizeViewportBounds({
-      west:cx-hw,east:cx+hw,
-      south:cy-hh,north:cy+hh
-    });
-
-    if(focus70Enabled&&out){
-      out={
-        west:Math.max(out.west,TERRAIN_BOUNDS.west),
-        south:Math.max(out.south,TERRAIN_BOUNDS.south),
-        east:Math.min(out.east,TERRAIN_BOUNDS.east),
-        north:Math.min(out.north,TERRAIN_BOUNDS.north)
-      };
-      if(out.west>=out.east||out.south>=out.north)return null;
-    }
-
-    return out;
-  }
-
-  function eaViewportWmsUrl(bounds,width,height){
-    const bbox=[
-      mercatorX(bounds.west),
-      mercatorY(bounds.south),
-      mercatorX(bounds.east),
-      mercatorY(bounds.north)
-    ].join(',');
-
-    const q=new URLSearchParams({
-      SERVICE:'WMS',
-      VERSION:'1.3.0',
-      REQUEST:'GetMap',
-      LAYERS:EA_WMS_LAYER,
-      STYLES:'',
-      FORMAT:'image/png',
-      TRANSPARENT:'TRUE',
-      CRS:'EPSG:3857',
-      WIDTH:String(width),
-      HEIGHT:String(height),
-      BBOX:bbox
-    });
-    return EA_WMS_BASE+'?'+q.toString();
-  }
-
-  function requestSizeForMap(div,quality='final'){
-    const cssW=Math.max(1,Math.round(div?.clientWidth||window.innerWidth));
-    const cssH=Math.max(1,Math.round(div?.clientHeight||window.innerHeight));
-    const ratio=cssW/cssH;
-
-    if(quality==='preview'){
-      const maxSide=720;
-      return ratio>=1
-        ? {width:maxSide,height:Math.max(360,Math.round(maxSide/ratio))}
-        : {width:Math.max(360,Math.round(maxSide*ratio)),height:maxSide};
-    }
-
-    const dpr=Math.min(window.devicePixelRatio||1,1.4);
-    return {
-      width:Math.max(800,Math.min(1600,Math.round(cssW*dpr))),
-      height:Math.max(800,Math.min(1400,Math.round(cssH*dpr)))
-    };
-  }
-
-  function preloadImage(url){
-    return new Promise((resolve,reject)=>{
-      const img=new Image();
-      img.decoding='async';
-      img.onload=()=>resolve(img);
-      img.onerror=()=>reject(new Error('EA WMS 图像加载失败'));
-      img.src=url;
-    });
-  }
-
   function removeGoogleTerrain(){
     if(googleTerrainGround){
       googleTerrainGround.setMap(null);
@@ -956,11 +766,13 @@
 
   function removeOsmTerrain(){
     if(!osmMap)return;
-    for(const layer of [TERRAIN_OVERVIEW_LAYER,TERRAIN_TILE_LAYER]){
-      if(osmMap.getLayer(layer))osmMap.setLayoutProperty(layer,'visibility','none');
+    if(osmMap.getLayer(TERRAIN_TILE_LAYER)){
+      osmMap.setLayoutProperty(TERRAIN_TILE_LAYER,'visibility','none');
     }
     terrainViewMode=null;
-    $('terrainStatus').textContent='已关闭';$('terrainStatus').className='layerStatus';
+    terrainLocalError=null;
+    $('terrainStatus').textContent='已关闭';
+    $('terrainStatus').className='layerStatus';
   }
 
   function scheduleTerrainRefresh(delay=70,quality='preview'){
@@ -969,145 +781,121 @@
     terrainRefreshTimer=setTimeout(()=>refreshTerrainGround(quality),delay);
   }
 
-  async function refreshGoogleTerrainGround(quality='final'){
+  async function refreshGoogleTerrainGround(){
     if(!googleMap||!terrainEnabled)return;
+    const nw=networkCoordinates()[0],se=networkCoordinates()[2];
+    const bounds={north:nw[1],south:se[1],east:se[0],west:nw[0]};
+    const url=assetUrl('assets/terrain/overview.webp');
 
-    const visible=googleVisibleBounds();
-    const bounds=visible?expandBounds(visible,quality==='preview'?1.10:1.16):null;
-    if(!bounds)return;
+    const next=new google.maps.GroundOverlay(
+      url,
+      bounds,
+      {opacity:terrainOpacity,clickable:false}
+    );
+    next.setMap(googleMap);
 
-    const {width,height}=requestSizeForMap(googleMap.getDiv(),quality);
-    const url=eaViewportWmsUrl(bounds,width,height);
-    const requestId=++terrainRequestId;
-
-    try{
-      await preloadImage(url);
-      if(requestId!==terrainRequestId||
-         !terrainEnabled||
-         currentProvider!=='google'){
-        return;
-      }
-
-      const next=new google.maps.GroundOverlay(
-        url,
-        bounds,
-        {opacity:terrainOpacity,clickable:false}
-      );
-      next.setMap(googleMap);
-
-      const old=googleTerrainGround;
-      googleTerrainGround=next;
-      googleTerrainBounds={...bounds};
-      if(old)old.setMap(null);
-
-      say(quality==='preview'
-        ? 'EA 地形已铺到 Google 地面坐标，倾斜视角会随地图变形。'
-        : 'EA 地形高清图已按 Google 地面坐标精确配准。');
-    }catch(err){
-      if(requestId!==terrainRequestId)return;
-      console.warn(err);
-      say('EA 地形本次加载失败，保留上一张地理配准图层。',true);
-    }
+    const old=googleTerrainGround;
+    googleTerrainGround=next;
+    googleTerrainBounds={...bounds};
+    if(old)old.setMap(null);
+    say('EA 地形使用本站本地缓存，不再请求实时 WMS / WMTS。');
   }
 
   function ensureOsmTerrainLayer(){
     if(!osmMap||!osmStyleReady||!terrainEnabled)return;
-    if(!osmMap.getSource(TERRAIN_OVERVIEW_SOURCE)){
-      osmMap.addSource(TERRAIN_OVERVIEW_SOURCE,{type:'image',
-        url:assetUrl('assets/terrain/overview.webp'),coordinates:networkCoordinates()});
-      osmMap.addLayer({id:TERRAIN_OVERVIEW_LAYER,type:'raster',source:TERRAIN_OVERVIEW_SOURCE,
-        paint:{'raster-opacity':terrainOpacity,'raster-fade-duration':0,'raster-resampling':'linear'}
-      },getFirstSymbolLayerId());
-    }
+    const nw=networkCoordinates()[0],se=networkCoordinates()[2];
+
     if(!osmMap.getSource(TERRAIN_TILE_SOURCE)){
-      osmMap.addSource(TERRAIN_TILE_SOURCE,{type:'raster',tiles:[EA_WMTS_TILES],tileSize:256,
-        minzoom:8,maxzoom:17,bounds:[-6.236,49.943,2.072,55.816],
-        attribution:'© Environment Agency 2022 · Open Government Licence'});
-      osmMap.addLayer({id:TERRAIN_TILE_LAYER,type:'raster',source:TERRAIN_TILE_SOURCE,
-        layout:{visibility:'none'},
-        paint:{'raster-opacity':terrainOpacity,'raster-fade-duration':100,'raster-resampling':'linear'}
+      osmMap.addSource(TERRAIN_TILE_SOURCE,{
+        type:'raster',
+        tiles:TERRAIN_LOCAL_TILES,
+        tileSize:TERRAIN_TILE_SIZE,
+        minzoom:TERRAIN_MIN_ZOOM,
+        maxzoom:TERRAIN_MAX_ZOOM,
+        bounds:[nw[0],se[1],se[0],nw[1]],
+        attribution:'© Environment Agency 2022 · Open Government Licence'
+      });
+      osmMap.addLayer({
+        id:TERRAIN_TILE_LAYER,
+        type:'raster',
+        source:TERRAIN_TILE_SOURCE,
+        paint:{
+          'raster-opacity':terrainOpacity,
+          'raster-fade-duration':0,
+          'raster-resampling':'linear'
+        }
       },getFirstSymbolLayerId());
+    }else{
+      osmMap.setLayoutProperty(TERRAIN_TILE_LAYER,'visibility','visible');
     }
-    osmMap.setLayoutProperty(TERRAIN_OVERVIEW_LAYER,'visibility','visible');
-    keepDrainageAboveTerrain();syncTerrainView();
+
+    keepDrainageAboveTerrain();
+    syncTerrainView();
   }
 
   function syncTerrainView(){
     if(!terrainEnabled||!osmMap||!osmStyleReady||!osmMap.getLayer(TERRAIN_TILE_LAYER))return;
-    const nw=networkCoordinates()[0],se=networkCoordinates()[2],v=osmVisibleBounds();
-    const inOverview=v&&v.west>=nw[0]&&v.east<=se[0]&&v.north<=nw[1]&&v.south>=se[1];
-    const detailed=osmMap.getZoom()>=11||!inOverview;
-    const visibility=detailed?'visible':'none';
-    if(osmMap.getLayoutProperty(TERRAIN_TILE_LAYER,'visibility')!==visibility){
-      osmMap.setLayoutProperty(TERRAIN_TILE_LAYER,'visibility',visibility);
+    osmMap.setLayoutProperty(TERRAIN_TILE_LAYER,'visibility','visible');
+    if(osmMap.getPaintProperty(TERRAIN_TILE_LAYER,'raster-opacity')!==terrainOpacity){
+      osmMap.setPaintProperty(TERRAIN_TILE_LAYER,'raster-opacity',terrainOpacity);
     }
-    const loaded=detailed&&osmMap.isSourceLoaded(TERRAIN_TILE_SOURCE);
-    // Show one terrain rendering at a time so opacity never compounds.
-    const paints=[[TERRAIN_OVERVIEW_LAYER,loaded?0:terrainOpacity],
-                  [TERRAIN_TILE_LAYER,loaded?terrainOpacity:0]];
-    for(const [layer,opacity] of paints){
-      if(osmMap.getPaintProperty(layer,'raster-opacity')!==opacity){
-        osmMap.setPaintProperty(layer,'raster-opacity',opacity);
-      }
-    }
-    const mode=terrainTileError?'error':loaded?'detail':detailed?'loading':
-      osmMap.isSourceLoaded(TERRAIN_OVERVIEW_SOURCE)?'overview':'overview-loading';
-    if(mode===terrainViewMode)return;terrainViewMode=mode;
+
+    const loaded=osmMap.isSourceLoaded(TERRAIN_TILE_SOURCE);
+    const mode=terrainLocalError?'error':loaded?'loaded':'loading';
+    if(mode===terrainViewMode)return;
+    terrainViewMode=mode;
+
     $('terrainStatus').className='layerStatus'+(mode==='error'?' error':'');
-    $('terrainStatus').textContent=mode==='overview'?'已显示 · EA 官方地形总览 · 放大加载细节':
-      mode==='overview-loading'?'正在加载地形总览…':
-      mode==='detail'?'已显示 · EA 官方地形瓦片 · 已加载区域可复用':
-      mode==='error'?'官方细节服务暂不可用，保留总览；重新勾选可重试':
-      '正在加载官方地形细节… 总览持续显示';
+    $('terrainStatus').textContent=
+      mode==='loaded'?'已显示 · 本地分级地形瓦片 · 无实时服务依赖':
+      mode==='error'?'本地地形瓦片加载异常；请刷新网页重试':
+      '正在生成本地地形瓦片…';
   }
 
   function refreshOsmTerrainGround(){ensureOsmTerrainLayer();}
 
-  async function refreshTerrainGround(quality='final'){
+  async function refreshTerrainGround(){
     if(currentProvider==='google'){
-      await refreshGoogleTerrainGround(quality);
+      await refreshGoogleTerrainGround();
     }else{
-      await refreshOsmTerrainGround(quality);
+      await refreshOsmTerrainGround();
     }
   }
 
   function applyTerrainOpacity(){
-    if(googleTerrainGround){
-      googleTerrainGround.setOpacity(terrainOpacity);
+    if(googleTerrainGround)googleTerrainGround.setOpacity(terrainOpacity);
+    if(osmMap&&osmMap.getLayer(TERRAIN_TILE_LAYER)){
+      osmMap.setPaintProperty(TERRAIN_TILE_LAYER,'raster-opacity',terrainOpacity);
+      syncTerrainView();
     }
-    if(osmMap)syncTerrainView();
   }
 
-  function terrainCameraStarted(){
-    if(currentProvider==='osm')return;
-    terrainRequestId++;clearTimeout(terrainRefreshTimer);
-  }
+  function terrainCameraStarted(){}
 
   function terrainCameraChanged(){
-    if(!terrainEnabled)return;
-    if(currentProvider==='osm'){syncTerrainView();return;}
-    terrainRequestId++;clearTimeout(terrainRefreshTimer);scheduleTerrainRefresh(70,'preview');
+    if(terrainEnabled&&currentProvider==='osm')syncTerrainView();
   }
 
   function terrainCameraEnded(){
-    if(!terrainEnabled)return;
-    if(currentProvider==='osm'){syncTerrainView();return;}
-    scheduleTerrainRefresh(50,'preview');
-    setTimeout(()=>{if(terrainEnabled)scheduleTerrainRefresh(260,'final');},100);
+    if(terrainEnabled&&currentProvider==='osm')syncTerrainView();
   }
 
   function updateTerrainLayers(){
     if(!terrainEnabled){
-      terrainRequestId++;clearTimeout(terrainRefreshTimer);
-      removeGoogleTerrain();removeOsmTerrain();return;
+      terrainRequestId++;
+      clearTimeout(terrainRefreshTimer);
+      removeGoogleTerrain();
+      removeOsmTerrain();
+      return;
     }
+    terrainLocalError=null;
+    terrainViewMode=null;
     if(currentProvider==='osm'){
-      if(terrainTileError){
-        osmMap.getSource(TERRAIN_TILE_SOURCE)?.setTiles([EA_WMTS_TILES]);
-        terrainTileError=null;terrainTileFallback=false;terrainViewMode=null;
-      }
-      ensureOsmTerrainLayer();applyTerrainOpacity();
-    }else{applyTerrainOpacity();terrainCameraChanged();}
+      ensureOsmTerrainLayer();
+      applyTerrainOpacity();
+    }else{
+      refreshGoogleTerrainGround();
+    }
   }
 
   function getFirstSymbolLayerId(){
@@ -1741,6 +1529,13 @@
     maplibregl.addProtocol('drainage-area',async(request,controller)=>{
       const result=await areaLoader(request,controller);drainageDisplaySeen=true;return result;
     });
+    const terrainLoader=createTerrainLocalLoader({
+      imageUrl:new URL(assetUrl('assets/terrain/overview.webp'),location.href).href,
+      bounds:DRAINAGE_3857,
+      tileSize:TERRAIN_TILE_SIZE
+    });
+    maplibregl.addProtocol('ea-terrain-local',terrainLoader);
+
     osmMap=new maplibregl.Map({
       container:'osmMap',
       style:'https://tiles.openfreemap.org/styles/liberty',
@@ -1760,16 +1555,15 @@
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
     osmMap.on('sourcedata',e=>{
-      if(e.sourceId===TERRAIN_TILE_SOURCE||e.sourceId===TERRAIN_OVERVIEW_SOURCE)syncTerrainView();
+      if(e.sourceId===TERRAIN_TILE_SOURCE)syncTerrainView();
       if(e.sourceId===DRAINAGE_SOURCE)syncDrainageStatus();
     });
     osmMap.on('moveend',syncDrainageStatus);
     osmMap.on('error',e=>{
       if(e.sourceId===DRAINAGE_SOURCE){drainageDisplayError=e.error?.message||'加载失败';syncDrainageStatus();}
       if(e.sourceId===TERRAIN_TILE_SOURCE&&terrainEnabled){
-        if(!terrainTileFallback){
-          terrainTileFallback=true;osmMap.getSource(TERRAIN_TILE_SOURCE)?.setTiles([EA_WMS_MAPLIBRE]);
-        }else{terrainTileError=e.error?.message||'加载失败';syncTerrainView();}
+        terrainLocalError=e.error?.message||'本地地形瓦片加载失败';
+        syncTerrainView();
       }
     });
     osmMap.on('load',()=>{
