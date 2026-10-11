@@ -148,7 +148,7 @@
     <div class="head">
       <div>
         <div class="title">London Map Live</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.7</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.10.8</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse">−</button>
@@ -200,7 +200,7 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>汇水贡献面积 · Contributing Area</strong>
-              <small>显示 10 m/cell · 源数据 50 m/cell · 真实范围 140.05×140.05 km</small>
+              <small>10 m 显示重采样 · 源数据 50 m · Web Mercator 精确配准</small>
             </span>
             <input id="drainageToggle" type="checkbox">
           </label>
@@ -213,7 +213,7 @@
             <span>弱</span><span class="layerLegendBar"></span><span>强</span>
           </div>
           <div class="layerMeta">
-            显示栅格：10 m × 10 m；分析源数据仍为 50 m × 50 m = 0.0025 km² / cell。源 TIFF：EPSG:27700，E460012–600062 / N110348–250398，真实范围 140.05 × 140.05 km。采用 10×10 局部 BNG→WGS84 配准对齐 OpenStreetMap；配准近似误差约 ≤8.1 m。10 m 为显示重采样，不提高原始分析精度。
+            10 m 为显示重采样；分析源数据仍为 50 m × 50 m = 0.0025 km² / cell。源 TIFF：EPSG:27700，真实地面范围 140.05 × 140.05 km。显示栅格已预先投影到 EPSG:3857，因此现在直接按真实 Web Mercator 边界与 OpenStreetMap 配准，不再进行二次 BNG→WGS84 拉伸。
           </div>
         </div>
 
@@ -315,17 +315,61 @@
     physicalHeightM:140050
   };
 
-  // 10 × 10 local georeferencing mesh.
-  // Every node is transformed directly from the corresponding EPSG:27700
-  // source position to WGS84. The physical raster footprint stays exactly
-  // 140.05 km × 140.05 km; it is not stretched to a lat/lon rectangle.
-  // Dense EPSG:3857 audit: maximum local approximation error ≈8.1 m,
-  // which is smaller than one 10 m DISPLAY cell.
+  // Authoritative hydrology display projection.
+  // The browser preview is derived from the analytical raster already warped
+  // to EPSG:3857 (the same projection used by OpenStreetMap / MapLibre).
+  // Therefore it MUST NOT be warped again through a BNG->WGS84 mesh.
+  //
+  // Reprojected 50 m source raster dimensions: 2868 × 2875.
+  // Exact EPSG:3857 outer bounds:
+  //   left   -127813.8696191665
+  //   right   102461.98815442335
+  //   bottom 6596204.025752107
+  //   top    6827041.923624865
+  //
+  // Fivefold display resampling gives a nominal 10 m-equivalent visual grid.
+  // It improves screen granularity only; analytical resolution remains 50 m.
   const DRAINAGE_GRID_SIZE=10;
   const DRAINAGE_DISPLAY_CELL_M=10;
-  const DRAINAGE_DISPLAY_WIDTH=Math.round(DRAINAGE_BNG.physicalWidthM/DRAINAGE_DISPLAY_CELL_M);
-  const DRAINAGE_DISPLAY_HEIGHT=Math.round(DRAINAGE_BNG.physicalHeightM/DRAINAGE_DISPLAY_CELL_M);
-  const DRAINAGE_GEO_GRID=[[[-1.1243596212,52.1486163014],[-0.9197166299,52.1469198992],[-0.7150960203,52.144868538],[-0.5105020271,52.1424623155],[-0.3059388816,52.1397013465],[-0.1014108109,52.1365857628],[0.1030779622,52.1331157126],[0.3075232201,52.1292913615],[0.511920751,52.1251128915],[0.7162663492,52.1205805015],[0.9205558158,52.1156944073]],[[-1.1268196327,52.0227181473],[-0.9227514905,52.0210293688],[-0.718705513,52.0189872256],[-0.5146858937,52.0165918146],[-0.3106968231,52.0138432496],[-0.1067424875,52.0107416611],[0.0971729314,52.0072871962],[0.3010452567,52.0034800188],[0.5048703171,51.9993203093],[0.7086439476,51.994808265],[0.9123619895,51.9899440995]],[[-1.1292616758,51.8968172028],[-0.9257641861,51.8951360054],[-0.7222886468,51.8931030288],[-0.5188392112,51.8907183691],[-0.315420029,51.8879821389],[-0.1120352464,51.8848944677],[0.0913109952,51.8814555012],[0.2946145591,51.8776654019],[0.4978713143,51.8735243486],[0.7010771355,51.8690325367],[0.9042279043,51.8641901782]],[[-1.1316859241,51.7709134654],[-0.9287549307,51.7692398071],[-0.7258456764,51.7672159462],[-0.5229622744,51.7648419781],[-0.3201088347,51.7621180144],[-0.1172894635,51.7590441833],[0.0854917375,51.7556206293],[0.2882306713,51.7518475135],[0.4909232464,51.747725013],[0.6935653772,51.7432533216],[0.8961529844,51.7384326492]],[[-1.1340925491,51.645006933],[-0.9317239359,51.6433407721],[-0.7293768532,51.6413259766],[-0.5270553748,51.638962641],[-0.3247635713,51.636250876],[-0.1225055096,51.6331908087],[0.0797147478,51.6297825822],[0.2818931431,51.6260263561],[0.4840256239,51.6219223062],[0.6861081435,51.6174706243],[0.8881366615,51.6126715187]],[[-1.1364817198,51.5190976035],[-0.9346714101,51.5174388987],[-0.7328824251,51.5154331187],[-0.5311187996,51.5130803572],[-0.3293845654,51.5103807239],[-0.1276837506,51.5073343446],[0.0739796211,51.5039413613],[0.2756015304,51.5002019323],[0.4771779636,51.4961162316],[0.6787049124,51.4916844496],[0.8801783748,51.4869067925]],[[-1.1388536032,51.3931854745],[-0.9375975593,51.391534185],[-0.7363626369,51.3895373713],[-0.5351528325,51.3871951259],[-0.3339721395,51.3845075579],[-0.1328245476,51.3814747918],[0.0682859575,51.3780969685],[0.2693553949,51.3743742447],[0.4703797887,51.370306793],[0.6713551688,51.3658948021],[0.8722775709,51.3611384764]],[[-1.141208364,51.2672705441],[-0.9405025867,51.2656266295],[-0.7398177303,51.2636387331],[-0.5391577535,51.2613069466],[-0.3385266118,51.2586313781],[-0.1379282572,51.2556121511],[0.0626333625,51.2522494052],[0.2631543038,51.2485432957],[0.4636306286,51.2444939939],[0.6640584041,51.2401016865],[0.8644337036,51.2353665763]],[[-1.1435461648,51.1413528101],[-0.9433866926,51.1397162304],[-0.7432479435,51.1377372029],[-0.5431338387,51.1354158187],[-0.3430482963,51.1327521846],[-0.142995231,51.1297464233],[0.0570214465,51.1263986731],[0.2569978302,51.122709088],[0.4569300187,51.1186778376],[0.6568141165,51.1143051072],[0.8566462336,51.1095910978]],[[-1.145867166,51.0154322706],[-0.9462500752,51.0138029862],[-0.7466535121,51.0118327797],[-0.5470813609,51.0095217415],[-0.3475375031,51.0068699775],[-0.1480258164,51.0038776092],[0.0514498253,51.0005447738],[0.2508855525,50.9968716239],[0.4502775007,50.9928583277],[0.6496218105,50.9885050689],[0.8489146287,50.9838120466]],[[-1.148171526,50.8895089235],[-0.9490929297,50.8878868951],[-0.7500346681,50.8859254623],[-0.5510005893,50.8836247145],[-0.3519945381,50.8809847567],[-0.153020356,50.8780057096],[0.0459181194,50.8746877089],[0.2448170548,50.8710309061],[0.4436726218,50.8670354677],[0.6424809973,50.862701576],[0.8412383638,50.8580294283]]];
+  const DRAINAGE_3857={
+    left:-127813.8696191665,
+    right:102461.98815442335,
+    bottom:6596204.025752107,
+    top:6827041.923624865,
+    baseWidth50m:2868,
+    baseHeight50m:2875
+  };
+  const DRAINAGE_DISPLAY_SCALE=5;
+  const DRAINAGE_DISPLAY_WIDTH=DRAINAGE_3857.baseWidth50m*DRAINAGE_DISPLAY_SCALE;
+  const DRAINAGE_DISPLAY_HEIGHT=DRAINAGE_3857.baseHeight50m*DRAINAGE_DISPLAY_SCALE;
+
+  function mercator3857ToLngLat(x,y){
+    const R=6378137;
+    const lng=x/R*180/Math.PI;
+    const lat=(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI;
+    return [lng,lat];
+  }
+
+  function drainageTileCoordinates(row,col){
+    const x0=DRAINAGE_3857.left+
+      (DRAINAGE_3857.right-DRAINAGE_3857.left)*(col/DRAINAGE_GRID_SIZE);
+    const x1=DRAINAGE_3857.left+
+      (DRAINAGE_3857.right-DRAINAGE_3857.left)*((col+1)/DRAINAGE_GRID_SIZE);
+
+    const yTop=DRAINAGE_3857.top-
+      (DRAINAGE_3857.top-DRAINAGE_3857.bottom)*(row/DRAINAGE_GRID_SIZE);
+    const yBottom=DRAINAGE_3857.top-
+      (DRAINAGE_3857.top-DRAINAGE_3857.bottom)*((row+1)/DRAINAGE_GRID_SIZE);
+
+    // MapLibre image coordinates: NW, NE, SE, SW.
+    return [
+      mercator3857ToLngLat(x0,yTop),
+      mercator3857ToLngLat(x1,yTop),
+      mercator3857ToLngLat(x1,yBottom),
+      mercator3857ToLngLat(x0,yBottom)
+    ];
+  }
+
   const DRAINAGE_FILES=[
     'assets/drainage_b64/0a.txt',
     'assets/drainage_b64/0b.txt',
@@ -1083,7 +1127,7 @@
       return;
     }
 
-    say('正在生成 10 m 显示栅格并进行真实坐标配准… 0/100');
+    say('正在生成 10 m 显示栅格并按 EPSG:3857 精确配准… 0/100');
 
     try{
       const wholeUrl=await getDrainageImageUrl();
@@ -1125,8 +1169,8 @@
             const tx0=Math.round(DRAINAGE_DISPLAY_WIDTH*col/DRAINAGE_GRID_SIZE);
             const tx1=Math.round(DRAINAGE_DISPLAY_WIDTH*(col+1)/DRAINAGE_GRID_SIZE);
 
-            // Target bitmap dimensions are based on TRUE BNG metres:
-            // 140050 m / 10 m = 14005 pixels over the complete raster.
+            // The already-warped 50 m Web Mercator raster is resampled 5×.
+            // This is a nominal 10 m-equivalent DISPLAY grid, not new analysis data.
             const w=Math.max(1,tx1-tx0);
             const h=Math.max(1,ty1-ty0);
 
@@ -1153,12 +1197,7 @@
             drainageTileUrls[index]=url;
           }
 
-          const coords=[
-            DRAINAGE_GEO_GRID[row][col],
-            DRAINAGE_GEO_GRID[row][col+1],
-            DRAINAGE_GEO_GRID[row+1][col+1],
-            DRAINAGE_GEO_GRID[row+1][col]
-          ];
+          const coords=drainageTileCoordinates(row,col);
 
           osmMap.addSource(ids.source,{
             type:'image',
@@ -1194,9 +1233,8 @@
       keepDrainageAboveTerrain();
 
       say(
-        '汇水图层已显示：10 m 显示单元（源分析分辨率 50 m）· '+
-        '14005×14005 display cells · 真实范围 140.05 km × 140.05 km。\n'+
-        '10×10 BNG→WGS84 局部配准；几何近似误差约 ≤8.1 m。'
+        '汇水图层已显示：10 m 等效显示重采样（源分析分辨率 50 m）。\n'+
+        '位置采用原始 EPSG:3857 投影边界直接对齐 OpenStreetMap；没有二次投影变形。'
       );
     }catch(err){
       console.error(err);
