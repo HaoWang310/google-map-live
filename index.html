@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.41</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.42</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.41';
+  const APP_VERSION='3.21.42';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -625,20 +625,24 @@
     },
     doubleBus:{
       id:'doubleBus',label:'London double-decker',
-      length:11.232,width:2.55,height:4.42,wheelbase:6.00,
-      bodyHeight:1.62,cabinHeight:4.20,speedFactor:0.72,
+      length:11.232,width:2.55,height:4.42,wheelbase:6.35,
+      wheelRadius:0.49,wheelWidth:0.30,
+      frontAxle:3.05,rearAxle:-3.30,
+      bodyHeight:1.78,cabinHeight:4.18,speedFactor:0.70,
       fixedColor:{body:'#d71920',cabin:'#c9161d',roof:'#ef4444'}
     },
     singleBus:{
       id:'singleBus',label:'London single-decker',
       length:10.82,width:2.474,height:2.85,wheelbase:5.82,
-      bodyHeight:1.12,cabinHeight:2.66,speedFactor:0.76,
+      wheelRadius:0.47,wheelWidth:0.28,
+      frontAxle:2.85,rearAxle:-2.97,
+      bodyHeight:1.25,cabinHeight:2.62,speedFactor:0.76,
       fixedColor:{body:'#d71920',cabin:'#c9161d',roof:'#ef4444'}
     }
   };
 
-  const STREET_VEHICLE_COUNT=52;
-  const STREET_VEHICLE_MIN_SPAWN_GAP_M=11.0;
+  const STREET_VEHICLE_COUNT=42;
+  const STREET_VEHICLE_MIN_SPAWN_GAP_M=14.0;
   const STREET_VEHICLE_SAME_LANE_HEADWAY_M=12.0;
   const STREET_VEHICLE_MIN_VISIBLE=14;
   const STREET_VEHICLE_CONTINUATION_TOLERANCE_M=9.0;
@@ -647,10 +651,10 @@
   const STREET_VEHICLE_RESPAWN_DELAY_MAX_MS=1100;
   const STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS=14000;
   const STREET_VEHICLE_JUNCTION_LOOKAHEAD_M=18;
-  const STREET_VEHICLE_STOP_LINE_M=3.8;
+  const STREET_VEHICLE_STOP_LINE_M=5.5;
   const STREET_SIGNAL_CLUSTER_M=8.0;
   const STREET_SIGNAL_ROUTE_RADIUS_M=12.0;
-  const STREET_SIGNAL_CYCLE_MS=16000;
+  const STREET_SIGNAL_CYCLE_MS=18000;
   const STREET_VEHICLE_EXIT_MARGIN_PX=110;
   const STREET_LANE_WIDTH_MAJOR_M=3.25;
   const STREET_LANE_WIDTH_LOCAL_M=2.85;
@@ -668,6 +672,9 @@
   const STREET_VEHICLE_CORRIDOR_LOOKAHEAD_M=52;
   const STREET_VEHICLE_SAME_CORRIDOR_LINK_M=18;
   const STREET_VEHICLE_CORRIDOR_LATERAL_M=5.5;
+  const STREET_SIGNAL_JUNCTION_BOX_RADIUS_M=10.5;
+  const STREET_SIGNAL_SPAWN_CLEARANCE_M=24;
+  const STREET_SIGNAL_EXIT_CLEARANCE_M=16;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -1729,11 +1736,11 @@
   function chooseStreetVehicleType(index,route=null){
     const r=Math.random();
     let type=
-      r<0.34?'hatchback':
-      r<0.61?'sedan':
-      r<0.75?'blackCab':
-      r<0.88?'van':
-      r<0.955?'doubleBus':
+      r<0.35?'hatchback':
+      r<0.64?'sedan':
+      r<0.79?'blackCab':
+      r<0.91?'van':
+      r<0.965?'doubleBus':
       'singleBus';
 
     if(route&&!streetVehicleTypeAllowedOnRoute(type,route)){
@@ -2040,31 +2047,44 @@
     const origin=sample.point;
     const bearing=sample.bearing;
     const id=vehicle.id;
+    const isDouble=spec.id==='doubleBus';
     const red='#d71920';
     const darkRed='#b5121b';
-    const glass='#172554';
+    const glass='#10254f';
+
+    // Important: the lower body starts ABOVE the wheel centreline. The previous
+    // full-height box swallowed the wheels and made the bus look like a floating block.
+    const wheelRadius=spec.wheelRadius??0.48;
+    const bodyBase=wheelRadius*0.86;
+    const lowerTop=isDouble?1.92:1.42;
 
     const lowerBody={
       type:'Feature',
       properties:{
         vehicleId:id,vehicleType:spec.id,part:'lowerBody',
-        minHeight:0.18,
-        height:spec.id==='doubleBus'?1.82:1.28,
+        minHeight:bodyBase,
+        height:lowerTop,
         color:red
       },
-      geometry:streetVehicleRect(origin,bearing,spec.length,spec.width,0,0)
+      geometry:streetVehicleRect(
+        origin,bearing,spec.length*0.985,spec.width,0,0
+      )
     };
 
     const upperBody={
       type:'Feature',
       properties:{
         vehicleId:id,vehicleType:spec.id,part:'upperBody',
-        minHeight:spec.id==='doubleBus'?1.72:1.16,
+        minHeight:isDouble?1.86:1.34,
         height:spec.height-0.18,
         color:darkRed
       },
       geometry:streetVehicleRect(
-        origin,bearing,spec.length*0.96,spec.width*0.96,-0.05,0
+        origin,bearing,
+        spec.length*(isDouble?0.94:0.965),
+        spec.width*(isDouble?0.94:0.96),
+        isDouble?-0.12:-0.05,
+        0
       )
     };
 
@@ -2072,135 +2092,202 @@
       type:'Feature',
       properties:{
         vehicleId:id,vehicleType:spec.id,part:'roof',
-        minHeight:spec.height-0.20,height:spec.height,color:'#ef4444'
-      },
-      geometry:streetVehicleRect(
-        origin,bearing,spec.length*0.93,spec.width*0.90,-0.08,0
-      )
-    };
-
-    const sideOffset=spec.width/2-0.05;
-    const windowLength=spec.length*0.72;
-    const windows=[];
-    for(const left of [sideOffset,-sideOffset]){
-      windows.push(
-        streetVehicleRect(origin,bearing,windowLength,0.11,0.15,left)
-      );
-    }
-
-    const lowerWindows={
-      type:'Feature',
-      properties:{
-        vehicleId:id,vehicleType:spec.id,part:'lowerWindows',
-        minHeight:1.02,
-        height:spec.id==='doubleBus'?1.63:2.10,
-        color:glass
-      },
-      geometry:streetVehicleMultiPolygon(windows)
-    };
-
-    const axlePositions=spec.id==='doubleBus'
-      ?[spec.length*0.31,-spec.length*0.08,-spec.length*0.34]
-      :[spec.length*0.31,-spec.length*0.31];
-    const busWheelGeometries=[];
-    for(const axle of axlePositions){
-      for(const left of [spec.width/2+0.035,-spec.width/2-0.035]){
-        busWheelGeometries.push(
-          streetVehicleRect(origin,bearing,0.98,0.30,axle,left)
-        );
-      }
-    }
-
-    const wheels={
-      type:'Feature',
-      properties:{
-        vehicleId:id,vehicleType:spec.id,part:'wheels',
-        minHeight:0.04,height:0.92,color:'#111827'
-      },
-      geometry:streetVehicleMultiPolygon(busWheelGeometries)
-    };
-
-    const headlights={
-      type:'Feature',
-      properties:{
-        vehicleId:id,vehicleType:spec.id,part:'headlights',
-        minHeight:0.58,height:0.84,color:'#fde68a'
-      },
-      geometry:streetVehicleMultiPolygon([
-        streetVehicleRect(origin,bearing,0.17,0.34,spec.length/2-0.05, spec.width*0.31),
-        streetVehicleRect(origin,bearing,0.17,0.34,spec.length/2-0.05,-spec.width*0.31)
-      ])
-    };
-
-    const frontDestination={
-      type:'Feature',
-      properties:{
-        vehicleId:id,vehicleType:spec.id,part:'destinationDisplay',
-        minHeight:spec.id==='doubleBus'?3.62:2.12,
-        height:spec.id==='doubleBus'?4.02:2.58,
-        color:'#111827'
-      },
-      geometry:streetVehicleRect(
-        origin,bearing,0.18,spec.width*0.58,spec.length/2-0.10,0
-      )
-    };
-
-    const doorPanel={
-      type:'Feature',
-      properties:{
-        vehicleId:id,vehicleType:spec.id,part:'door',
-        minHeight:0.20,
-        height:spec.id==='doubleBus'?1.65:2.18,
-        color:'#9f1239'
+        minHeight:spec.height-0.18,
+        height:spec.height,
+        color:'#ef4444'
       },
       geometry:streetVehicleRect(
         origin,bearing,
-        spec.id==='doubleBus'?1.60:1.42,
-        0.10,
-        spec.length*0.17,
-        -spec.width/2+0.04
+        spec.length*(isDouble?0.91:0.93),
+        spec.width*0.90,
+        -0.12,0
       )
     };
 
-    const features=[
-      lowerBody,upperBody,roof,lowerWindows,
-      wheels,headlights,frontDestination,doorPanel
-    ];
+    const features=[lowerBody,upperBody,roof];
 
-    if(spec.id==='doubleBus'){
-      features.push({
-        type:'Feature',
-        properties:{
-          vehicleId:id,vehicleType:spec.id,part:'upperWindows',
-          minHeight:2.48,height:3.78,color:glass
-        },
-        geometry:streetVehicleMultiPolygon(windows)
-      });
+    // Side windows are segmented instead of one giant rectangle.
+    const sideOffset=spec.width/2-0.055;
+    const addWindowBand=(z0,z1,count,startF,endF)=>{
+      const span=endF-startF;
+      const segment=span/count;
+      for(const left of [sideOffset,-sideOffset]){
+        for(let i=0;i<count;i++){
+          const centerF=startF+segment*(i+0.5);
+          const forward=(centerF-0.5)*spec.length;
+          features.push({
+            type:'Feature',
+            properties:{
+              vehicleId:id,vehicleType:spec.id,part:'window',
+              minHeight:z0,height:z1,color:glass
+            },
+            geometry:streetVehicleRect(
+              origin,bearing,
+              spec.length*segment*0.82,
+              0.105,
+              forward,left
+            )
+          });
+        }
+      }
+    };
+
+    addWindowBand(
+      isDouble?1.12:1.00,
+      isDouble?1.72:2.18,
+      isDouble?5:6,
+      0.13,0.86
+    );
+    if(isDouble){
+      addWindowBand(2.45,3.78,6,0.10,0.88);
+    }
+
+    // Two visually correct axle groups. Wheels sit outside the body side and
+    // remain visible instead of being buried inside the red lower deck.
+    const axlePositions=[
+      Number(spec.frontAxle??spec.wheelbase/2),
+      Number(spec.rearAxle??-spec.wheelbase/2)
+    ];
+    const wheelGeometries=[];
+    for(const axle of axlePositions){
+      for(const left of [
+        spec.width/2+0.075,
+        -spec.width/2-0.075
+      ]){
+        wheelGeometries.push(
+          streetVehicleRect(
+            origin,bearing,
+            wheelRadius*1.75,
+            spec.wheelWidth??0.30,
+            axle,left
+          )
+        );
+      }
     }
 
     features.push({
       type:'Feature',
       properties:{
+        vehicleId:id,vehicleType:spec.id,part:'wheels',
+        minHeight:0.03,
+        height:wheelRadius*1.82,
+        color:'#111827'
+      },
+      geometry:streetVehicleMultiPolygon(wheelGeometries)
+    });
+
+    // Black wheel-arch masks visually separate the wheels from the body side.
+    const archGeometries=[];
+    for(const axle of axlePositions){
+      for(const left of [
+        spec.width/2-0.04,
+        -spec.width/2+0.04
+      ]){
+        archGeometries.push(
+          streetVehicleRect(
+            origin,bearing,
+            wheelRadius*2.10,
+            0.075,
+            axle,left
+          )
+        );
+      }
+    }
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'wheelArch',
+        minHeight:0.20,
+        height:wheelRadius*1.65,
+        color:'#111827'
+      },
+      geometry:streetVehicleMultiPolygon(archGeometries)
+    });
+
+    // Front and rear glazing are separate, giving the bus a readable direction.
+    features.push({
+      type:'Feature',
+      properties:{
         vehicleId:id,vehicleType:spec.id,part:'frontGlass',
-        minHeight:1.08,
-        height:spec.id==='doubleBus'?3.78:2.35,
+        minHeight:isDouble?1.02:1.00,
+        height:isDouble?3.84:2.42,
         color:'#0f172a'
       },
       geometry:streetVehicleRect(
-        origin,bearing,0.16,spec.width*0.72,spec.length/2-0.08,0
+        origin,bearing,0.16,spec.width*0.72,
+        spec.length/2-0.09,0
       )
     });
 
     features.push({
       type:'Feature',
       properties:{
-        vehicleId:id,vehicleType:spec.id,part:'taillights',
-        minHeight:0.58,height:0.88,color:'#fb7185'
+        vehicleId:id,vehicleType:spec.id,part:'rearGlass',
+        minHeight:isDouble?1.20:1.08,
+        height:isDouble?3.60:2.28,
+        color:'#172554'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,0.14,spec.width*0.58,
+        -spec.length/2+0.08,0
+      )
+    });
+
+    // Destination display and front/rear lights.
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'destinationDisplay',
+        minHeight:isDouble?3.50:2.10,
+        height:isDouble?3.92:2.48,
+        color:'#111827'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,0.18,spec.width*0.52,
+        spec.length/2-0.105,0
+      )
+    });
+
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'headlights',
+        minHeight:0.55,height:0.78,color:'#fde68a'
       },
       geometry:streetVehicleMultiPolygon([
-        streetVehicleRect(origin,bearing,0.16,0.30,-spec.length/2+0.05, spec.width*0.31),
-        streetVehicleRect(origin,bearing,0.16,0.30,-spec.length/2+0.05,-spec.width*0.31)
+        streetVehicleRect(origin,bearing,0.16,0.28,spec.length/2-0.05, spec.width*0.31),
+        streetVehicleRect(origin,bearing,0.16,0.28,spec.length/2-0.05,-spec.width*0.31)
       ])
+    });
+
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'taillights',
+        minHeight:0.54,height:0.82,color:'#fb7185'
+      },
+      geometry:streetVehicleMultiPolygon([
+        streetVehicleRect(origin,bearing,0.16,0.28,-spec.length/2+0.05, spec.width*0.31),
+        streetVehicleRect(origin,bearing,0.16,0.28,-spec.length/2+0.05,-spec.width*0.31)
+      ])
+    });
+
+    // Near-side door panel.
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'door',
+        minHeight:0.34,
+        height:isDouble?1.78:2.22,
+        color:'#881337'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,
+        isDouble?1.45:1.35,
+        0.09,
+        spec.length*0.22,
+        -spec.width/2+0.045
+      )
     });
 
     return features;
@@ -3060,18 +3147,17 @@
   }
 
   function streetVehicleTargetCount(){
-    if(!osmMap)return 30;
+    if(!osmMap)return 28;
     const pitch=osmMap.getPitch();
     const zoom=osmMap.getZoom();
 
-    // A wider viewport needs a larger population because the same fixed count
-    // otherwise collapses into one small district after zooming out.
+    // Keep enough traffic for visual continuity without filling every road segment.
     let target=
-      zoom<13.0?48:
-      zoom<14.5?50:
-      zoom<16.0?46:
-      zoom<17.5?40:
-      34;
+      zoom<13.0?34:
+      zoom<14.5?40:
+      zoom<16.0?38:
+      zoom<17.5?34:
+      28;
 
     if(pitch>=45)target+=2;
     return Math.min(STREET_VEHICLE_COUNT,target);
@@ -3137,14 +3223,14 @@
     const c=String(route?.roadClass||'').toLowerCase();
     const zoom=osmMap?.getZoom?.()??15;
     let base=
-      /motorway|trunk|primary/.test(c)?8:
-      /secondary/.test(c)?7:
-      /tertiary/.test(c)?6:
-      /residential/.test(c)?5:
-      4;
+      /motorway|trunk|primary/.test(c)?6:
+      /secondary/.test(c)?5:
+      /tertiary/.test(c)?4:
+      /residential/.test(c)?3:
+      3;
 
-    if(zoom<14.2)base+=2;
-    if(zoom>17.2)base=Math.max(3,base-1);
+    if(zoom<14.0)base+=1;
+    if(zoom>17.2)base=Math.max(2,base-1);
     return base;
   }
 
@@ -3417,7 +3503,7 @@
   }
 
   function streetVehicleSafeLaneSample(
-    vehicle,route,direction,distanceM,preferredLane=0
+    vehicle,route,direction,distanceM,preferredLane=0,allowSignalZone=false
   ){
     const count=streetVehicleLaneCount(route,direction);
     if(count<=0)return null;
@@ -3438,6 +3524,15 @@
       );
       if(!sample)continue;
       if(streetVehicleIntersectsBuilding(sample,vehicle))continue;
+
+      if(!allowSignalZone){
+        const nearSignal=streetVehicleNearestSignalToPoint(
+          sample.point,
+          STREET_SIGNAL_SPAWN_CLEARANCE_M
+        );
+        if(nearSignal)continue;
+      }
+
       return {sample,laneIndex};
     }
     return null;
@@ -3838,16 +3933,17 @@
     );
     const primaryGroup=primaryDiff<45;
 
-    // 0–6 green A, 6–7 amber A, 7–8 all red,
-    // 8–14 green B, 14–15 amber B, 15–16 all red.
+    // 18 s cycle:
+    // 0–7 A green, 7–8 A amber, 8–9 all-red,
+    // 9–16 B green, 16–17 B amber, 17–18 all-red.
     if(primaryGroup){
-      if(phase<6000)return 'green';
-      if(phase<7000)return 'amber';
+      if(phase<7000)return 'green';
+      if(phase<8000)return 'amber';
       return 'red';
     }
 
-    if(phase>=8000&&phase<14000)return 'green';
-    if(phase>=14000&&phase<15000)return 'amber';
+    if(phase>=9000&&phase<16000)return 'green';
+    if(phase>=16000&&phase<17000)return 'amber';
     return 'red';
   }
 
@@ -3878,11 +3974,114 @@
     return nearest;
   }
 
+  function streetVehicleNearestSignalToPoint(point,radiusM){
+    let best=null;
+    for(const signal of streetTrafficSignals){
+      const d=streetVehicleDistanceM(point,signal.point);
+      if(d>radiusM)continue;
+      if(!best||d<best.distance){
+        best={signal,distance:d};
+      }
+    }
+    return best;
+  }
+
+  function streetVehicleJunctionBoxOccupied(signal,vehicle){
+    if(!signal)return false;
+    const selfSample=streetVehicleSample(vehicle);
+    const selfBearing=selfSample?.bearing??0;
+
+    for(const other of streetVehicles){
+      if(other===vehicle||other.active===false)continue;
+      const otherSample=streetVehicleSample(other);
+      if(!otherSample)continue;
+
+      const d=streetVehicleDistanceM(
+        otherSample.point,
+        signal.point
+      );
+      if(d>STREET_SIGNAL_JUNCTION_BOX_RADIUS_M)continue;
+
+      // Cars already inside the intersection have priority to clear it.
+      const bearingDiff=streetVehicleAngleDifference(
+        selfBearing,
+        otherSample.bearing
+      );
+
+      // Opposing same-axis traffic may clear together. Cross traffic blocks entry.
+      if(bearingDiff>35&&bearingDiff<145)return true;
+
+      // Even same-axis movement blocks if physically too close to the centre.
+      if(d<4.8)return true;
+    }
+    return false;
+  }
+
+  function streetVehicleSignalExitClear(vehicle,signal){
+    const resolved=streetVehicleResolvePlannedConnection(vehicle);
+    if(!resolved)return true;
+
+    const probeDistance=Math.max(
+      0,
+      Math.min(
+        resolved.route.lengthM,
+        resolved.distanceM+
+        (resolved.direction>=0
+          ?STREET_SIGNAL_EXIT_CLEARANCE_M
+          :-STREET_SIGNAL_EXIT_CLEARANCE_M)
+      )
+    );
+    const probe=routePointAt(
+      resolved.route,
+      probeDistance,
+      resolved.direction,
+      resolved.laneIndex||0
+    );
+    if(!probe)return true;
+
+    for(const other of streetVehicles){
+      if(other===vehicle||other.active===false)continue;
+      const otherSample=streetVehicleSample(other);
+      if(!otherSample)continue;
+
+      if(
+        streetVehicleDistanceM(probe.point,otherSample.point)<9.5
+      ){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function streetVehicleSignalEntryAllowed(vehicle,time){
+    const upcoming=streetVehicleUpcomingSignal(vehicle,time);
+    if(!upcoming)return {allowed:true,upcoming:null};
+
+    if(upcoming.state!=='green'){
+      return {allowed:false,upcoming,reason:upcoming.state};
+    }
+
+    if(streetVehicleJunctionBoxOccupied(upcoming.signal,vehicle)){
+      return {allowed:false,upcoming,reason:'junction_occupied'};
+    }
+
+    if(!streetVehicleSignalExitClear(vehicle,upcoming.signal)){
+      return {allowed:false,upcoming,reason:'exit_blocked'};
+    }
+
+    return {allowed:true,upcoming};
+  }
+
   function streetTrafficSignalFeatures(time){
     const features=[];
     for(const signal of streetTrafficSignals){
       const baseBearing=signal.primaryBearing??0;
-      const approaches=[baseBearing,(baseBearing+90)%360];
+      const approaches=[
+        baseBearing,
+        (baseBearing+90)%360,
+        (baseBearing+180)%360,
+        (baseBearing+270)%360
+      ];
 
       for(let i=0;i<approaches.length;i++){
         const approach=approaches[i];
@@ -3957,7 +4156,8 @@
         candidate.route,
         candidate.direction,
         candidate.distanceM,
-        preferredLane
+        preferredLane,
+        true
       );
       if(!safeLane)continue;
 
@@ -4070,7 +4270,8 @@
       route,
       plan.direction,
       plan.distanceM,
-      plan.laneIndex||0
+      plan.laneIndex||0,
+      true
     );
     if(!safeLane)return null;
 
@@ -4301,6 +4502,8 @@
       vehicle.state==='stop_red'||
       vehicle.state==='brake_amber'||
       vehicle.state==='yield_junction'||
+      vehicle.state==='yield_junction_box'||
+      vehicle.state==='yield_exit_blocked'||
       vehicle.routeEndWait;
 
     if(vehicle.speedMps<0.45&&!legitimateStop){
@@ -4374,26 +4577,33 @@
     }
 
     if(distanceToEnd<STREET_VEHICLE_JUNCTION_LOOKAHEAD_M){
-      const signal=streetVehicleUpcomingSignal(vehicle,time);
+      const entry=streetVehicleSignalEntryAllowed(vehicle,time);
+      const signal=entry.upcoming;
+
       if(signal){
         vehicle.lastSignalId=signal.signal.id;
         vehicle.signalState=signal.state;
 
-        if(signal.state==='red'){
-          vehicle.state='stop_red';
+        if(!entry.allowed){
+          vehicle.state=
+            entry.reason==='amber'?'brake_amber':
+            entry.reason==='junction_occupied'?'yield_junction_box':
+            entry.reason==='exit_blocked'?'yield_exit_blocked':
+            'stop_red';
+
           const stoppingDistance=Math.max(
             0,
             signal.distanceToStop-STREET_VEHICLE_STOP_LINE_M
           );
+
           desired=Math.min(
             desired,
             Math.sqrt(
               2*driver.comfortableBrake*stoppingDistance
             )
           );
-        }else if(signal.state==='amber'){
-          vehicle.state='brake_amber';
-          desired*=0.42;
+
+          if(entry.reason==='amber')desired*=0.72;
         }else if(vehicle.state==='cruise'){
           vehicle.state='signal_green';
         }
@@ -5332,7 +5542,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.41)
+     * DISPLAY STABILITY ONLY (v3.21.42)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
