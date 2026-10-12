@@ -277,7 +277,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.60</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.61</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -608,10 +608,10 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.26';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.27';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.60';
+  const APP_VERSION='3.21.61';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -962,6 +962,7 @@
   let cityBuildingsShown=false;
   let localFloodBuildingOverride=false;
   let localFloodSelectionRing=[];
+  let localFloodIsolateMode=false;
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
   let osmStructuresHidden=false;
@@ -7233,6 +7234,11 @@
     syncCityView();
   }
 
+  function setCityIsolateMode(active){
+    localFloodIsolateMode=Boolean(active);
+    syncCityView();
+  }
+
   function syncCityView(){
     if(!osmMap||!osmStyleReady)return;
     enforceSingleCityBuildingSource();
@@ -7245,16 +7251,18 @@
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
-      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',is3D?'visible':'none');
-      cityBuildingsShown=is3D;
+      const visible3D=is3D&&!localFloodIsolateMode;
+      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',visible3D?'visible':'none');
+      cityBuildingsShown=visible3D;
     }else{
       cityBuildingsShown=false;
     }
 
-    // Plan view now uses the SAME authoritative vector source as 3D, rendered as
-    // solid footprints. This fixes the previous top-view blank building blocks.
+    // During isolated-site view, native/background city buildings must remain hidden
+    // even when pitch/zoom/move events call syncCityView again.
     if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL)){
-      osmMap.setLayoutProperty(CITY_BUILDINGS_BACKGROUND_FILL,'visibility',is3D?'none':'visible');
+      const visible2D=!is3D&&!localFloodIsolateMode;
+      osmMap.setLayoutProperty(CITY_BUILDINGS_BACKGROUND_FILL,'visibility',visible2D?'visible':'none');
     }
 
     updateCityBuildingSelectionPaint();
@@ -7462,7 +7470,8 @@
           demHeight:DRAINAGE_3857.baseHeight50m,
           ensureCityBuildings,setCityView,getFirstSymbolLayerId,
           cityBuildingsLayerId:CITY_BUILDINGS_LAYER,
-          setCityBuildingFloodSelection
+          setCityBuildingFloodSelection,
+          setCityIsolateMode
         });
       }
       $('localFloodDraw').disabled=false;
