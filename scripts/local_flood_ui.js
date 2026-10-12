@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.3';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.4';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -347,6 +347,7 @@ export function createLocalFloodUI({
   let sceneRefreshBusy=false;
   let sceneRefreshQueued=false;
   let committedPolygon=null;
+  let hideSelectedBuildings=false;
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -458,6 +459,11 @@ export function createLocalFloodUI({
     $('localFloodRun').disabled=simulationLocked;
     $('localFloodPause').disabled=simulationLocked;
     $('localFloodReset').disabled=simulationLocked;
+
+    const hideToggle=$('localFloodHideSelectedBuildings');
+    if(hideToggle){
+      hideToggle.disabled=!prepared||isPreparingSelection;
+    }
   }
 
   function syncEditablePolygon(){
@@ -519,8 +525,19 @@ export function createLocalFloodUI({
 
   function publishBuildingScene(){
     ensureBuildingSceneLayers();
+
+    const features=[...sceneFeatures.values()].filter(feature=>{
+      // Visual-only site isolation mode:
+      // selected=true is the red-polygon interior fragment.
+      // selected=false is the exterior fragment of a boundary-crossing building.
+      // Keeping selected=false preserves everything outside the red polygon while
+      // removing only the building geometry that lies inside it.
+      return !hideSelectedBuildings||feature.properties?.selected!==true;
+    });
+
     map.getSource(BUILDING_SCENE_SOURCE)?.setData({
-      type:'FeatureCollection',features:[...sceneFeatures.values()]
+      type:'FeatureCollection',
+      features
     });
     syncBuildingSceneView();
   }
@@ -550,6 +567,11 @@ export function createLocalFloodUI({
 
   function clearSimulation(keepSelection=false){
     hideAreaPopup();
+    if(!keepSelection){
+      hideSelectedBuildings=false;
+      const hideToggle=$('localFloodHideSelectedBuildings');
+      if(hideToggle)hideToggle.checked=false;
+    }
     clearTimeout(sceneRefreshTimer);
     sceneRefreshTimer=null;
     sceneRefreshQueued=false;
@@ -890,6 +912,7 @@ export function createLocalFloodUI({
       prepared=true;
       committedPolygon=polygon.map(ring=>ring.map(point=>[point[0],point[1]]));
       ensureWaterLayer(info);
+      publishBuildingScene();
       $('localFloodGridInfo').textContent=
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       $('localFloodStats').textContent=
@@ -1282,6 +1305,17 @@ export function createLocalFloodUI({
   for(const id of ['localFloodRain','localFloodInfil','localFloodDuration']){
     $(id).addEventListener('input',updateParamLabels);
   }
+
+  $('localFloodHideSelectedBuildings')?.addEventListener('change',event=>{
+    hideSelectedBuildings=Boolean(event.target.checked);
+    publishBuildingScene();
+
+    status(
+      hideSelectedBuildings
+        ?'已隐藏红色选区内建筑；周边建筑保持原样。该开关仅改变显示，不改变洪涝模拟中的建筑障碍。'
+        :'已恢复红色选区内建筑显示。'
+    );
+  });
 
   ensureSelectionLayers();
   updateParamLabels();
