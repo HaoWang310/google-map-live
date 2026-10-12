@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.0.1</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.0.2</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.0.1';
+  const APP_VERSION='3.22.0.2';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -5790,8 +5790,20 @@
         !streetVehiclesEnabled||
         currentProvider!=='osm'||
         document.hidden||
-        !osmMap||!osmStyleReady||
-        osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM||
+        !osmMap||!osmStyleReady
+      ){
+        streetVehicleLastFrame=time;
+        return;
+      }
+
+      if(osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM){
+        cancelAnimationFrame(streetVehicleAnimationFrame);
+        streetVehicleAnimationFrame=null;
+        streetVehicleLastFrame=0;
+        return;
+      }
+
+      if(
         osmMap.isMoving?.()||
         osmMap.isZooming?.()||
         osmMap.isRotating?.()
@@ -6137,21 +6149,15 @@
 
   function tuneCityBuildingFarField(){
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
-    if(typeof osmMap.setSourceTileLodParams!=='function')return;
 
-    try{
-      const zoom=osmMap.getZoom();
-      const pitch=osmMap.getPitch();
-
-      if(pitch<25||zoom<14.5){
-        // Whole-city / plan browsing: conservative tile cover.
-        osmMap.setSourceTileLodParams(4,3,CITY_BUILDINGS_SOURCE);
-      }else{
-        // Close 3D view: retain enough distant buildings without the old 48x budget.
+    // Known-smooth v3.21.21 values. v3.21.22 changed this to 1/48,
+    // which greatly increased the high-pitch building tile workload.
+    if(typeof osmMap.setSourceTileLodParams==='function'){
+      try{
         osmMap.setSourceTileLodParams(2,10,CITY_BUILDINGS_SOURCE);
+      }catch(error){
+        console.warn('Unable to tune building tile LOD',error);
       }
-    }catch(error){
-      console.warn('Unable to tune building tile LOD',error);
     }
   }
 
@@ -6383,10 +6389,10 @@
       pitchWithRotate:true,
       touchPitch:true,
 
-      // Keep a healthy cache, but do not retain an entire city-scale 3D tile pyramid.
-      maxTileCacheSize:420,
-      maxTileCacheZoomLevels:6,
-      cancelPendingTileRequestsWhileZooming:true,
+      // Restore the last known-smooth v3.21.21 cache behavior.
+      maxTileCacheSize:700,
+      maxTileCacheZoomLevels:8,
+      cancelPendingTileRequestsWhileZooming:false,
 
       canvasContextAttributes:{antialias:true},
       attributionControl:true
@@ -6482,10 +6488,19 @@
         }
       }
     });
+    let coordsRaf=null;
+    let pendingCoords=null;
     osmMap.on('mousemove',e=>{
       if(currentProvider!=='osm')return;
-      $('coords').textContent='Lat '+e.lngLat.lat.toFixed(5)+
-        ' / Lng '+e.lngLat.lng.toFixed(5)+' / Zoom '+osmMap.getZoom().toFixed(1);
+      pendingCoords=e.lngLat;
+      if(coordsRaf!==null)return;
+      coordsRaf=requestAnimationFrame(()=>{
+        coordsRaf=null;
+        const p=pendingCoords;
+        if(!p||!osmMap)return;
+        $('coords').textContent='Lat '+p.lat.toFixed(5)+
+          ' / Lng '+p.lng.toFixed(5)+' / Zoom '+osmMap.getZoom().toFixed(1);
+      });
     });
 
     osmMap.on('movestart',()=>{
@@ -6493,6 +6508,12 @@
       streetVehicleRefreshTimer=null;
       clearTimeout(citySourceSettleTimer);
       citySourceSettleTimer=null;
+
+      if(streetVehicleAnimationFrame!==null){
+        cancelAnimationFrame(streetVehicleAnimationFrame);
+        streetVehicleAnimationFrame=null;
+      }
+      streetVehicleLastFrame=0;
     });
 
     osmMap.on('zoom',()=>{
@@ -6537,8 +6558,9 @@
             !osmMap.isRotating?.()
           ){
             refreshStreetVehicles();
+            startStreetVehicleAnimation();
           }
-        },360);
+        },520);
       }else if(osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM){
         streetVehicles=[];
         streetVehicleRoutes=[];
@@ -6555,7 +6577,6 @@
         }
       }
 
-      osmMap.triggerRepaint();
     });
     osmMap.on('error',e=>{
       if(e.sourceId===FLOOD_DETAIL_SOURCE){handleFloodDetailError(e.error);return;}
