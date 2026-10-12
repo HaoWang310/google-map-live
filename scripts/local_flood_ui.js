@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.4';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.5';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -607,7 +607,7 @@ export function createLocalFloodUI({
     dragVertexIndex=-1;
     map.doubleClickZoom.disable();
     map.getCanvas().style.cursor='crosshair';
-    status('圈选模式：逐点点击红色边界；至少 3 个点后点击“确定范围”或双击。');
+    status('圈选模式：逐点点击红色边界；至少 3 个点后按 Enter、双击或点击“确定范围”即可直接生成。');
     setButtons();
   }
 
@@ -623,11 +623,11 @@ export function createLocalFloodUI({
 
     syncEditablePolygon();
     setButtons();
-    status('范围已确定：边线上显示实际距离；拖动锚点修改，双击边线加点，双击现有点删除；按 Enter 生成。');
+    status('范围已确定：正在等待生成；边线显示实际距离，之后仍可拖动锚点并按 Enter 重新生成。');
   }
 
   async function confirmEditedSelection(){
-    if(!editingSelection||vertices.length<3||isPreparingSelection)return;
+    if(!editingSelection||vertices.length<3||isPreparingSelection)return false;
 
     dragVertexIndex=-1;
     syncEditablePolygon();
@@ -641,23 +641,43 @@ export function createLocalFloodUI({
         :'边界已确认，正在按最终红色框生成范围内建筑…'
     );
 
-    const success=await prepareSimulation();
+    let success=false;
+    try{
+      success=Boolean(await prepareSimulation());
 
-    isPreparingSelection=false;
-    if(success){
-      // Deliberately stay in edit mode after generation. Anchors remain live so the
-      // user can expand/shrink the parcel and press Enter again to regenerate.
-      editingSelection=true;
-      selectionDirty=false;
-      status(
-        '范围已生成：可拖动锚点、双击边线加点、双击现有点删除；空白处可移动视窗，按 Enter 重新生成。'
-      );
-    }else{
+      if(success){
+        editingSelection=true;
+        selectionDirty=false;
+        status(
+          '范围已生成：可继续拖动锚点修改；按 Enter 会按当前红框重新生成。'
+        );
+      }else{
+        editingSelection=true;
+        selectionDirty=true;
+      }
+    }catch(error){
+      console.error('Local flood selection generation failed',error);
       editingSelection=true;
       selectionDirty=true;
+      status(
+        '生成失败：'+(error?.message||String(error))+'。可继续调整红框后按 Enter 重试。',
+        true
+      );
+    }finally{
+      isPreparingSelection=false;
+      setButtons();
     }
-    setButtons();
+
     return success;
+  }
+
+  async function finishAndConfirmSelection(){
+    if(drawing){
+      if(vertices.length<3)return false;
+      finishDrawing();
+    }
+    if(!editingSelection)return false;
+    return confirmEditedSelection();
   }
 
   function normaliseBuilding(feature,id,sceneKey,sourceFeatureId=null){
@@ -994,7 +1014,7 @@ export function createLocalFloodUI({
     event.originalEvent?.preventDefault?.();
 
     if(drawing){
-      if(vertices.length>=3)finishDrawing();
+      if(vertices.length>=3)finishAndConfirmSelection();
       return;
     }
 
@@ -1259,14 +1279,9 @@ export function createLocalFloodUI({
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
 
     if(event.key==='Enter'){
-      if(drawing&&vertices.length>=3){
+      if((drawing&&vertices.length>=3)||editingSelection){
         event.preventDefault();
-        finishDrawing();
-        return;
-      }
-      if(editingSelection){
-        event.preventDefault();
-        confirmEditedSelection();
+        finishAndConfirmSelection();
         return;
       }
     }
@@ -1279,7 +1294,7 @@ export function createLocalFloodUI({
   document.addEventListener('keydown',keydown);
 
   $('localFloodDraw').addEventListener('click',startDrawing);
-  $('localFloodFinish').addEventListener('click',finishDrawing);
+  $('localFloodFinish').addEventListener('click',()=>finishAndConfirmSelection());
   $('localFloodClear').addEventListener('click',()=>{
     clearSimulation(false);
     status('已清除局部洪涝模拟。');
