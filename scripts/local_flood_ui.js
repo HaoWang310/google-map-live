@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.18.5';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.18.9';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -115,6 +115,52 @@ function featureKey(feature){
   const h=Number(feature.properties?.render_height)||Number(feature.properties?.height)||0;
   return [b.west,b.south,b.east,b.north,h]
     .map(v=>Number(v).toFixed(6)).join('|');
+}
+
+function geometryPolygons(geometry){
+  if(!geometry)return [];
+  if(geometry.type==='Polygon')return [geometry.coordinates];
+  if(geometry.type==='MultiPolygon')return geometry.coordinates;
+  return [];
+}
+
+function mergeBuildingFragments(id,fragments){
+  const polygons=[];
+  let maxHeight=5;
+  let minBase=0;
+  let firstProps={};
+  const seenGeometry=new Set();
+
+  for(const feature of fragments){
+    firstProps=feature.properties||firstProps;
+    maxHeight=Math.max(
+      maxHeight,
+      Number(feature.properties?.render_height)||Number(feature.properties?.height)||5
+    );
+    minBase=Math.min(
+      minBase,
+      Number(feature.properties?.render_min_height)||Number(feature.properties?.min_height)||0
+    );
+
+    const gKey=featureKey(feature);
+    if(seenGeometry.has(gKey))continue;
+    seenGeometry.add(gKey);
+    for(const polygon of geometryPolygons(feature.geometry))polygons.push(polygon);
+  }
+
+  if(!polygons.length)return null;
+  return {
+    type:'Feature',
+    id,
+    properties:{
+      ...firstProps,
+      render_height:maxHeight,
+      render_min_height:minBase
+    },
+    geometry:polygons.length===1
+      ?{type:'Polygon',coordinates:polygons[0]}
+      :{type:'MultiPolygon',coordinates:polygons}
+  };
 }
 
 function onceIdle(map,timeout=2200){
@@ -288,30 +334,54 @@ export function createLocalFloodUI({
     const cityLayer=map.getLayer(cityBuildingsLayerId);
     const source=cityLayer?.source;
     const sourceLayer=cityLayer?.['source-layer']||'building';
-    if(!source)return {features:[],source:null,sourceLayer};
+    if(!source)return {features:[],source:null,sourceLayer,selectedIds:[]};
 
     let raw=[];
     try{
-      raw=map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[];
+      raw=map.querySourceFeatures(source,{sourceLayer})||[];
     }catch(error){
-      console.warn('Rendered building query failed',error);
+      console.warn('Source building query failed',error);
     }
     if(!raw.length){
-      try{raw=map.querySourceFeatures(source,{sourceLayer})||[];}
-      catch(error){console.warn('Source building query failed',error);}
+      try{raw=map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[];}
+      catch(error){console.warn('Rendered building query failed',error);}
     }
 
-    const seen=new Set(),out=[];
+    // OpenMapTiles uses osm_id as the vector-tile feature ID. Group all loaded
+    // tile fragments with the same OSM ID before testing the user's polygon.
+    // This prevents a clipped fragment from being coloured while the real building
+    // continues outside the selection.
+    const groups=new Map();
     for(const feature of raw){
+      if(feature.id===undefined||feature.id===null)continue;
       if(!feature.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))continue;
-      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
-      if(!geometryWithinSelection(feature.geometry,selectionRing))continue;
-      const key=featureKey(feature);
-      if(seen.has(key))continue;
-      seen.add(key);
-      out.push(feature);
+      if(feature.properties?.hide_3d===true)continue;
+
+      const id=feature.id;
+      if(!groups.has(id))groups.set(id,[]);
+      groups.get(id).push(feature);
     }
-    return {features:out,source,sourceLayer};
+
+    const out=[];
+    const selectedIds=[];
+    for(const [id,fragments] of groups){
+      const relevant=fragments.some(feature=>boxesIntersect(bounds,geometryBBox(feature.geometry)));
+      if(!relevant)continue;
+
+      // A building is selected only when every loaded fragment is fully inside.
+      // This is the strict "inside = blue, outside = grey" rule requested.
+      const fullyInside=fragments.every(feature=>
+        geometryWithinSelection(feature.geometry,selectionRing)
+      );
+      if(!fullyInside)continue;
+
+      const merged=mergeBuildingFragments(id,fragments);
+      if(!merged)continue;
+      out.push(merged);
+      selectedIds.push(id);
+    }
+
+    return {features:out,source,sourceLayer,selectedIds};
   }
 
   function ensureSimulator(){
@@ -383,7 +453,10 @@ export function createLocalFloodUI({
 
     // One native-vector colour per building:
     // grey outside polygon, blue inside polygon, red if impacted.
-    setCityBuildingFloodSelection?.(polygon);
+    setCityBuildingFloodSelection?.({
+      polygonCoordinates:polygon,
+      selectedIds:queried.selectedIds
+    });
 
     try{
       const info=await ensureSimulator().setup({polygon,buildings});
@@ -394,7 +467,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内建筑 '+info.buildingCount+' 栋。'
+        '（'+info.cellSizeM+' m）· 圈内建筑 '+info.buildingCount+' 栋 · 已高亮 '+queried.selectedIds.length+' 个 OSM 建筑 ID。'
       );
       setButtons();
     }catch(error){
