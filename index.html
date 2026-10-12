@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.55</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.56</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -563,7 +563,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.55';
+  const APP_VERSION='3.21.56';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -4870,13 +4870,18 @@
         vehicle.state!=='stop_red'&&
         vehicle.state!=='brake_amber'
       ){
-        if(!streetVehicleTryLaneChange(vehicle,time,'queue_escape')){
-          streetVehicleTryRecoveryUTurn(vehicle,time);
-        }
+        vehicle.decongestIntent=true;
+        vehicle.plannedConnection=null;
+        vehicle.turnIntent='escape';
+        vehicle.turnIntentRouteKey=streetVehicleRouteKey(vehicle.route);
+
+        // Try a legal forward lane/branch only. Never reverse direction.
+        streetVehicleTryLaneChange(vehicle,time,'queue_escape');
+        streetVehiclePlanNextConnection(vehicle,time,true);
         vehicle.queueSince=time-4500;
       }
 
-      // Old traffic is recycled only at the browser edge, never in the middle.
+      // Old traffic normally exits at the browser edge; true road ends may also retire inside the viewport.
       if(vehicle.retireIntent&&streetVehicleNearViewportEdge(vehicle)){
         retireStreetVehicle(vehicle,time);
       }
@@ -5274,71 +5279,9 @@
   }
 
   function streetVehicleTryRecoveryUTurn(vehicle,time){
-    if(!vehicle?.route)return false;
-    const opposite=-vehicle.direction;
-    if(!streetVehicleDirectionAllowed(vehicle.route,opposite))return false;
-
-    const preferred=streetVehicleChooseLaneIndex(
-      vehicle,vehicle.route,opposite
-    );
-
-    const retreatOptions=[0,3.5,7,11];
-    for(const retreatM of retreatOptions){
-      const candidateDistance=Math.max(
-        0,
-        Math.min(
-          vehicle.route.lengthM,
-          vehicle.distanceM-vehicle.direction*retreatM
-        )
-      );
-      const safe=streetVehicleSafeLaneSample(
-        vehicle,
-        vehicle.route,
-        opposite,
-        candidateDistance,
-        preferred,
-        true
-      );
-      if(!safe)continue;
-
-      const originalDirection=vehicle.direction;
-      const originalLane=vehicle.laneIndex;
-      const originalDistance=vehicle.distanceM;
-
-      vehicle.direction=opposite;
-      vehicle.laneIndex=safe.laneIndex;
-      vehicle.distanceM=candidateDistance;
-
-      if(
-        streetVehicleConflicts(
-          safe.sample,
-          vehicle.route,
-          opposite,
-          vehicle,
-          false
-        )
-      ){
-        vehicle.direction=originalDirection;
-        vehicle.laneIndex=originalLane;
-        vehicle.distanceM=originalDistance;
-        continue;
-      }
-
-      vehicle.previousRouteKey=streetVehicleRouteKey(vehicle.route);
-      vehicle.lanePosition=safe.laneIndex;
-      vehicle.laneTarget=safe.laneIndex;
-      vehicle.plannedConnection=null;
-      vehicle.speedMps=Math.max(1.8,vehicle.speedMps);
-      vehicle.state='recovery_u_turn';
-      vehicle.visualBearing=NaN;
-      vehicle.stuckSince=0;
-      vehicle.unexplainedStopSince=0;
-      vehicle.lastProgressAt=time;
-      vehicle.laneChangeCooldownUntil=
-        time+STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS;
-      return true;
-    }
-
+    // Automatic U-turns are intentionally disabled.
+    // Vehicles may continue onto a connected road; if no continuation exists,
+    // they leave the simulation at the current road end instead of reversing.
     return false;
   }
 
@@ -5405,14 +5348,6 @@
 
         streetVehiclePlanNextConnection(vehicle,time,true);
 
-        if(
-          streetVehicleDistanceToRouteEnd(vehicle)<14&&
-          streetVehicleTryRecoveryUTurn(vehicle,time)
-        ){
-          vehicle.unexplainedStopSince=0;
-          return;
-        }
-
         const currentLead=streetVehicleLeadInfo(vehicle);
         const currentSignal=streetVehicleUpcomingSignal(vehicle,time);
         const blockedBySignal=
@@ -5449,10 +5384,10 @@
         }
 
         if(stuckFor>STREET_VEHICLE_STUCK_RECOVERY_MS){
-          if(streetVehicleTryRecoveryUTurn(vehicle,time)){
-            vehicle.recoveryLaneTried=false;
-            return;
-          }
+          vehicle.decongestIntent=true;
+          vehicle.plannedConnection=null;
+          vehicle.turnIntent='escape';
+          vehicle.turnIntentRouteKey=streetVehicleRouteKey(vehicle.route);
           streetVehiclePlanNextConnection(vehicle,time,true);
           scheduleStreetVehicleRefresh(30);
           vehicle.stuckSince=time-1800;
@@ -5930,40 +5865,8 @@
 
   function recoverStreetVehicleAtRouteEnd(vehicle,time){
     if(!vehicle?.routeEndWait)return false;
-    if(time<Number(vehicle.routeEndRetryAt||0))return true;
-    vehicle.routeEndRetryAt=time+180;
-
-    streetVehicleTurnIntent(vehicle,true);
-    streetVehiclePlanNextConnection(vehicle,time,true);
-    if(continueStreetVehicleOntoConnectedRoute(vehicle)){
-      clearStreetVehicleRouteEndWait(vehicle);
-      vehicle.state='cruise';
-      vehicle.speedMps=Math.max(2.0,vehicle.speedMps);
-      vehicle.unexplainedStopSince=0;
-      return true;
-    }
-
-    const waited=time-Number(vehicle.routeEndWaitSince||time);
-
-    if(
-      waited>900&&
-      streetVehicleTryRecoveryUTurn(vehicle,time)
-    ){
-      clearStreetVehicleRouteEndWait(vehicle);
-      return true;
-    }
-
-    if(waited>650){
-      scheduleStreetVehicleRefresh(25);
-    }
-
-    if(waited>STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS){
-      vehicle.decongestIntent=true;
-      vehicle.plannedConnection=null;
-      streetVehiclePlanNextConnection(vehicle,time,true);
-      vehicle.routeEndRetryAt=time+120;
-    }
-
+    clearStreetVehicleRouteEndWait(vehicle);
+    retireStreetVehicle(vehicle,time);
     return true;
   }
 
@@ -6282,7 +6185,8 @@
         }
 
         if(vehicle.routeEndWait){
-          recoverStreetVehicleAtRouteEnd(vehicle,time);
+          clearStreetVehicleRouteEndWait(vehicle);
+          retireStreetVehicle(vehicle,time);
           continue;
         }
 
@@ -6311,27 +6215,18 @@
           vehicle.direction*allowedTravelM;
 
         if(nextDistance<0||nextDistance>vehicle.route.lengthM){
-          // Vector-tile roads are often split into several LineStrings. Continue
-          // across a nearby, direction-compatible segment before treating this as
-          // the actual end of the road.
+          // Continue through a real connected road/junction when available.
           if(continueStreetVehicleOntoConnectedRoute(vehicle)){
             continue;
           }
 
-          // No connected segment is available yet. The vehicle MUST remain
-          // on the road. At a viewport-edge road endpoint it may retire naturally;
-          // at an interior endpoint it stops, waits for refreshed route data, then
-          // either continues onto a real connected road or U-turns on this same road.
+          // No legal forward continuation: finish the current road and disappear
+          // at its endpoint. This is allowed inside the viewport by design.
           vehicle.distanceM=vehicle.direction>=0
             ?vehicle.route.lengthM
             :0;
-
-          if(streetVehicleEndpointNearViewportEdge(vehicle)){
-            retireStreetVehicle(vehicle,time);
-          }else{
-            holdStreetVehicleAtRouteEnd(vehicle,time);
-            scheduleStreetVehicleRefresh(40);
-          }
+          vehicle.state='road_end_exit';
+          retireStreetVehicle(vehicle,time);
           continue;
         }
 
@@ -6650,7 +6545,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.55)
+     * DISPLAY STABILITY ONLY (v3.21.56)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
