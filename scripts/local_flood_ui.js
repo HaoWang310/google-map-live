@@ -841,13 +841,14 @@ export function createLocalFloodUI({
         geometry:split.inside
       };
 
-      if(boundaryCrossing){
-        sceneFeatures.set(insideKey,insideScene);
-      }
+      // Every selected/intersecting building gets a local clipped INSIDE
+      // fragment. This is essential for OpenMapTiles features that are grouped,
+      // fragmented by tile boundaries, or not reliably classified by "within".
+      sceneFeatures.set(insideKey,insideScene);
 
       selected.push({
         feature:insideScene,
-        key:boundaryCrossing?insideKey:null,
+        key:insideKey,
         boundaryCrossing,
         sourceFeatureId,
         sourceId:source,
@@ -871,68 +872,22 @@ export function createLocalFloodUI({
   }
 
   function setSelectedNativeFeatureStates(){
-    if(!buildingSourceId)return;
-
-    for(const sourceFeatureId of selectedSourceFeatureIds){
-      if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
-      const key=String(sourceFeatureId);
-      const boundaryCrossing=selectedBoundarySourceFeatureIds.has(key);
-
-      try{
-        map.setFeatureState(
-          {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
-          {
-            localFloodSelected:false,
-            localFloodBoundary:false,
-            localFloodHidden:false,
-            localFloodImpacted:false
-          }
-        );
-      }catch(error){
-        console.warn('Unable to apply flood building state',sourceFeatureId,error);
-      }
-    }
+    // Rendering is polygon/geometry-driven. Never set selection state by vector-tile id.
     map.triggerRepaint();
   }
 
   function setNativeHiddenStates(hidden){
-    // Selection visibility is polygon-driven in index.html. Do not use vector-tile
-    // feature ids here because the same id can occur in another tile.
+    // Native site geometry is already spatially suppressed by index.html.
+    // Hiding is performed only by filtering selected local clipped fragments.
     map.triggerRepaint();
   }
 
   function setNativeImpactedStates(impactedSourceIds=new Set()){
-    if(!buildingSourceId)return;
-    for(const sourceFeatureId of selectedSourceFeatureIds){
-      if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
-      const impacted=impactedSourceIds.has(String(sourceFeatureId));
-      try{
-        map.setFeatureState(
-          {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
-          {localFloodImpacted:impacted}
-        );
-      }catch(error){}
-    }
+    // Impact colour is owned by local clipped scene geometry, not native feature ids.
     map.triggerRepaint();
   }
 
   function clearSelectedNativeFeatureStates(){
-    if(buildingSourceId){
-      for(const sourceFeatureId of selectedSourceFeatureIds){
-        if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
-        try{
-          map.setFeatureState(
-            {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
-            {
-              localFloodSelected:false,
-              localFloodBoundary:false,
-              localFloodHidden:false,
-              localFloodImpacted:false
-            }
-          );
-        }catch(error){}
-      }
-    }
     selectedSourceFeatureIds.clear();
     selectedBoundarySourceFeatureIds.clear();
     map.triggerRepaint();
