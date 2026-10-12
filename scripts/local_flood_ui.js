@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.1';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.2';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -290,7 +290,12 @@ export function createLocalFloodUI({
       map.addLayer({
         id:SEL_POINTS,type:'circle',source:SEL_SOURCE,
         filter:['==',['geometry-type'],'Point'],
-        paint:{'circle-radius':4,'circle-color':'#ffffff','circle-stroke-color':'#ef4444','circle-stroke-width':2}
+        paint:{
+          'circle-radius':7,
+          'circle-color':'#ffffff',
+          'circle-stroke-color':'#ef4444',
+          'circle-stroke-width':3
+        }
       });
     }
   }
@@ -420,7 +425,7 @@ export function createLocalFloodUI({
       vertices=[];
       polygon=null;
       map.getCanvas().style.cursor='';
-      if(!map.dragPan.isEnabled())map.dragPan.enable();
+      if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
       map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features:[]});
     }
     $('localFloodStats').textContent='尚未运行';
@@ -444,6 +449,8 @@ export function createLocalFloodUI({
     editingSelection=true;
     dragVertexIndex=-1;
     map.doubleClickZoom.enable();
+    dragPanWasEnabled=map.dragPan.isEnabled();
+    if(dragPanWasEnabled)map.dragPan.disable();
     map.getCanvas().style.cursor='';
     syncEditablePolygon();
     setButtons();
@@ -456,7 +463,7 @@ export function createLocalFloodUI({
     dragVertexIndex=-1;
     syncEditablePolygon();
     map.getCanvas().style.cursor='';
-    if(!map.dragPan.isEnabled())map.dragPan.enable();
+    if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
     setButtons();
     status('边界已确认，正在按最终红色框生成范围内建筑…');
     await prepareSimulation();
@@ -717,15 +724,21 @@ export function createLocalFloodUI({
   });
 
   const findAnchorAtPoint=point=>{
-    if(!editingSelection||!map.getLayer(SEL_POINTS))return null;
-    try{
-      const hit=(map.queryRenderedFeatures(point,{layers:[SEL_POINTS]})||[])[0];
-      const index=Number(hit?.properties?.vertexIndex);
-      return Number.isInteger(index)&&index>=0&&index<vertices.length?index:null;
-    }catch(error){
-      console.warn('Anchor hit test failed',error);
-      return null;
+    if(!editingSelection||!vertices.length)return null;
+
+    // Do not depend on the tiny rendered circle hit area. Compare directly against
+    // every anchor's projected screen position and use a generous 22 px grab radius.
+    let bestIndex=null;
+    let bestDistance=22;
+    for(let i=0;i<vertices.length;i++){
+      const projected=map.project(vertices[i]);
+      const distance=Math.hypot(projected.x-point.x,projected.y-point.y);
+      if(distance<=bestDistance){
+        bestDistance=distance;
+        bestIndex=i;
+      }
     }
+    return bestIndex;
   };
 
   const onMouseDown=event=>{
@@ -736,10 +749,8 @@ export function createLocalFloodUI({
     event.preventDefault?.();
     event.originalEvent?.preventDefault?.();
     dragVertexIndex=index;
-    dragPanWasEnabled=map.dragPan.isEnabled();
-    if(dragPanWasEnabled)map.dragPan.disable();
     map.getCanvas().style.cursor='grabbing';
-    status('正在调整锚点 '+(index+1)+'；松开鼠标后可继续调整，按 Enter 生成建筑。');
+    status('正在调整锚点 '+(index+1)+'；拖动会实时更新红色范围，按 Enter 生成建筑。');
   };
 
   const onMouseMove=event=>{
@@ -758,7 +769,6 @@ export function createLocalFloodUI({
   const onMouseUp=()=>{
     if(dragVertexIndex<0)return;
     dragVertexIndex=-1;
-    if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
     map.getCanvas().style.cursor='';
     status('边界已更新：可继续拖动任意红色锚点；按 Enter 生成最终范围内建筑。');
   };
@@ -779,7 +789,7 @@ export function createLocalFloodUI({
     polygon=null;
     updateSelection();
     map.doubleClickZoom.enable();
-    if(!map.dragPan.isEnabled())map.dragPan.enable();
+    if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
     map.getCanvas().style.cursor='';
     status('圈选已取消。');
     setButtons();
