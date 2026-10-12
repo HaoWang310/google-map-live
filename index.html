@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.1</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.2</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.1';
+  const APP_VERSION='3.22.2';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -865,6 +865,7 @@
   let streetBuildingObstacles=[];
   let streetSignalLastPaint=0;
   let streetVehicleLastFlowRebalance=0;
+  let streetVehicleCameraInteracting=false;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -5914,6 +5915,17 @@
         return;
       }
 
+      if(
+        streetVehicleCameraInteracting||
+        osmMap.isMoving?.()||
+        osmMap.isZooming?.()
+      ){
+        // Give the main thread back to MapLibre while panning/zooming/rotating.
+        // Reset frame time so vehicles do not jump after the gesture ends.
+        streetVehicleLastFrame=time;
+        return;
+      }
+
       const dt=Math.min(0.12,(time-streetVehicleLastFrame)/1000);
       streetVehicleLastFrame=time;
       const canvas=osmMap.getCanvas();
@@ -6247,7 +6259,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.22.1)
+     * DISPLAY STABILITY ONLY (v3.22.2)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -6500,6 +6512,20 @@
       attributionControl:true
     });
 
+    // Explicit interaction contract. Traffic simulation must never own or disable
+    // MapLibre camera controls.
+    osmMap.scrollZoom?.enable?.();
+    osmMap.doubleClickZoom?.enable?.();
+    osmMap.dragPan?.enable?.();
+    osmMap.dragRotate?.enable?.();
+    osmMap.touchZoomRotate?.enable?.();
+    osmMap.keyboard?.enable?.();
+    osmMap.boxZoom?.enable?.();
+
+    // Slightly gentler wheel rate gives Mac trackpads/mice predictable zooming.
+    osmMap.scrollZoom?.setWheelZoomRate?.(1/420);
+    osmMap.scrollZoom?.setZoomRate?.(1/90);
+
     osmMap.addControl(new maplibregl.NavigationControl({showCompass:true,visualizePitch:true}),'top-right');
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
@@ -6580,6 +6606,9 @@
     });
 
     osmMap.on('movestart',()=>{
+      streetVehicleCameraInteracting=true;
+      clearTimeout(streetVehicleRefreshTimer);
+      streetVehicleRefreshTimer=null;
       if(currentProvider==='osm')terrainCameraStarted();
     });
 
@@ -6587,14 +6616,8 @@
       syncCityView();
       if(currentProvider==='osm')terrainCameraChanged();
       syncFloodView();
-
-      if(streetVehiclesEnabled&&currentProvider==='osm'){
-        const now=performance.now();
-        if(now-streetVehicleViewRefreshAt>180){
-          streetVehicleViewRefreshAt=now;
-          scheduleStreetVehicleRefresh(55);
-        }
-      }
+      // Do not rebuild traffic routes while the wheel/pinch gesture is active.
+      // That graph work previously starved MapLibre's own zoom animation.
     });
 
     osmMap.on('sourcedata',e=>{
@@ -6603,25 +6626,7 @@
 
     osmMap.on('move',()=>{
       if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
-
-      if(streetVehiclesEnabled&&currentProvider==='osm'){
-        const now=performance.now();
-        if(now-streetVehicleViewRefreshAt>260){
-          streetVehicleViewRefreshAt=now;
-
-          // Refill an expanded/panned viewport whenever visible traffic drops
-          // below the adaptive target. Do not wait for route count to collapse.
-          if(
-            streetVehicleVisibleCount()<
-            Math.max(
-              STREET_VEHICLE_MIN_VISIBLE,
-              Math.floor(streetVehicleTargetCount()*0.72)
-            )
-          ){
-            scheduleStreetVehicleRefresh(45);
-          }
-        }
-      }
+      // Camera motion remains lightweight; traffic is reconciled after moveend.
     });
 
     osmMap.on('pitch',()=>{
@@ -6638,11 +6643,15 @@
     });
 
     osmMap.on('moveend',()=>{
+      streetVehicleCameraInteracting=false;
       if(currentProvider==='osm')terrainCameraEnded();
       tuneCityBuildingFarField();
       syncCityView();
       syncFloodView();
-      scheduleStreetVehicleRefresh(40);
+
+      // Debounce expensive road-graph/path planning so successive wheel ticks or
+      // trackpad gestures stay responsive.
+      scheduleStreetVehicleRefresh(320);
       osmMap.triggerRepaint();
     });
     osmMap.on('error',e=>{
