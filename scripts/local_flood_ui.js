@@ -282,6 +282,7 @@ export function createLocalFloodUI({
   let prepared=false;
   let buildingById=new Map();
   let sceneFeatures=new Map();
+  let isolateFullSceneFeatures=new Map();
   let canvas=null;
   let canvasContext=null;
   let simulator=null;
@@ -668,6 +669,7 @@ export function createLocalFloodUI({
     }
 
     isolatedSelection=true;
+    publishBuildingScene();
     enterIsolateLayerMode();
     setCityIsolateMode?.(true);
 
@@ -710,6 +712,7 @@ export function createLocalFloodUI({
     if(!isolatedSelection)return false;
 
     isolatedSelection=false;
+    publishBuildingScene();
     if(map.getLayer(ISOLATE_MASK)){
       map.setLayoutProperty(ISOLATE_MASK,'visibility','none');
     }
@@ -848,12 +851,14 @@ export function createLocalFloodUI({
   function publishBuildingScene(){
     ensureBuildingSceneLayers();
 
-    const features=[...sceneFeatures.values()].filter(feature=>{
-      // Visual-only site isolation mode:
-      // selected=true is the red-polygon interior fragment.
-      // selected=false is the exterior fragment of a boundary-crossing building.
-      // Keeping selected=false preserves everything outside the red polygon while
-      // removing only the building geometry that lies inside it.
+    const sourceMap=isolatedSelection
+      ?isolateFullSceneFeatures
+      :sceneFeatures;
+
+    const features=[...sourceMap.values()].filter(feature=>{
+      // In normal mode, sceneFeatures contains clipped inside/outside geometry.
+      // In isolated mode, isolateFullSceneFeatures contains complete intersecting
+      // buildings and the common canvas clip restricts them to the selected site.
       return !hideSelectedBuildings||feature.properties?.selected!==true;
     });
 
@@ -870,6 +875,7 @@ export function createLocalFloodUI({
     if(map.getLayer(BUILDING_SCENE_FILL))map.removeLayer(BUILDING_SCENE_FILL);
     if(map.getSource(BUILDING_SCENE_SOURCE))map.removeSource(BUILDING_SCENE_SOURCE);
     sceneFeatures.clear();
+    isolateFullSceneFeatures.clear();
   }
 
   function clearSelectedBuildingStates(){
@@ -1088,6 +1094,7 @@ export function createLocalFloodUI({
     }
 
     sceneFeatures.clear();
+    isolateFullSceneFeatures.clear();
     const selected=[];
     let clippedCount=0;
 
@@ -1141,6 +1148,22 @@ export function createLocalFloodUI({
       // fragment. This is essential for OpenMapTiles features that are grouped,
       // fragmented by tile boundaries, or not reliably classified by "within".
       sceneFeatures.set(insideKey,insideScene);
+
+      // Separate visual geometry for isolated-site mode:
+      // keep the ORIGINAL complete building footprint. The screen-space site clip
+      // already limits what the user sees to the red polygon, so geometrically
+      // cutting the footprint again creates false vertical "cut walls" and long
+      // slab-like artefacts in 3D.
+      isolateFullSceneFeatures.set(insideKey,{
+        type:'Feature',
+        properties:{
+          simHeight:height,
+          simBase:base,
+          selected:true,
+          impacted:false
+        },
+        geometry:merged.geometry
+      });
 
       selected.push({
         feature:insideScene,
@@ -1350,6 +1373,10 @@ export function createLocalFloodUI({
 
       if(Boolean(scene.properties.impacted)!==shouldBeImpacted){
         scene.properties.impacted=shouldBeImpacted;
+        const fullScene=isolateFullSceneFeatures.get(sceneKey);
+        if(fullScene?.properties){
+          fullScene.properties.impacted=shouldBeImpacted;
+        }
         buildingColourChanged=true;
       }
     }
