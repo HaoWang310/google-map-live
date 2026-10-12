@@ -2,6 +2,8 @@
 // Hydrological truth: thresholding is always evaluated on RAW 50 m accumulation cells.
 // Visual treatment: the binary drainage result is then resampled and feathered in screen space
 // so the map reads as a continuous drainage corridor instead of blocky raster squares.
+// v3.21.15 adds a max-area mip pyramid and adaptive overview rendering so broad pan/zoom
+// views do not rescan the full 50 m field for every output pixel.
 export const AREA_MIN_ZOOM=8,AREA_MAX_ZOOM=18,AREA_TILE_SIZE=512;
 const R=6378137,HALF=Math.PI*R;
 const MIN_AREA=.0025,MAX_AREA=20000;
@@ -29,6 +31,72 @@ function areaCode(km2){
 function decodeArea(code){
   if(!code)return 0;
   return MIN_AREA*Math.exp((code-1)/65534*Math.log(MAX_AREA/MIN_AREA));
+}
+
+function buildMaxPyramid(field,width,height){
+  const levels=[{field,width,height,scale:1}];
+  let prev=levels[0];
+
+  while(prev.width>1||prev.height>1){
+    const nextWidth=Math.max(1,Math.ceil(prev.width/2));
+    const nextHeight=Math.max(1,Math.ceil(prev.height/2));
+    const nextField=new Uint16Array(nextWidth*nextHeight);
+
+    for(let y=0;y<nextHeight;y++){
+      const y0=y*2,y1=Math.min(prev.height-1,y0+1);
+      for(let x=0;x<nextWidth;x++){
+        const x0=x*2,x1=Math.min(prev.width-1,x0+1);
+        const a=prev.field[y0*prev.width+x0];
+        const b=prev.field[y0*prev.width+x1];
+        const c=prev.field[y1*prev.width+x0];
+        const d=prev.field[y1*prev.width+x1];
+        nextField[y*nextWidth+x]=Math.max(a,b,c,d);
+      }
+    }
+
+    prev={
+      field:nextField,
+      width:nextWidth,
+      height:nextHeight,
+      scale:levels[levels.length-1].scale*2
+    };
+    levels.push(prev);
+  }
+
+  return levels;
+}
+
+function chooseOverviewLevel(pyramid,cellsPerPixel){
+  if(!pyramid?.length||cellsPerPixel<=1.05)return null;
+
+  // Pick a level whose cell is slightly smaller than one output pixel.
+  // Then each output pixel needs only a tiny (usually 2x2) max lookup instead of
+  // scanning many raw 50 m cells.
+  const target=Math.max(1,cellsPerPixel/1.35);
+  let chosen=pyramid[0];
+  for(const level of pyramid){
+    if(level.scale<=target)chosen=level;
+    else break;
+  }
+  return chosen;
+}
+
+function sampleOverviewMax(level,sx,sy,halfX,halfY){
+  const scale=level.scale;
+  const c0=clamp(Math.floor((sx-halfX)/scale),0,level.width-1);
+  const c1=clamp(Math.ceil((sx+halfX)/scale),0,level.width-1);
+  const r0=clamp(Math.floor((sy-halfY)/scale),0,level.height-1);
+  const r1=clamp(Math.ceil((sy+halfY)/scale),0,level.height-1);
+
+  let best=0;
+  for(let rr=r0;rr<=r1;rr++){
+    const offset=rr*level.width;
+    for(let cc=c0;cc<=c1;cc++){
+      const code=level.field[offset+cc];
+      if(code>best)best=code;
+    }
+  }
+  return best;
 }
 
 function networkColour(code){
@@ -95,7 +163,7 @@ function neighbourCode(codes,size,row,col){
 }
 
 async function renderNetworkTile({
-  field,width,height,bounds,center,radius,threshold,z,x,y,
+  field,width,height,pyramid,bounds,center,radius,threshold,z,x,y,
   size=AREA_TILE_SIZE,cancelled=()=>false,
   pause=()=>new Promise(resolve=>setTimeout(resolve,0))
 }){
@@ -113,6 +181,7 @@ async function renderNetworkTile({
   const cellsPerPixelX=dx*scaleX;
   const cellsPerPixelY=dy*scaleY;
   const cellsPerPixel=Math.max(cellsPerPixelX,cellsPerPixelY);
+  const overviewLevel=chooseOverviewLevel(pyramid,cellsPerPixel);
   const clat=center.lat*Math.PI/180,clon=center.lng*Math.PI/180;
 
   const coverage=new Float32Array(size*size);
@@ -170,20 +239,12 @@ async function renderNetworkTile({
       }else{
         const halfX=cellsPerPixelX*.5;
         const halfY=cellsPerPixelY*.5;
-        const c0=clamp(Math.floor(sx-halfX),0,width-1);
-        const c1=clamp(Math.ceil(sx+halfX),0,width-1);
-        const r0=clamp(Math.floor(sy-halfY),0,height-1);
-        const r1=clamp(Math.ceil(sy+halfY),0,height-1);
 
-        let best=0;
-        for(let rr=r0;rr<=r1;rr++){
-          const offset=rr*width;
-          for(let cc=c0;cc<=c1;cc++){
-            const code=field[offset+cc];
-            if(code>=thresholdCode&&code>best)best=code;
-          }
-        }
-        if(best){
+        const best=overviewLevel
+          ?sampleOverviewMax(overviewLevel,sx,sy,halfX,halfY)
+          :0;
+
+        if(best>=thresholdCode){
           coverage[i]=1;
           codes[i]=best;
         }
@@ -245,7 +306,11 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
         const field=new Uint16Array(width*height);
         for(let i=0;i<field.length;i++)field[i]=(rgba[i*4]<<8)|rgba[i*4+1];
         canvas.width=1;canvas.height=1;
-        return {field,width,height};
+
+        // One-time max pyramid. Total memory is ~4/3 of the base Uint16 field and
+        // dramatically reduces overview tile work at z8–z12.
+        const pyramid=buildMaxPyramid(field,width,height);
+        return {field,width,height,pyramid};
       }finally{
         bitmap?.close();
         clearTimeout(timeout);
@@ -272,21 +337,34 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
             const input=await source();
             if(cancelled.has(id))continue;
 
+            // Overview tiles do not need 512 hydrology samples in both dimensions.
+            // Render smaller at broad zooms, then upscale smoothly to the fixed 512 px
+            // MapLibre tile. This cuts z8–z10 work by ~4x while keeping the same bounds.
+            const renderSize=z<=10?256:(z<=12?384:AREA_TILE_SIZE);
+
             const pixels=await renderNetworkTile({
               ...config,...input,threshold,z,x,y,
+              size:renderSize,
               cancelled:()=>cancelled.has(id)
             });
             if(cancelled.has(id))continue;
 
-            const canvas=new OffscreenCanvas(AREA_TILE_SIZE,AREA_TILE_SIZE);
-            canvas.getContext('2d').putImageData(
-              new ImageData(pixels,AREA_TILE_SIZE,AREA_TILE_SIZE),0,0
+            const small=new OffscreenCanvas(renderSize,renderSize);
+            small.getContext('2d').putImageData(
+              new ImageData(pixels,renderSize,renderSize),0,0
             );
+
+            const canvas=new OffscreenCanvas(AREA_TILE_SIZE,AREA_TILE_SIZE);
+            const ctx=canvas.getContext('2d');
+            ctx.imageSmoothingEnabled=true;
+            ctx.imageSmoothingQuality='high';
+            ctx.drawImage(small,0,0,AREA_TILE_SIZE,AREA_TILE_SIZE);
+
             data=await (await canvas.convertToBlob({type:'image/png'})).arrayBuffer();
             if(cancelled.has(id))continue;
 
             cache.set(key,data);
-            while(cache.size>96)cache.delete(cache.keys().next().value);
+            while(cache.size>160)cache.delete(cache.keys().next().value);
           }
 
           const copy=data.slice(0);
@@ -309,7 +387,14 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
       if(activeId===data.id||queue.some(job=>job.id===data.id))cancelled.add(data.id);
       return;
     }
-    queue.push(data);
+    const duplicateIndex=queue.findIndex(job=>
+      job.threshold===data.threshold&&job.z===data.z&&job.x===data.x&&job.y===data.y
+    );
+    if(duplicateIndex<0){
+      // New viewport requests should not sit behind a long backlog from the previous
+      // camera position. LIFO is intentional for interactive pan/zoom responsiveness.
+      queue.unshift(data);
+    }
     pump();
   };
 }
