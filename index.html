@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.54</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.55</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -563,7 +563,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.54';
+  const APP_VERSION='3.21.55';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -691,6 +691,10 @@
   const STREET_VEHICLE_QUEUE_SPEED_MPS=1.35;
   const STREET_VEHICLE_HARD_BUMPER_GAP_M=1.8;
   const STREET_VEHICLE_HARD_TIME_GAP_S=0.28;
+  const STREET_VEHICLE_HARD_CROSS_SEGMENT_M=24;
+  const STREET_VEHICLE_HARD_LATERAL_M=2.35;
+  const STREET_VEHICLE_SPAWN_ROUTE_MIN_M=42;
+  const STREET_VEHICLE_SPAWN_END_CLEARANCE_M=18;
   const STREET_VEHICLE_JUNCTION_SPLIT_MIN_M=12;
   const STREET_VEHICLE_TURN_STRAIGHT_SHARE=0.52;
   const STREET_VEHICLE_TURN_LEFT_SHARE=0.24;
@@ -3284,7 +3288,10 @@
     grid=streetVehicleViewportGrid(),
     directionHint=null
   ){
-    if(!route)return null;
+    if(
+      !route||
+      route.lengthM<STREET_VEHICLE_SPAWN_ROUTE_MIN_M
+    )return null;
     const canvas=osmMap.getCanvas();
 
     let testDirection=
@@ -3314,6 +3321,19 @@
         preferredCell&&
         streetVehicleCellKey(sample.point,grid)!==preferredCell
       )continue;
+
+      const remaining=streetVehicleDirectionAllowed(route,testDirection)
+        ?(
+          testDirection>=0
+            ?route.lengthM-d
+            :d
+        )
+        :0;
+
+      // A vehicle spawned a few metres before a split-node used to move once,
+      // hit the route end, then wait. Give every fresh vehicle enough road to
+      // establish normal following/turn planning before its first junction.
+      if(remaining<STREET_VEHICLE_SPAWN_END_CLEARANCE_M)continue;
 
       return d;
     }
@@ -4146,11 +4166,119 @@
     return best;
   }
 
+  function streetVehiclePhysicalLeadInfo(vehicle){
+    if(!vehicle?.route||vehicle.active===false)return null;
+
+    const selfSample=streetVehicleSample(vehicle);
+    if(!selfSample)return null;
+
+    const selfSpec=streetVehicleSpec(vehicle);
+    const corridorKey=streetVehicleCorridorKey(vehicle.route);
+    const heading=selfSample.bearing*Math.PI/180;
+    const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
+    const exitPoint=vehicle.direction>=0
+      ?vehicle.route.coords.at(-1)
+      :vehicle.route.coords[0];
+
+    let best=null;
+
+    for(const other of streetVehicles){
+      if(
+        other===vehicle||
+        other.active===false||
+        other.direction!==vehicle.direction||
+        (other.laneIndex||0)!==(vehicle.laneIndex||0)||
+        !other.route
+      )continue;
+
+      const otherSample=streetVehicleSample(other);
+      if(!otherSample)continue;
+
+      let forwardGap=null;
+      let physicalLane=false;
+
+      if(other.route===vehicle.route){
+        const delta=vehicle.direction>=0
+          ?other.distanceM-vehicle.distanceM
+          :vehicle.distanceM-other.distanceM;
+        if(delta>0){
+          forwardGap=delta;
+          physicalLane=true;
+        }
+      }else{
+        // Cross-segment hard following is valid only directly across the next
+        // connected road seam. The previous broad same-corridor test could see a
+        // nearby parallel fragment as a lead car and freeze the vehicle forever.
+        if(
+          distanceToEnd>STREET_VEHICLE_HARD_CROSS_SEGMENT_M||
+          streetVehicleCorridorKey(other.route)!==corridorKey
+        )continue;
+
+        const entryPoint=other.direction>=0
+          ?other.route.coords[0]
+          :other.route.coords.at(-1);
+        const seamGap=streetVehicleDistanceM(exitPoint,entryPoint);
+        if(seamGap>STREET_VEHICLE_CONTINUATION_TOLERANCE_M)continue;
+
+        const otherFromEntry=other.direction>=0
+          ?other.distanceM
+          :other.route.lengthM-other.distanceM;
+        if(
+          otherFromEntry<0||
+          otherFromEntry>STREET_VEHICLE_HARD_CROSS_SEGMENT_M+12
+        )continue;
+
+        const xy=streetVehicleLocalXY(
+          otherSample.point,
+          selfSample.point
+        );
+        const forward=
+          xy[0]*Math.sin(heading)+
+          xy[1]*Math.cos(heading);
+        const lateral=Math.abs(
+          xy[0]*Math.cos(heading)-
+          xy[1]*Math.sin(heading)
+        );
+        const bearingDiff=streetVehicleAngleDifference(
+          selfSample.bearing,
+          otherSample.bearing
+        );
+
+        if(
+          forward>0&&
+          forward<=STREET_VEHICLE_CORRIDOR_LOOKAHEAD_M&&
+          lateral<=STREET_VEHICLE_HARD_LATERAL_M&&
+          bearingDiff<22
+        ){
+          forwardGap=forward;
+          physicalLane=true;
+        }
+      }
+
+      if(!physicalLane||forwardGap===null)continue;
+
+      const leadSpec=streetVehicleSpec(other);
+      const gap=Math.max(
+        0.15,
+        forwardGap-(selfSpec.length+leadSpec.length)/2
+      );
+
+      if(!best||gap<best.gap){
+        best={vehicle:other,gap};
+      }
+    }
+
+    return best;
+  }
+
   function streetVehicleHardAdvanceGuard(vehicle,travelM){
     if(!vehicle||travelM<=0)return Math.max(0,travelM);
 
-    const lead=streetVehicleLeadInfo(vehicle);
-    if(!lead)return travelM;
+    const lead=streetVehiclePhysicalLeadInfo(vehicle);
+    if(!lead){
+      if(vehicle.state==='hard_follow')vehicle.state='cruise';
+      return travelM;
+    }
 
     const leadSpeed=Math.max(
       0,
@@ -5685,6 +5813,7 @@
 
     for(let i=0;i<streetVehicleRoutes.length;i++){
       const route=streetVehicleRoutes[(start+i)%streetVehicleRoutes.length];
+      if(route.lengthM<STREET_VEHICLE_SPAWN_ROUTE_MIN_M)continue;
       if(
         streetVehicleCorridorLoad(route)>=
         streetVehicleCorridorCapacity(route)
@@ -5867,6 +5996,8 @@
       Array.isArray(options.routes)&&options.routes.length
         ?options.routes
         :streetVehicleRoutes
+    ).filter(route=>
+      route.lengthM>=STREET_VEHICLE_SPAWN_ROUTE_MIN_M
     );
 
     const attempts=Math.min(
@@ -6216,6 +6347,12 @@
           allowedTravelM<=0.001&&
           vehicle.state==='hard_follow'
         ){
+          // Intentional bumper-spacing hold. Do not feed this into the stuck
+          // watchdog, otherwise a normal queue can trigger a lane-change/U-turn.
+          vehicle.stuckSince=0;
+          vehicle.unexplainedStopSince=0;
+          vehicle.recoveryLaneTried=false;
+
           const sample=streetVehicleSample(vehicle);
           if(sample){
             const p=osmMap.project(sample.point);
@@ -6226,8 +6363,6 @@
               p.y>canvas.clientHeight+STREET_VEHICLE_EXIT_MARGIN_PX
             ){
               retireStreetVehicle(vehicle,time);
-            }else{
-              streetVehicleUpdateStuckRecovery(vehicle,time);
             }
           }
           continue;
@@ -6515,7 +6650,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.54)
+     * DISPLAY STABILITY ONLY (v3.21.55)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
