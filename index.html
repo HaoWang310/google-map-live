@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.40</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.41</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.40';
+  const APP_VERSION='3.21.41';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -665,6 +665,9 @@
   const STREET_VEHICLE_STUCK_LANE_CHANGE_MS=2600;
   const STREET_VEHICLE_STUCK_RECOVERY_MS=6200;
   const STREET_VEHICLE_PROGRESS_EPS_M=1.2;
+  const STREET_VEHICLE_CORRIDOR_LOOKAHEAD_M=52;
+  const STREET_VEHICLE_SAME_CORRIDOR_LINK_M=18;
+  const STREET_VEHICLE_CORRIDOR_LATERAL_M=5.5;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -2648,6 +2651,17 @@
 
     const roadClass=streetVehicleRoadClass(feature);
     const properties=feature?.properties||{};
+    const corridorLabel=String(
+      properties.ref??
+      properties.name??
+      properties.name_en??
+      properties['name:en']??
+      ''
+    ).trim().toLowerCase();
+    const corridorKey=corridorLabel
+      ?roadClass+'|'+corridorLabel
+      :'geom|'+clean[Math.floor(clean.length/2)]
+        .map(v=>Number(v).toFixed(4)).join(',');
     const taggedMaxSpeed=streetVehicleParseMaxSpeedMps(
       properties.maxspeed
     );
@@ -2690,6 +2704,8 @@
       cumulative,
       lengthM,
       roadClass,
+      corridorKey,
+      corridorLabel,
       oneway,
       lanesTotal,
       lanesForward,
@@ -3102,6 +3118,41 @@
     ].join('|');
   }
 
+  function streetVehicleCorridorKey(route){
+    return route?.corridorKey||streetVehicleRouteKey(route);
+  }
+
+  function streetVehicleCorridorLoad(route){
+    const key=streetVehicleCorridorKey(route);
+    if(!key)return 0;
+    let count=0;
+    for(const vehicle of streetVehicles){
+      if(vehicle.active===false)continue;
+      if(streetVehicleCorridorKey(vehicle.route)===key)count++;
+    }
+    return count;
+  }
+
+  function streetVehicleCorridorCapacity(route){
+    const c=String(route?.roadClass||'').toLowerCase();
+    const zoom=osmMap?.getZoom?.()??15;
+    let base=
+      /motorway|trunk|primary/.test(c)?8:
+      /secondary/.test(c)?7:
+      /tertiary/.test(c)?6:
+      /residential/.test(c)?5:
+      4;
+
+    if(zoom<14.2)base+=2;
+    if(zoom>17.2)base=Math.max(3,base-1);
+    return base;
+  }
+
+  function streetVehicleCorridorCongestion(route){
+    return streetVehicleCorridorLoad(route)/
+      Math.max(1,streetVehicleCorridorCapacity(route));
+  }
+
   function streetVehicleRouteLoad(route){
     const key=streetVehicleRouteKey(route);
     if(!key)return 0;
@@ -3460,9 +3511,13 @@
       );
 
       const sameLane=
-        route===other.route&&
         direction===other.direction&&
-        (other.laneIndex||0)===(ignoreVehicle?.laneIndex||0);
+        (other.laneIndex||0)===(ignoreVehicle?.laneIndex||0)&&
+        (
+          route===other.route||
+          streetVehicleCorridorKey(route)===
+            streetVehicleCorridorKey(other.route)
+        );
 
       if(sameLane){
         const lengthAllowance=
@@ -3521,26 +3576,74 @@
   function streetVehicleLeadInfo(vehicle){
     if(!vehicle?.route||vehicle.active===false)return null;
 
+    const selfSample=streetVehicleSample(vehicle);
+    if(!selfSample)return null;
+
+    const selfSpec=streetVehicleSpec(vehicle);
+    const corridorKey=streetVehicleCorridorKey(vehicle.route);
+    const heading=selfSample.bearing*Math.PI/180;
     let best=null;
+
     for(const other of streetVehicles){
       if(
         other===vehicle||
         other.active===false||
-        other.route!==vehicle.route||
         other.direction!==vehicle.direction||
         (other.laneIndex||0)!==(vehicle.laneIndex||0)
       )continue;
 
-      const delta=vehicle.direction>=0
-        ?other.distanceM-vehicle.distanceM
-        :vehicle.distanceM-other.distanceM;
+      const otherSample=streetVehicleSample(other);
+      if(!otherSample)continue;
 
-      if(delta<=0)continue;
-      const selfSpec=streetVehicleSpec(vehicle);
+      const sameRoute=other.route===vehicle.route;
+      const sameCorridor=
+        streetVehicleCorridorKey(other.route)===corridorKey;
+
+      if(!sameRoute&&!sameCorridor)continue;
+
+      let forwardGap=null;
+
+      if(sameRoute){
+        const delta=vehicle.direction>=0
+          ?other.distanceM-vehicle.distanceM
+          :vehicle.distanceM-other.distanceM;
+        if(delta>0)forwardGap=delta;
+      }else{
+        // Cross-segment following: project the other car onto this car's heading.
+        // This closes the old gap where adjacent OSM segments ignored each other
+        // and formed bumper-to-bumper queues at tile/segment boundaries.
+        const xy=streetVehicleLocalXY(
+          otherSample.point,
+          selfSample.point
+        );
+        const forward=
+          xy[0]*Math.sin(heading)+
+          xy[1]*Math.cos(heading);
+        const lateral=Math.abs(
+          xy[0]*Math.cos(heading)-
+          xy[1]*Math.sin(heading)
+        );
+        const bearingDiff=streetVehicleAngleDifference(
+          selfSample.bearing,
+          otherSample.bearing
+        );
+
+        if(
+          forward>0&&
+          forward<=STREET_VEHICLE_CORRIDOR_LOOKAHEAD_M&&
+          lateral<=STREET_VEHICLE_CORRIDOR_LATERAL_M&&
+          bearingDiff<42
+        ){
+          forwardGap=forward;
+        }
+      }
+
+      if(forwardGap===null)continue;
+
       const leadSpec=streetVehicleSpec(other);
       const gap=Math.max(
         0.15,
-        delta-(selfSpec.length+leadSpec.length)/2
+        forwardGap-(selfSpec.length+leadSpec.length)/2
       );
 
       if(!best||gap<best.gap){
@@ -3627,7 +3730,13 @@
 
       for(const option of options){
         const gap=streetVehicleDistanceM(currentEndpoint,option.point);
-        if(gap>STREET_VEHICLE_CONTINUATION_TOLERANCE_M)continue;
+        const sameCorridor=
+          streetVehicleCorridorKey(candidate)===
+          streetVehicleCorridorKey(currentRoute);
+        const maxGap=sameCorridor
+          ?STREET_VEHICLE_SAME_CORRIDOR_LINK_M
+          :STREET_VEHICLE_CONTINUATION_TOLERANCE_M;
+        if(gap>maxGap)continue;
 
         const signedAngle=streetVehicleSignedAngle(
           currentBearing,option.bearing
@@ -3878,7 +3987,16 @@
       }
 
       const load=streetVehicleRouteLoad(candidate.route);
+      const corridorLoad=streetVehicleCorridorLoad(candidate.route);
+      const corridorCapacity=streetVehicleCorridorCapacity(candidate.route);
+      const corridorPressure=corridorLoad/Math.max(1,corridorCapacity);
+
       weight*=1/(1+load*0.22);
+      weight*=1/(1+Math.pow(corridorPressure,2)*1.8);
+
+      if(corridorPressure>=1.0){
+        weight*=0.22;
+      }
 
       weighted.push({
         ...candidate,
@@ -4282,6 +4400,17 @@
       }
     }
 
+    const corridorPressure=
+      streetVehicleCorridorCongestion(vehicle.route);
+    if(
+      corridorPressure>0.92&&
+      distanceToEnd<STREET_VEHICLE_PLAN_LOOKAHEAD_M
+    ){
+      // In game traffic, NPCs don't all insist on the same saturated branch.
+      // Force a fresh branch choice with congestion penalties before the junction.
+      streetVehiclePlanNextConnection(vehicle,time,true);
+    }
+
     const lead=streetVehicleLeadInfo(vehicle);
     if(
       lead&&
@@ -4325,7 +4454,17 @@
 
       acceleration-=
         driver.maxAccel*
-        Math.pow(dynamicGap/Math.max(0.4,lead.gap),2);
+        Math.pow(dynamicGap/Math.max(0.8,lead.gap),2);
+
+      // Dampen stop-go oscillation: copy a fraction of the leader's speed when
+      // already inside the desired headway, instead of repeatedly braking to zero.
+      if(lead.gap<dynamicGap*1.08&&leadSpeed>0.55){
+        const blended=Math.max(
+          0.45,
+          Math.min(v,leadSpeed*0.94)
+        );
+        vehicle.speedMps=Math.max(vehicle.speedMps,blended);
+      }
     }
 
     if(desired<0.25){
@@ -4634,14 +4773,21 @@
           sourceRoutes[Math.floor(Math.random()*sourceRoutes.length)]
         );
       }
-      pool.sort((a,b)=>
-        streetVehicleRouteLoad(a)-streetVehicleRouteLoad(b)
-      );
+      pool.sort((a,b)=>{
+        const ca=streetVehicleCorridorCongestion(a);
+        const cb=streetVehicleCorridorCongestion(b);
+        if(Math.abs(ca-cb)>.01)return ca-cb;
+        return streetVehicleRouteLoad(a)-streetVehicleRouteLoad(b);
+      });
 
       const route=pool[0];
       if(!route)continue;
       if(
         streetVehicleRouteLoad(route)>=streetVehicleRouteCapacity(route)
+      )continue;
+      if(
+        streetVehicleCorridorLoad(route)>=
+        streetVehicleCorridorCapacity(route)
       )continue;
 
       if(
@@ -5186,7 +5332,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.40)
+     * DISPLAY STABILITY ONLY (v3.21.41)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
