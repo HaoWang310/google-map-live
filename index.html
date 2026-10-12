@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.52</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.53</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.52';
+  const APP_VERSION='3.21.53';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -642,7 +642,7 @@
   };
 
   const STREET_VEHICLE_COUNT=42;
-  const STREET_VEHICLE_MIN_SPAWN_GAP_M=14.0;
+  const STREET_VEHICLE_MIN_SPAWN_GAP_M=16.0;
   const STREET_VEHICLE_SAME_LANE_HEADWAY_M=12.0;
   const STREET_VEHICLE_MIN_VISIBLE=14;
   const STREET_VEHICLE_CONTINUATION_TOLERANCE_M=9.0;
@@ -666,7 +666,7 @@
   const STREET_VEHICLE_DETAIL_BUDGET_NEAR=4;
   const STREET_VEHICLE_DETAIL_BUDGET_CLOSE=6;
   const STREET_VEHICLE_DETAIL_REFRESH_MS=420;
-  const STREET_VEHICLE_SAFETY_INTERVAL_MS=120;
+  const STREET_VEHICLE_SAFETY_INTERVAL_MS=80;
   const STREET_VEHICLE_PLAN_LOOKAHEAD_M=34;
   const STREET_VEHICLE_LANE_CHANGE_DURATION_MS=1650;
   const STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS=8000;
@@ -688,6 +688,8 @@
   const STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS=1400;
   const STREET_VEHICLE_DOWNSTREAM_CLEARANCE_M=24;
   const STREET_VEHICLE_QUEUE_SPEED_MPS=1.35;
+  const STREET_VEHICLE_HARD_BUMPER_GAP_M=1.8;
+  const STREET_VEHICLE_HARD_TIME_GAP_S=0.28;
   const STREET_VEHICLE_JUNCTION_SPLIT_MIN_M=12;
   const STREET_VEHICLE_TURN_STRAIGHT_SHARE=0.52;
   const STREET_VEHICLE_TURN_LEFT_SHARE=0.24;
@@ -4143,6 +4145,52 @@
     return best;
   }
 
+  function streetVehicleHardAdvanceGuard(vehicle,travelM){
+    if(!vehicle||travelM<=0)return Math.max(0,travelM);
+
+    const lead=streetVehicleLeadInfo(vehicle);
+    if(!lead)return travelM;
+
+    const leadSpeed=Math.max(
+      0,
+      Number(lead.vehicle?.speedMps)||0
+    );
+
+    const requiredGap=
+      STREET_VEHICLE_HARD_BUMPER_GAP_M+
+      Math.max(
+        0,
+        Math.min(
+          2.2,
+          (Number(vehicle.speedMps)||0)*
+          STREET_VEHICLE_HARD_TIME_GAP_S
+        )
+      );
+
+    const freeGap=Math.max(0,lead.gap-requiredGap);
+
+    if(freeGap<=0.02){
+      vehicle.speedMps=Math.min(
+        Number(vehicle.speedMps)||0,
+        leadSpeed
+      );
+      vehicle.state='hard_follow';
+      return 0;
+    }
+
+    // Never consume the entire remaining bumper gap in one animation frame.
+    if(travelM>freeGap){
+      vehicle.speedMps=Math.min(
+        Number(vehicle.speedMps)||0,
+        Math.max(leadSpeed,freeGap/0.12)
+      );
+      vehicle.state='hard_follow';
+      return freeGap;
+    }
+
+    return travelM;
+  }
+
   function streetVehicleCurveSpeedFactor(vehicle){
     if(!vehicle?.route)return 1;
     const route=vehicle.route;
@@ -5203,7 +5251,8 @@
     const legitimateStop=
       realRedStop||
       realLeadStop||
-      vehicle.state==='brake_amber';
+      vehicle.state==='brake_amber'||
+      vehicle.state==='hard_follow';
 
     if(vehicle.speedMps<0.45){
       if(!vehicle.unexplainedStopSince&&!legitimateStop){
@@ -5437,7 +5486,11 @@
         lead.gap<14
       ){
         const queueGap=
-          Math.max(2.3,driver.minGap*0.58+v*0.52);
+          Math.max(
+            3.2,
+            STREET_VEHICLE_HARD_BUMPER_GAP_M+0.9,
+            driver.minGap*0.66+v*0.58
+          );
         dynamicGap=Math.min(dynamicGap,queueGap);
 
         if(leadSpeed>v+0.35){
@@ -6115,9 +6168,15 @@
             (0.88+Math.random()*0.24);
         }
 
+        const requestedTravelM=
+          Math.max(0,vehicle.speedMps*dt);
+        const allowedTravelM=streetVehicleHardAdvanceGuard(
+          vehicle,
+          requestedTravelM
+        );
         const nextDistance=
           vehicle.distanceM+
-          vehicle.direction*vehicle.speedMps*dt;
+          vehicle.direction*allowedTravelM;
 
         if(nextDistance<0||nextDistance>vehicle.route.lengthM){
           // Vector-tile roads are often split into several LineStrings. Continue
@@ -6151,6 +6210,27 @@
           vehicle.laneIndex||0
         );
         if(!nextSample)continue;
+
+        if(
+          allowedTravelM<=0.001&&
+          vehicle.state==='hard_follow'
+        ){
+          const sample=streetVehicleSample(vehicle);
+          if(sample){
+            const p=osmMap.project(sample.point);
+            if(
+              p.x<-STREET_VEHICLE_EXIT_MARGIN_PX||
+              p.y<-STREET_VEHICLE_EXIT_MARGIN_PX||
+              p.x>canvas.clientWidth+STREET_VEHICLE_EXIT_MARGIN_PX||
+              p.y>canvas.clientHeight+STREET_VEHICLE_EXIT_MARGIN_PX
+            ){
+              retireStreetVehicle(vehicle,time);
+            }else{
+              streetVehicleUpdateStuckRecovery(vehicle,time);
+            }
+          }
+          continue;
+        }
 
         // Exact building/SAT collision checks are a safety net, not the visual
         // animation clock. Run them at a fixed safety cadence and reuse the result
@@ -6434,7 +6514,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.52)
+     * DISPLAY STABILITY ONLY (v3.21.53)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
