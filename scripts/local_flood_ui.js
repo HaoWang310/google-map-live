@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.3';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.4';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -458,8 +458,8 @@ export function createLocalFloodUI({
     dragVertexIndex=-1;
     map.doubleClickZoom.enable();
     dragPanWasEnabled=map.dragPan.isEnabled();
-    if(dragPanWasEnabled)map.dragPan.disable();
     map.getCanvas().style.cursor='';
+
     syncEditablePolygon();
     setButtons();
     status('范围已确定：可继续拖动红色锚点修改边界；调整完成后按 Enter 生成范围内建筑。');
@@ -488,14 +488,12 @@ export function createLocalFloodUI({
       // user can expand/shrink the parcel and press Enter again to regenerate.
       editingSelection=true;
       selectionDirty=false;
-      if(map.dragPan.isEnabled())map.dragPan.disable();
       status(
-        '范围已生成：红色锚点仍可拖动。修改边界后按 Enter 重新生成范围内建筑；未修改时可直接运行模拟。'
+        '范围已生成：红色锚点仍可拖动；拖动地图空白处可移动视窗。修改边界后按 Enter 重新生成范围内建筑。'
       );
     }else{
       editingSelection=true;
       selectionDirty=true;
-      if(map.dragPan.isEnabled())map.dragPan.disable();
     }
     setButtons();
     return success;
@@ -776,55 +774,78 @@ export function createLocalFloodUI({
     return bestIndex;
   };
 
-  const onMouseDown=event=>{
-    if(!editingSelection)return;
-    const index=findAnchorAtPoint(event.point);
-    if(index===null)return;
+  const canvasContainer=map.getCanvasContainer();
 
-    event.preventDefault?.();
-    event.originalEvent?.preventDefault?.();
+  const pointFromMouseEvent=event=>{
+    const rect=canvasContainer.getBoundingClientRect();
+    return {
+      x:event.clientX-rect.left,
+      y:event.clientY-rect.top
+    };
+  };
+
+  const onAnchorMouseDownCapture=event=>{
+    if(!editingSelection||event.button!==0)return;
+    const point=pointFromMouseEvent(event);
+    const index=findAnchorAtPoint(point);
+    if(index===null)return; // Not an anchor: let MapLibre pan/rotate normally.
+
+    // Capture only anchor drags before MapLibre's dragPan handler sees the event.
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+
     dragVertexIndex=index;
+    dragPanWasEnabled=map.dragPan.isEnabled();
+    if(dragPanWasEnabled)map.dragPan.disable();
+
     simulator?.pause();
     selectionDirty=true;
     setButtons();
     map.getCanvas().style.cursor='grabbing';
     status(
       prepared
-        ?'正在调整锚点 '+(index+1)+'；红色范围实时变化，松开后按 Enter 重新生成建筑。'
-        :'正在调整锚点 '+(index+1)+'；拖动会实时更新红色范围，按 Enter 生成建筑。'
+        ?'正在调整锚点 '+(index+1)+'；拖动实时修改红色范围。松开后仍可拖动地图空白处移动视窗，按 Enter 重新生成。'
+        :'正在调整锚点 '+(index+1)+'；拖动实时修改红色范围。松开后可移动视窗，按 Enter 生成建筑。'
     );
   };
 
-  const onMouseMove=event=>{
-    if(dragVertexIndex>=0&&editingSelection){
-      vertices[dragVertexIndex]=[event.lngLat.lng,event.lngLat.lat];
-      selectionDirty=true;
-      syncEditablePolygon();
-      setButtons();
-      return;
-    }
+  const onAnchorMouseMoveWindow=event=>{
+    if(dragVertexIndex<0||!editingSelection)return;
+    event.preventDefault();
 
-    if(editingSelection){
-      const index=findAnchorAtPoint(event.point);
-      map.getCanvas().style.cursor=index===null?'':'grab';
-    }
+    const point=pointFromMouseEvent(event);
+    const lngLat=map.unproject([point.x,point.y]);
+    vertices[dragVertexIndex]=[lngLat.lng,lngLat.lat];
+    selectionDirty=true;
+    syncEditablePolygon();
+    setButtons();
   };
 
-  const onMouseUp=()=>{
+  const onAnchorMouseUpWindow=()=>{
     if(dragVertexIndex<0)return;
+
     dragVertexIndex=-1;
+    if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
     map.getCanvas().style.cursor='';
+
     status(
       prepared
-        ?'边界已修改：可继续拖动锚点扩大/缩小选区；按 Enter 按新范围重新生成建筑。'
-        :'边界已更新：可继续拖动任意红色锚点；按 Enter 生成最终范围内建筑。'
+        ?'边界已修改：可继续拖动锚点，或拖动地图空白处移动视窗；按 Enter 按新范围重新生成建筑。'
+        :'边界已更新：可继续拖动锚点或移动视窗；按 Enter 生成最终范围内建筑。'
     );
   };
 
-  map.on('mousedown',onMouseDown);
-  map.on('mousemove',onMouseMove);
-  map.on('mouseup',onMouseUp);
-  map.on('mouseout',onMouseUp);
+  const onMapMouseMove=event=>{
+    if(!editingSelection||dragVertexIndex>=0)return;
+    const index=findAnchorAtPoint(event.point);
+    map.getCanvas().style.cursor=index===null?'':'grab';
+  };
+
+  canvasContainer.addEventListener('mousedown',onAnchorMouseDownCapture,true);
+  window.addEventListener('mousemove',onAnchorMouseMoveWindow,{passive:false});
+  window.addEventListener('mouseup',onAnchorMouseUpWindow);
+  map.on('mousemove',onMapMouseMove);
 
   const syncSceneOnPitch=()=>syncBuildingSceneView();
   map.on('pitch',syncSceneOnPitch);
@@ -837,7 +858,7 @@ export function createLocalFloodUI({
     polygon=null;
     updateSelection();
     map.doubleClickZoom.enable();
-    if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
+    if(!map.dragPan.isEnabled())map.dragPan.enable();
     map.getCanvas().style.cursor='';
     status('圈选已取消。');
     setButtons();
@@ -898,17 +919,17 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('先点击“圈选区域”画边界；生成后红色锚点仍可继续拖动，按 Enter 按新范围重新生成。');
+  status('圈选后可拖动红色锚点修改范围，也可拖动地图空白处移动视窗；按 Enter 生成或重新生成。');
 
   return {
     clear:()=>clearSimulation(false),
     destroy(){
       clearSimulation(false);
       simulator?.destroy();simulator=null;
-      map.off('mousedown',onMouseDown);
-      map.off('mousemove',onMouseMove);
-      map.off('mouseup',onMouseUp);
-      map.off('mouseout',onMouseUp);
+      canvasContainer.removeEventListener('mousedown',onAnchorMouseDownCapture,true);
+      window.removeEventListener('mousemove',onAnchorMouseMoveWindow);
+      window.removeEventListener('mouseup',onAnchorMouseUpWindow);
+      map.off('mousemove',onMapMouseMove);
       map.off('pitch',syncSceneOnPitch);
       document.removeEventListener('keydown',keydown);
     }
