@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.8';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.9';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -504,7 +504,11 @@ export function createLocalFloodUI({
         layout:{visibility:map.getPitch()>.5?'visible':'none'},
         paint:{
           'fill-extrusion-color':buildingColourExpression(),
-          'fill-extrusion-height':['get','simHeight'],
+          'fill-extrusion-height':[
+            '+',
+            ['get','simHeight'],
+            ['case',['boolean',['get','selected'],false],0.18,0]
+          ],
           'fill-extrusion-base':['get','simBase'],
           'fill-extrusion-opacity':1,
           'fill-extrusion-vertical-gradient':false
@@ -635,6 +639,14 @@ export function createLocalFloodUI({
     dragVertexIndex=-1;
     syncEditablePolygon();
     simulator?.pause();
+
+    // Required interaction order:
+    // edit polygon -> Enter -> ALWAYS show regenerated orange buildings first.
+    // The user may then choose "隐藏选区内建筑" afterwards.
+    hideSelectedBuildings=false;
+    const hideToggle=$('localFloodHideSelectedBuildings');
+    if(hideToggle)hideToggle.checked=false;
+
     isPreparingSelection=true;
     setButtons();
     map.getCanvas().style.cursor='';
@@ -654,7 +666,7 @@ export function createLocalFloodUI({
         status(
           hideSelectedBuildings
             ?'范围已生成；当前“隐藏选区内建筑”已开启。关闭开关即可恢复橙色建筑。'
-            :'范围已生成：框内建筑已显示为橙色；需要时再开启“隐藏选区内建筑”。'
+            :'范围已生成：框内建筑已显示为橙色。可继续移动/修改红框后按 Enter 重新生成；需要时再勾选“隐藏选区内建筑”。'
         );
       }else{
         editingSelection=true;
@@ -696,57 +708,152 @@ export function createLocalFloodUI({
 
   function queryBuildings(bounds,selectionRing){
     ensureCityBuildings();
-    const cityLayer=map.getLayer(cityBuildingsLayerId);
-    const source=cityLayer?.source;
-    const sourceLayer=cityLayer?.['source-layer']||'building';
-    if(!source)return {selected:[],sceneCount:0,visibleCount:0,source:null,sourceLayer};
 
-    const groups=new Map();
-    const addFeature=feature=>{
-      if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
-      if(hide3DFlag(feature.properties?.hide_3d))return;
-      const id=stableBuildingIdentity(feature);
-      if(!groups.has(id))groups.set(id,[]);
-      groups.get(id).push(feature);
+    const style=map.getStyle?.()||{};
+    const layers=style.layers||[];
+    const cityLayer=map.getLayer(cityBuildingsLayerId);
+    const preferredSource=cityLayer?.source||null;
+    const preferredSourceLayer=cityLayer?.['source-layer']||'building';
+
+    const sourceCandidates=[];
+    const renderedLayerIds=[];
+
+    const addSourceCandidate=(sourceId,sourceLayer='building',priority=10)=>{
+      if(!sourceId)return;
+      const key=sourceId+'|'+sourceLayer;
+      const existing=sourceCandidates.find(item=>item.key===key);
+      if(existing){
+        existing.priority=Math.min(existing.priority,priority);
+        return;
+      }
+      sourceCandidates.push({key,sourceId,sourceLayer,priority});
     };
 
-    // Dedicated z13/z14 source is authoritative. queryRenderedFeatures is only a
-    // fallback for a tile that has already rendered but has not yet appeared in the
-    // source query result.
-    try{
-      for(const feature of map.querySourceFeatures(source,{sourceLayer})||[])addFeature(feature);
-    }catch(error){
-      console.warn('Source building query failed',error);
+    if(cityLayer){
+      renderedLayerIds.push(cityBuildingsLayerId);
+      addSourceCandidate(preferredSource,preferredSourceLayer,0);
     }
-    try{
-      for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[])addFeature(feature);
-    }catch(error){}
 
-    const raw=[];
-    for(const [id,fragments] of groups){
-      const merged=mergeBuildingFragments(id,fragments);
-      if(merged)raw.push({feature:merged,key:id});
+    for(const layer of layers){
+      const sourceLayer=String(layer?.['source-layer']||'').toLowerCase();
+      const id=String(layer?.id||'').toLowerCase();
+      const isBuilding=
+        sourceLayer==='building'||
+        sourceLayer.includes('building')||
+        id.includes('building');
+
+      if(!isBuilding)continue;
+
+      if(layer.id&&!renderedLayerIds.includes(layer.id)){
+        renderedLayerIds.push(layer.id);
+      }
+      if(layer.source){
+        addSourceCandidate(layer.source,layer['source-layer']||'building',5);
+      }
+    }
+
+    sourceCandidates.sort((a,b)=>a.priority-b.priority);
+
+    const candidates=[];
+    const seenGeometry=new Set();
+    let sourceFeatureCount=0;
+    let renderedFeatureCount=0;
+
+    const addCandidate=(feature,meta={})=>{
+      if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
+      if(hide3DFlag(feature.properties?.hide_3d))return;
+
+      const bbox=geometryBBox(feature.geometry);
+      if(!boxesIntersect(bounds,bbox))return;
+
+      // Geometry-key dedupe is deliberate. The same building can arrive from the
+      // dedicated z13/z14 source and the OpenFreeMap basemap source. Using only an
+      // OSM feature id previously merged unrelated tile fragments and could collapse
+      // the extraction; using geometry keeps real tile fragments while removing exact
+      // duplicates across sources.
+      const gKey=featureKey(feature);
+      if(seenGeometry.has(gKey))return;
+      seenGeometry.add(gKey);
+
+      const p=feature.properties||{};
+      const sourceFeatureId=
+        feature.id!==undefined&&feature.id!==null
+          ?feature.id
+          :(p.osm_id??p.osm_way_id??p.osm_relation_id??p.openstreetmap_id??p.id??null);
+
+      candidates.push({
+        feature,
+        sourceFeatureId,
+        sourceId:meta.sourceId||feature.source||null,
+        sourceLayer:meta.sourceLayer||feature.sourceLayer||feature['source-layer']||'building'
+      });
+    };
+
+    // 1) Read loaded vector source tiles directly. This works even if a building layer
+    // is occluded by another 3D building or currently outside the rendered depth order.
+    for(const candidate of sourceCandidates){
+      try{
+        const features=map.querySourceFeatures(
+          candidate.sourceId,
+          {sourceLayer:candidate.sourceLayer}
+        )||[];
+        sourceFeatureCount+=features.length;
+        for(const feature of features){
+          addCandidate(feature,{
+            sourceId:candidate.sourceId,
+            sourceLayer:candidate.sourceLayer
+          });
+        }
+      }catch(error){}
+    }
+
+    // 2) Read rendered building geometry inside the screen-space box enclosing the
+    // selection. This is the fallback that guarantees "what I can already see on the
+    // map can become orange" even when one vector source is late.
+    if(renderedLayerIds.length){
+      const projected=selectionRing.map(point=>map.project(point));
+      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+      for(const p of projected){
+        minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
+        maxX=Math.max(maxX,p.x); maxY=Math.max(maxY,p.y);
+      }
+      const queryBox=[
+        [Math.floor(minX)-12,Math.floor(minY)-12],
+        [Math.ceil(maxX)+12,Math.ceil(maxY)+12]
+      ];
+
+      for(const layerId of renderedLayerIds){
+        if(!map.getLayer(layerId))continue;
+        try{
+          const features=map.queryRenderedFeatures(queryBox,{layers:[layerId]})||[];
+          renderedFeatureCount+=features.length;
+          for(const feature of features){
+            addCandidate(feature,{
+              sourceId:feature.source||null,
+              sourceLayer:feature.sourceLayer||feature['source-layer']||'building'
+            });
+          }
+        }catch(error){}
+      }
     }
 
     sceneFeatures.clear();
     const selected=[];
+    let clippedCount=0;
 
-    for(const {feature,key} of raw){
-      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
-
+    for(const item of candidates){
+      const feature=item.feature;
       const split=splitBuildingBySelection(feature.geometry,selectionRing);
       if(!split.inside)continue;
 
+      clippedCount++;
       const p=feature.properties||{};
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
-      const sourceFeatureId=
-        p.__sourceFeatureId!==undefined&&p.__sourceFeatureId!==null
-          ?p.__sourceFeatureId
-          :(feature.id!==undefined&&feature.id!==null?feature.id:null);
+      const key='building-'+clippedCount+'-'+featureKey(feature);
 
-      // Only buildings intersecting the red polygon enter the local scene. The native
-      // source continues rendering every other grey city building dynamically.
+      // If a building crosses the red line, keep only its outside fragment grey in the
+      // local replacement scene. Everything fully outside remains the native OSM city.
       if(split.outside){
         sceneFeatures.set(key+'|outside',{
           type:'Feature',
@@ -772,19 +879,28 @@ export function createLocalFloodUI({
         geometry:split.inside
       };
       sceneFeatures.set(insideKey,insideScene);
+
       selected.push({
         feature:insideScene,
         key:insideKey,
-        sourceFeatureId
+        sourceFeatureId:item.sourceFeatureId,
+        sourceId:item.sourceId,
+        sourceLayer:item.sourceLayer
       });
     }
 
     return {
       selected,
       sceneCount:sceneFeatures.size,
-      visibleCount:raw.length,
-      source,
-      sourceLayer
+      visibleCount:candidates.length,
+      source:preferredSource,
+      sourceLayer:preferredSourceLayer,
+      diagnostics:{
+        sourceFeatureCount,
+        renderedFeatureCount,
+        candidateCount:candidates.length,
+        clippedCount
+      }
     };
   }
 
@@ -872,34 +988,76 @@ export function createLocalFloodUI({
     prepared=false;
     setButtons();
 
+    const keepCenter=map.getCenter();
+    const keepZoom=map.getZoom();
     const keepPitch=map.getPitch();
     const keepBearing=map.getBearing();
 
-    // Load the complete red polygon once in top-down view. A high-pitch fit can leave
-    // part of the polygon outside the tile pyramid chosen for the current camera,
-    // which was the reason orange buildings disappeared after a subsequent rotation.
+    // Snapshot the current camera BEFORE changing it. In the user's workflow the grey
+    // buildings are usually already visible here, so this immediately gives us a
+    // reliable rendered fallback.
+    clearSelectedBuildingStates();
+    let queried=queryBuildings(bounds,ring);
+
+    // Then load the whole red polygon once from above to collect every building that
+    // lies inside the selection, including ones hidden behind taller foreground blocks.
     map.fitBounds([[bounds.west,bounds.south],[bounds.east,bounds.north]],{
       padding:55,
       maxZoom:16.2,
-      duration:350,
+      duration:300,
       pitch:0,
       bearing:0
     });
     await onceIdle(map,5200);
 
-    clearSelectedBuildingStates();
-    let queried=queryBuildings(bounds,ring);
+    let topDown=queryBuildings(bounds,ring);
 
-    // One short retry catches vector tiles that finished decoding immediately after idle.
-    if(!queried.visibleCount){
-      await new Promise(resolve=>setTimeout(resolve,250));
-      queried=queryBuildings(bounds,ring);
+    // Prefer whichever pass actually found more clipped buildings.
+    if((topDown.selected?.length||0)>(queried.selected?.length||0)){
+      queried=topDown;
     }
+
+    // Short automatic retries: do not make the user redraw the polygon.
+    if(!queried.selected?.length){
+      for(const delay of [200,400,800]){
+        await new Promise(resolve=>setTimeout(resolve,delay));
+        const retry=queryBuildings(bounds,ring);
+        if((retry.selected?.length||0)>(queried.selected?.length||0)){
+          queried=retry;
+        }
+        if(queried.selected?.length)break;
+      }
+    }
+
+    if(!queried.selected?.length){
+      const d=queried.diagnostics||{};
+      map.jumpTo({
+        center:keepCenter,
+        zoom:keepZoom,
+        pitch:keepPitch,
+        bearing:keepBearing
+      });
+      status(
+        '已读取建筑数据，但没有生成橙色建筑（source '+(d.sourceFeatureCount||0)+
+        ' · rendered '+(d.renderedFeatureCount||0)+
+        ' · candidates '+(d.candidateCount||0)+
+        ' · clipped '+(d.clippedCount||0)+
+        '）。红框已保留，可直接按 Enter 重试。',
+        true
+      );
+      return false;
+    }
+
     buildingSourceId=queried.source;
     buildingSourceLayer=queried.sourceLayer;
     selectedBuildings=queried.selected.map(item=>item.feature);
+
+    // Only ids from the dedicated city source can safely suppress the native grey
+    // extrusion. If an id came from a fallback basemap source, leave it alone and use
+    // the solid orange local extrusion above it.
     selectedSourceFeatureIds=new Set(
       queried.selected
+        .filter(item=>item.sourceId===buildingSourceId)
         .map(item=>item.sourceFeatureId)
         .filter(id=>id!==null&&id!==undefined)
     );
@@ -915,21 +1073,19 @@ export function createLocalFloodUI({
       return {id,geometry:entry.geometry};
     });
 
-    if(!queried.visibleCount){
-      status('没有读取到 OSM 建筑。请等待地图瓦片加载完成后重新圈选。',true);
-      return false;
-    }
-
     publishBuildingScene();
     setSelectedNativeFeatureStates();
     setCityBuildingFloodSelection?.({active:true});
 
-    // Restore the user's viewing direction after the one-time complete tile load.
-    map.easeTo({
+    // Restore the complete user camera after extraction.
+    map.jumpTo({
+      center:keepCenter,
+      zoom:keepZoom,
       pitch:keepPitch,
-      bearing:keepBearing,
-      duration:300
+      bearing:keepBearing
     });
+    syncBuildingSceneView();
+    map.triggerRepaint();
 
     try{
       const info=await ensureSimulator().setup({polygon,buildings});
@@ -1332,8 +1488,8 @@ export function createLocalFloodUI({
 
     status(
       hideSelectedBuildings
-        ?'已隐藏红色选区内建筑；周边建筑保持原样。该开关仅改变显示，不改变洪涝模拟中的建筑障碍。'
-        :'已恢复红色选区内建筑显示。'
+        ?'已隐藏当前红色范围内的橙色建筑；周边灰色建筑保持原样。'
+        :'已恢复当前红色范围内的橙色建筑。'
     );
   });
 
