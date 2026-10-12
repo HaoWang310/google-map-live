@@ -269,7 +269,7 @@ function onceIdle(map,timeout=2200){
 export function createLocalFloodUI({
   map,maplibregl,assetUrl,demBounds,demWidth,demHeight,
   ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId,
-  setCityBuildingFloodSelection
+  setCityBuildingFloodSelection,setCityIsolateMode
 }){
   let drawing=false;
   let editingSelection=false;
@@ -551,6 +551,7 @@ export function createLocalFloodUI({
     }
 
     enterIsolateLayerMode();
+    setCityIsolateMode?.(true);
 
     // Keep the red boundary, but hide editing handles / edge dimensions in focus mode.
     setSelectionEditVisibility(false);
@@ -598,6 +599,7 @@ export function createLocalFloodUI({
       features:[]
     });
 
+    setCityIsolateMode?.(false);
     exitIsolateLayerMode();
     setSelectionEditVisibility(true);
 
@@ -1524,6 +1526,18 @@ export function createLocalFloodUI({
 
   const syncSceneOnCamera=()=>{
     syncBuildingSceneView();
+
+    if(isolatedSelection){
+      setCityIsolateMode?.(true);
+
+      if(map.getLayer(BUILDING_SCENE_3D)){
+        map.setLayoutProperty(BUILDING_SCENE_3D,'visibility','visible');
+      }
+      if(map.getLayer(BUILDING_SCENE_FILL)){
+        map.setLayoutProperty(BUILDING_SCENE_FILL,'visibility','none');
+      }
+    }
+
     map.triggerRepaint();
   };
 
