@@ -292,8 +292,8 @@ export function createLocalFloodUI({
   let hideSelectedBuildings=false;
   let isolatedSelection=false;
   let isolateCamera=null;
-  let isolateLayerVisibility=new Map();
   let isolateSceneFilters=new Map();
+  let isolateClipTargets=[];
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -444,39 +444,58 @@ export function createLocalFloodUI({
     return [[west,south],[east,north]];
   }
 
-  function enterIsolateLayerMode(){
-    isolateLayerVisibility=new Map();
-    isolateSceneFilters=new Map();
+  function isolateClipPolygonCss(){
+    if(!polygon?.[0]?.length)return '';
+    const pts=polygon[0]
+      .slice(0,-1)
+      .map(point=>map.project(point))
+      .filter(p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y));
+    if(pts.length<3)return '';
+    return 'polygon('+pts.map(p=>p.x.toFixed(1)+'px '+p.y.toFixed(1)+'px').join(',')+')';
+  }
 
-    const keepIds=new Set([
-      SEL_FILL,
-      SEL_LINE,
-      BUILDING_SCENE_FILL,
-      BUILDING_SCENE_3D,
-      WATER_LAYER
-    ]);
+  function applyIsolateCanvasClip(){
+    if(!isolatedSelection)return;
+    const clip=isolateClipPolygonCss();
+    if(!clip)return;
 
-    const style=map.getStyle?.();
-    for(const layer of style?.layers||[]){
-      if(!layer?.id)continue;
+    const canvas=map.getCanvas();
+    const canvasContainer=canvas?.parentElement;
+    const mapContainer=map.getContainer?.();
 
-      const currentVisibility=map.getLayoutProperty(layer.id,'visibility');
-      isolateLayerVisibility.set(
-        layer.id,
-        currentVisibility===undefined?null:currentVisibility
-      );
+    isolateClipTargets=[
+      canvas,
+      canvasContainer
+    ].filter(Boolean);
 
-      // Keep only the neutral map background plus the local selected-site layers.
-      // This avoids using a giant 3D polygon mask, which was physically occluding
-      // the scene and leaving skyline artefacts outside the site.
-      const keep=layer.type==='background'||keepIds.has(layer.id);
-      if(!keep){
-        map.setLayoutProperty(layer.id,'visibility','none');
-      }
+    // Clip the rendered map itself in screen space. Because every MapLibre layer
+    // shares this canvas, terrain / contours / flood / drainage / buildings / labels
+    // are all restricted to the same selected site without any per-layer mask.
+    for(const el of isolateClipTargets){
+      el.style.clipPath=clip;
+      el.style.webkitClipPath=clip;
     }
 
-    // In isolated view, do not keep grey outside fragments from buildings that
-    // cross the red boundary. Only the clipped inside/site fragment is visible.
+    if(mapContainer){
+      mapContainer.style.background='#f4f2ed';
+    }
+  }
+
+  function clearIsolateCanvasClip(){
+    for(const el of isolateClipTargets){
+      if(!el)continue;
+      el.style.clipPath='';
+      el.style.webkitClipPath='';
+    }
+    isolateClipTargets=[];
+  }
+
+  function enterIsolateLayerMode(){
+    isolateSceneFilters=new Map();
+
+    // Keep every layer's own visibility state exactly as the user set it.
+    // The common canvas clip below is what limits ALL currently visible layers
+    // to the selected polygon.
     for(const id of [BUILDING_SCENE_FILL,BUILDING_SCENE_3D]){
       if(!map.getLayer(id))continue;
       const oldFilter=map.getFilter(id);
@@ -486,28 +505,16 @@ export function createLocalFloodUI({
         ['boolean',['get','selected'],false],
         true
       ]);
-      map.setLayoutProperty(
-        id,
-        'visibility',
-        id===BUILDING_SCENE_3D?'visible':'none'
-      );
     }
 
-    // The polygon fill is only a subtle site tint; the red line remains the main edge.
     if(map.getLayer(SEL_FILL))map.setLayoutProperty(SEL_FILL,'visibility','visible');
     if(map.getLayer(SEL_LINE))map.setLayoutProperty(SEL_LINE,'visibility','visible');
+
+    applyIsolateCanvasClip();
   }
 
   function exitIsolateLayerMode(){
-    for(const [id,visibility] of isolateLayerVisibility){
-      if(!map.getLayer(id))continue;
-      if(visibility===null){
-        // "visible" is the style default when visibility was not explicitly set.
-        map.setLayoutProperty(id,'visibility','visible');
-      }else{
-        map.setLayoutProperty(id,'visibility',visibility);
-      }
-    }
+    clearIsolateCanvasClip();
 
     for(const [id,filter] of isolateSceneFilters){
       if(!map.getLayer(id))continue;
@@ -518,7 +525,6 @@ export function createLocalFloodUI({
       }
     }
 
-    isolateLayerVisibility.clear();
     isolateSceneFilters.clear();
   }
 
@@ -550,13 +556,13 @@ export function createLocalFloodUI({
       map.setLayoutProperty(ISOLATE_MASK,'visibility','none');
     }
 
+    isolatedSelection=true;
     enterIsolateLayerMode();
     setCityIsolateMode?.(true);
 
     // Keep the red boundary, but hide editing handles / edge dimensions in focus mode.
     setSelectionEditVisibility(false);
     hideAreaPopup();
-    isolatedSelection=true;
 
     const bounds=selectionBounds(polygon[0]);
     if(bounds){
@@ -583,7 +589,7 @@ export function createLocalFloodUI({
       });
     }
 
-    status('已进入选区独立视图：仅保留红线范围与范围内建筑，周边地图图层全部隐藏；按 Esc 返回完整地图。');
+    status('已进入选区独立视图：所有当前开启的地图图层都只显示在红线范围内；按 Esc 返回完整地图。');
     return true;
   }
 
@@ -1529,6 +1535,7 @@ export function createLocalFloodUI({
 
     if(isolatedSelection){
       setCityIsolateMode?.(true);
+      applyIsolateCanvasClip();
 
       if(map.getLayer(BUILDING_SCENE_3D)){
         map.setLayoutProperty(BUILDING_SCENE_3D,'visibility','visible');
@@ -1546,6 +1553,7 @@ export function createLocalFloodUI({
   // recolours or rebuilds the selected orange/grey clipped geometry.
   map.on('pitch',syncSceneOnCamera);
   map.on('rotate',syncSceneOnCamera);
+  map.on('move',syncSceneOnCamera);
   map.on('moveend',syncSceneOnCamera);
 
   const cancelSelectionEdit=()=>{
@@ -1645,6 +1653,7 @@ export function createLocalFloodUI({
       map.off('mousemove',onMapMouseMove);
       map.off('pitch',syncSceneOnCamera);
       map.off('rotate',syncSceneOnCamera);
+      map.off('move',syncSceneOnCamera);
       map.off('moveend',syncSceneOnCamera);
       document.removeEventListener('keydown',keydown);
     }
