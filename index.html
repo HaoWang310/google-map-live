@@ -2374,9 +2374,16 @@
       return (lane-(laneCount-1)/2)*width;
     }
 
-    // Two-way UK traffic: every direction travels on the LEFT of its own bearing.
-    // lane 0 = inner lane near the centre line; higher indices = curb/outer lanes.
-    return width*(lane+0.5);
+    // Safety-first: vector tiles expose road centre lines, NOT road polygons.
+    // Inferred lane counts cannot be trusted as evidence of physical road width.
+    // Keep vehicles close to the centre line unless explicit width information
+    // exists. This prevents buses crossing into Brook Green parkland.
+    const knownWidth=Number(route?.roadWidthM);
+    const halfWidth=Number.isFinite(knownWidth)&&knownWidth>=5
+      ?knownWidth*0.5
+      :Math.min(2.8,width);
+    const desired=width*(lane+0.5);
+    return Math.min(desired,Math.max(1.35,halfWidth-1.0));
   }
 
   function streetVehicleChooseLaneIndex(vehicle,route,direction,turnAngle=null){
@@ -2440,6 +2447,11 @@
     }
     const lengthM=cumulative.at(-1);
     if(!(lengthM>=55))return null;
+    // Reject broken tile geometry containing implausible straight-line jumps.
+    // Such jumps produce cars driving across parks or buildings.
+    for(let i=1;i<clean.length;i++){
+      if(streetVehicleDistanceM(clean[i-1],clean[i])>175)return null;
+    }
 
     const roadClass=streetVehicleRoadClass(feature);
     const properties=feature?.properties||{};
@@ -2451,9 +2463,14 @@
       roadClass
     );
 
-    const lanesTotal=
-      streetVehicleParseLaneNumber(properties.lanes)||
-      streetVehicleInferredLaneCount(roadClass,oneway);
+    const explicitLanes=streetVehicleParseLaneNumber(properties.lanes);
+    const lanesTotal=explicitLanes||
+      Math.min(2,streetVehicleInferredLaneCount(roadClass,oneway));
+    // The vector source may omit the physical carriageway polygon. Only an
+    // explicitly tagged road width can authorize wider lateral positioning.
+    const rawWidth=Number.parseFloat(properties.width);
+    const roadWidthM=Number.isFinite(rawWidth)&&rawWidth>=5&&rawWidth<=60
+      ?rawWidth:null;
 
     let lanesForward=
       streetVehicleParseLaneNumber(
@@ -2485,6 +2502,7 @@
       lanesForward,
       lanesBackward,
       laneWidthM:streetVehicleLaneWidthForClass(roadClass),
+      roadWidthM,
       speedLimitMps:Math.max(
         4.0,
         Math.min(18.0,taggedMaxSpeed??streetVehicleClassSpeedMps(roadClass))
