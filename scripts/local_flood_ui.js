@@ -7,6 +7,8 @@ const SEL_FILL='local-flood-selection-fill';
 const SEL_LINE='local-flood-selection-line';
 const SEL_POINTS='local-flood-selection-points';
 const SEL_DISTANCE='local-flood-selection-distance';
+const ISOLATE_SOURCE='local-flood-isolate-source';
+const ISOLATE_MASK='local-flood-isolate-mask';
 const WATER_SOURCE='local-flood-water-source';
 const WATER_LAYER='local-flood-water-layer';
 const BUILDING_SCENE_SOURCE='local-flood-building-scene-source';
@@ -288,6 +290,8 @@ export function createLocalFloodUI({
   let areaHoverLngLat=null;
   let areaPopup=null;
   let hideSelectedBuildings=false;
+  let isolatedSelection=false;
+  let isolateCamera=null;
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -352,6 +356,139 @@ export function createLocalFloodUI({
         }
       });
     }
+  }
+
+  function ensureIsolateLayer(){
+    if(!map.getSource(ISOLATE_SOURCE)){
+      map.addSource(ISOLATE_SOURCE,{
+        type:'geojson',
+        data:{type:'FeatureCollection',features:[]}
+      });
+    }
+    if(!map.getLayer(ISOLATE_MASK)){
+      map.addLayer({
+        id:ISOLATE_MASK,
+        type:'fill',
+        source:ISOLATE_SOURCE,
+        paint:{
+          'fill-color':'#f4f2ed',
+          'fill-opacity':1
+        }
+      });
+    }
+  }
+
+  function isolateMaskGeoJson(ring){
+    const hole=closeRing(ring).slice().reverse();
+    const outer=[
+      [-179.9,-85],
+      [179.9,-85],
+      [179.9,85],
+      [-179.9,85],
+      [-179.9,-85]
+    ];
+    return {
+      type:'FeatureCollection',
+      features:[{
+        type:'Feature',
+        properties:{},
+        geometry:{
+          type:'Polygon',
+          coordinates:[outer,hole]
+        }
+      }]
+    };
+  }
+
+  function setSelectionEditVisibility(visible){
+    const value=visible?'visible':'none';
+    for(const id of [SEL_POINTS,SEL_DISTANCE]){
+      if(map.getLayer(id))map.setLayoutProperty(id,'visibility',value);
+    }
+  }
+
+  function selectionBounds(ring){
+    let west=Infinity,east=-Infinity,south=Infinity,north=-Infinity;
+    for(const p of ring||[]){
+      if(!Array.isArray(p)||p.length<2)continue;
+      west=Math.min(west,Number(p[0]));
+      east=Math.max(east,Number(p[0]));
+      south=Math.min(south,Number(p[1]));
+      north=Math.max(north,Number(p[1]));
+    }
+    if(!Number.isFinite(west))return null;
+    return [[west,south],[east,north]];
+  }
+
+  function enterSelectionIsolate(){
+    if(
+      isolatedSelection||
+      !prepared||
+      selectionDirty||
+      !polygon?.[0]||
+      polygon[0].length<4
+    )return false;
+
+    ensureIsolateLayer();
+
+    isolateCamera={
+      center:map.getCenter().toArray(),
+      zoom:map.getZoom(),
+      pitch:map.getPitch(),
+      bearing:map.getBearing()
+    };
+
+    map.getSource(ISOLATE_SOURCE)?.setData(isolateMaskGeoJson(polygon[0]));
+    if(map.getLayer(ISOLATE_MASK)){
+      map.setLayoutProperty(ISOLATE_MASK,'visibility','visible');
+      // Keep the mask above all ordinary map content so nothing outside the
+      // selected polygon remains visible.
+      map.moveLayer(ISOLATE_MASK);
+    }
+
+    // Keep the red boundary, but hide editing handles / edge dimensions in focus mode.
+    setSelectionEditVisibility(false);
+    hideAreaPopup();
+    isolatedSelection=true;
+
+    const bounds=selectionBounds(polygon[0]);
+    if(bounds){
+      map.fitBounds(bounds,{
+        padding:{top:70,bottom:70,left:70,right:70},
+        duration:650,
+        maxZoom:18
+      });
+    }
+
+    status('已进入选区独立视图：仅显示红色范围内内容；按 Esc 返回完整地图。');
+    return true;
+  }
+
+  function exitSelectionIsolate(restoreCamera=true){
+    if(!isolatedSelection)return false;
+
+    isolatedSelection=false;
+    if(map.getLayer(ISOLATE_MASK)){
+      map.setLayoutProperty(ISOLATE_MASK,'visibility','none');
+    }
+    map.getSource(ISOLATE_SOURCE)?.setData({
+      type:'FeatureCollection',
+      features:[]
+    });
+    setSelectionEditVisibility(true);
+
+    if(restoreCamera&&isolateCamera){
+      map.easeTo({
+        center:isolateCamera.center,
+        zoom:isolateCamera.zoom,
+        pitch:isolateCamera.pitch,
+        bearing:isolateCamera.bearing,
+        duration:500
+      });
+    }
+    isolateCamera=null;
+    status('已退出选区独立视图，可继续编辑红色范围。');
+    return true;
   }
 
   function updateSelection(){
@@ -503,6 +640,7 @@ export function createLocalFloodUI({
 
   function clearSimulation(keepSelection=false){
     hideAreaPopup();
+    if(isolatedSelection)exitSelectionIsolate(false);
     if(!keepSelection){
       hideSelectedBuildings=false;
       const hideToggle=$('localFloodHideSelectedBuildings');
@@ -1016,6 +1154,16 @@ export function createLocalFloodUI({
 
     hideAreaPopup();
 
+    // Double-click inside a prepared, unchanged selection (away from anchors/edges)
+    // enters a site-only focus view. Existing anchor/edge editing keeps priority.
+    const clickedLngLat=[event.lngLat.lng,event.lngLat.lat];
+    const clickedInside=Boolean(
+      prepared&&
+      !selectionDirty&&
+      polygon?.[0]&&
+      pointInRingLngLat(clickedLngLat,polygon[0])
+    );
+
     // 1) Double-click an existing anchor -> delete it.
     const anchorIndex=findAnchorAtPoint(event.point);
     if(anchorIndex!==null){
@@ -1039,7 +1187,10 @@ export function createLocalFloodUI({
 
     // 2) Double-click close to an existing red edge -> insert a new anchor on that edge.
     const edge=nearestEdgeAtPoint(event.point);
-    if(!edge)return;
+    if(!edge){
+      if(clickedInside)enterSelectionIsolate();
+      return;
+    }
 
     const lngLat=map.unproject([edge.x,edge.y]);
     vertices.splice(edge.insertIndex,0,[lngLat.lng,lngLat.lat]);
@@ -1285,6 +1436,12 @@ export function createLocalFloodUI({
       }
     }
 
+    if(event.key==='Escape'&&isolatedSelection){
+      event.preventDefault();
+      exitSelectionIsolate(true);
+      return;
+    }
+
     if(event.key==='Escape'&&(drawing||editingSelection)&&!prepared){
       event.preventDefault();
       cancelSelectionEdit();
@@ -1333,7 +1490,7 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('圈选后边线显示实际距离；鼠标在红色区域内停留 2 秒显示面积；可拖动锚点、双击加/删点。');
+  status('圈选后边线显示实际距离；生成区域后双击红框内部可进入选区独立视图，Esc 返回；仍可拖动锚点、双击边线加点/锚点删点。');
 
   return {
     clear:()=>clearSimulation(false),
@@ -1341,6 +1498,8 @@ export function createLocalFloodUI({
       clearSimulation(false);
       simulator?.destroy();simulator=null;
       hideAreaPopup();
+      if(map.getLayer(ISOLATE_MASK))map.removeLayer(ISOLATE_MASK);
+      if(map.getSource(ISOLATE_SOURCE))map.removeSource(ISOLATE_SOURCE);
       canvasContainer.removeEventListener('mousedown',onAnchorMouseDownCapture,true);
       canvasContainer.removeEventListener('mouseleave',onCanvasMouseLeave);
       window.removeEventListener('mousemove',onAnchorMouseMoveWindow);
