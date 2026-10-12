@@ -379,14 +379,36 @@ export function createLocalFloodUI({
   }
 
   function isolateMaskGeoJson(ring){
-    const hole=closeRing(ring).slice().reverse();
+    const closed=closeRing(ring);
+    if(closed.length<4){
+      return {type:'FeatureCollection',features:[]};
+    }
+
+    // Build the mask locally around the site instead of using a near-world-size
+    // polygon. A global outer ring becomes unstable in a pitched 3D camera and can
+    // triangulate into the large white wedge seen in the previous isolate view.
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for(const [lng,lat] of closed){
+      const [x,y]=mercator(lng,lat);
+      minX=Math.min(minX,x); maxX=Math.max(maxX,x);
+      minY=Math.min(minY,y); maxY=Math.max(maxY,y);
+    }
+
+    const width=Math.max(1,maxX-minX);
+    const height=Math.max(1,maxY-minY);
+    const pad=Math.max(12000,Math.max(width,height)*60);
+
     const outer=[
-      [-179.9,-85],
-      [179.9,-85],
-      [179.9,85],
-      [-179.9,85],
-      [-179.9,-85]
+      unmercator(minX-pad,minY-pad),
+      unmercator(maxX+pad,minY-pad),
+      unmercator(maxX+pad,maxY+pad),
+      unmercator(minX-pad,maxY+pad),
+      unmercator(minX-pad,minY-pad)
     ];
+
+    // Turf/GeoJSON hole winding: outer and inner rings use opposite directions.
+    const hole=closed.slice().reverse();
+
     return {
       type:'FeatureCollection',
       features:[{
@@ -453,14 +475,30 @@ export function createLocalFloodUI({
 
     const bounds=selectionBounds(polygon[0]);
     if(bounds){
+      // First fit the site in a stable plan view. Fitting while keeping the previous
+      // steep 3D pitch made a 150–250 m site collapse into a tiny wedge on screen.
       map.fitBounds(bounds,{
-        padding:{top:70,bottom:70,left:70,right:70},
-        duration:650,
-        maxZoom:18
+        padding:{top:90,bottom:90,left:90,right:90},
+        duration:0,
+        maxZoom:18,
+        pitch:0,
+        bearing:0
+      });
+
+      // Then restore a readable architectural 3D angle without changing the fitted
+      // centre/zoom, so the selected site occupies the viewport.
+      const fittedCenter=map.getCenter().toArray();
+      const fittedZoom=map.getZoom();
+      map.easeTo({
+        center:fittedCenter,
+        zoom:Math.max(15.5,Math.min(18,fittedZoom-0.15)),
+        pitch:48,
+        bearing:isolateCamera?.bearing||0,
+        duration:650
       });
     }
 
-    status('已进入选区独立视图：仅显示红色范围内内容；按 Esc 返回完整地图。');
+    status('已进入选区独立视图：红线内区域放大居中，红线外全部隐藏；按 Esc 返回完整地图。');
     return true;
   }
 
