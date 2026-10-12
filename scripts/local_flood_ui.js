@@ -1,4 +1,6 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.5';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.0';
+import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
+const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -18,6 +20,69 @@ function mercator(lng,lat){
   const lon=lng*Math.PI/180;
   const phi=clamp(lat,-85.05112878,85.05112878)*Math.PI/180;
   return [R*lon,R*Math.log(Math.tan(Math.PI/4+phi/2))];
+}
+
+function unmercator(x,y){
+  const lng=x/R*180/Math.PI;
+  const lat=(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI;
+  return [lng,lat];
+}
+
+function closeRing(ring){
+  if(!ring?.length)return ring||[];
+  const first=ring[0],last=ring[ring.length-1];
+  if(first[0]===last[0]&&first[1]===last[1])return ring;
+  return [...ring,first];
+}
+
+function geometryToLocalClipInput(geometry,origin){
+  const toXY=([lng,lat])=>{
+    const [x,y]=mercator(lng,lat);
+    return [x-origin[0],y-origin[1]];
+  };
+  const mapPolygon=polygon=>(polygon||[]).map(ring=>closeRing(ring).map(toXY));
+  if(geometry?.type==='Polygon')return mapPolygon(geometry.coordinates);
+  if(geometry?.type==='MultiPolygon')return (geometry.coordinates||[]).map(mapPolygon);
+  return [];
+}
+
+function selectionToLocalClipInput(selectionRing,origin){
+  return [closeRing(selectionRing).map(([lng,lat])=>{
+    const [x,y]=mercator(lng,lat);
+    return [x-origin[0],y-origin[1]];
+  })];
+}
+
+function clipOutputToGeometry(multiPolygon,origin){
+  if(!Array.isArray(multiPolygon)||!multiPolygon.length)return null;
+  const toLngLat=([x,y])=>unmercator(x+origin[0],y+origin[1]);
+  const polygons=multiPolygon
+    .filter(poly=>Array.isArray(poly)&&poly.length)
+    .map(poly=>poly.map(ring=>closeRing(ring.map(toLngLat))));
+  if(!polygons.length)return null;
+  return polygons.length===1
+    ?{type:'Polygon',coordinates:polygons[0]}
+    :{type:'MultiPolygon',coordinates:polygons};
+}
+
+function splitBuildingBySelection(geometry,selectionRing){
+  if(!geometry||!selectionRing?.length)return {inside:null,outside:geometry};
+  const origin=mercator(selectionRing[0][0],selectionRing[0][1]);
+  const subject=geometryToLocalClipInput(geometry,origin);
+  const clip=selectionToLocalClipInput(selectionRing,origin);
+  if(!subject?.length||!clip?.length)return {inside:null,outside:geometry};
+
+  try{
+    const insideRaw=polygonClipping.intersection(subject,clip);
+    const outsideRaw=polygonClipping.difference(subject,clip);
+    return {
+      inside:clipOutputToGeometry(insideRaw,origin),
+      outside:clipOutputToGeometry(outsideRaw,origin)
+    };
+  }catch(error){
+    console.warn('Building polygon clip failed',error);
+    return {inside:null,outside:geometry};
+  }
 }
 
 function ringAreaM2(ring){
@@ -110,105 +175,6 @@ function geometryWithinSelection(geometry,selectionRing){
     if(!points.every(point=>pointInRingLngLat(point,selectionRing)))return false;
     if(ringEdgesIntersect(outer,selectionRing))return false;
   }
-  return true;
-}
-
-function localMercatorPoint(lngLat,origin){
-  const p=mercator(lngLat[0],lngLat[1]);
-  return [p[0]-origin[0],p[1]-origin[1]];
-}
-
-function pointOnSegmentXY(p,a,b,tolerance=0.05){
-  const dx=b[0]-a[0],dy=b[1]-a[1];
-  const len2=dx*dx+dy*dy;
-  if(len2<1e-12)return Math.hypot(p[0]-a[0],p[1]-a[1])<=tolerance;
-  const t=clamp(((p[0]-a[0])*dx+(p[1]-a[1])*dy)/len2,0,1);
-  const x=a[0]+t*dx,y=a[1]+t*dy;
-  return Math.hypot(p[0]-x,p[1]-y)<=tolerance;
-}
-
-function pointInRingXY(point,ring){
-  if(!ring?.length)return false;
-
-  // Boundary counts as inside.
-  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
-    if(pointOnSegmentXY(point,ring[j],ring[i]))return true;
-  }
-
-  const [x,y]=point;
-  let inside=false;
-  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
-    const [xi,yi]=ring[i],[xj,yj]=ring[j];
-    if(((yi>y)!==(yj>y)) &&
-       (x < (xj-xi)*(y-yi)/((yj-yi)||1e-12)+xi)){
-      inside=!inside;
-    }
-  }
-  return inside;
-}
-
-function orientationXY(a,b,c){
-  const value=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
-  if(Math.abs(value)<1e-8)return 0;
-  return value>0?1:-1;
-}
-
-function strictSegmentsCrossXY(a,b,c,d){
-  const o1=orientationXY(a,b,c);
-  const o2=orientationXY(a,b,d);
-  const o3=orientationXY(c,d,a);
-  const o4=orientationXY(c,d,b);
-  return o1!==0&&o2!==0&&o3!==0&&o4!==0&&o1!==o2&&o3!==o4;
-}
-
-function buildingFullyInsideRedPolygon(geometry,selectionRing){
-  if(!selectionRing?.length)return false;
-
-  // Fast geographic bounding-box rejection first.
-  const selectionBox=geometryBBox({type:'Polygon',coordinates:[selectionRing]});
-  const buildingBox=geometryBBox(geometry);
-  if(
-    buildingBox.west<selectionBox.west||
-    buildingBox.east>selectionBox.east||
-    buildingBox.south<selectionBox.south||
-    buildingBox.north>selectionBox.north
-  )return false;
-
-  // Use the first red-frame point as a local origin. This avoids large-coordinate
-  // precision loss while keeping the test based on the exact red-frame coordinates.
-  const origin=mercator(selectionRing[0][0],selectionRing[0][1]);
-  const selectionXY=selectionRing.map(p=>localMercatorPoint(p,origin));
-
-  const polygons=geometry?.type==='Polygon'
-    ?[geometry.coordinates]
-    :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
-  if(!polygons.length)return false;
-
-  for(const polygon of polygons){
-    const outer=polygon?.[0];
-    if(!outer?.length)return false;
-    const buildingXY=outer.map(p=>localMercatorPoint(p,origin));
-
-    // Every building footprint vertex must be inside/on the exact red polygon.
-    for(const point of buildingXY){
-      if(!pointInRingXY(point,selectionXY))return false;
-    }
-
-    // A concave red polygon can contain all vertices while an edge still crosses outside.
-    // Reject any strict crossing between building edges and red-frame edges.
-    for(let i=1;i<buildingXY.length;i++){
-      for(let j=1;j<selectionXY.length;j++){
-        if(strictSegmentsCrossXY(
-          buildingXY[i-1],buildingXY[i],
-          selectionXY[j-1],selectionXY[j]
-        ))return false;
-      }
-    }
-
-    // Holes in the building footprint do not affect parcel membership; the outer shell
-    // is the footprint boundary relevant to "fully inside".
-  }
-
   return true;
 }
 
@@ -485,8 +451,6 @@ export function createLocalFloodUI({
       raw.push({feature,key});
     };
 
-    // Capture visible OSM buildings for the replacement scene. Orange classification
-    // is based only on the exact lng/lat coordinates of the red selection polygon.
     try{
       for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[]){
         addFeature(feature);
@@ -495,8 +459,6 @@ export function createLocalFloodUI({
       console.warn('Rendered building query failed',error);
     }
 
-    // Fallback to source tiles only if nothing is currently rendered.
-    // Mixing rendered and source fragments can duplicate the same roof geometry.
     if(!raw.length){
       try{
         for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
@@ -514,23 +476,40 @@ export function createLocalFloodUI({
       const p=feature.properties||{};
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
-      const isInside=
-        boxesIntersect(bounds,geometryBBox(feature.geometry)) &&
-        buildingFullyInsideRedPolygon(feature.geometry,selectionRing);
 
-      const scene={
-        type:'Feature',
-        properties:{
-          simHeight:height,
-          simBase:base,
-          selected:isInside,
-          impacted:false
-        },
-        geometry:feature.geometry
-      };
-      sceneFeatures.set(key,scene);
+      const mayIntersect=boxesIntersect(bounds,geometryBBox(feature.geometry));
+      const split=mayIntersect
+        ?splitBuildingBySelection(feature.geometry,selectionRing)
+        :{inside:null,outside:feature.geometry};
 
-      if(isInside)selected.push({feature:scene,key});
+      if(split.outside){
+        sceneFeatures.set(key+'|outside',{
+          type:'Feature',
+          properties:{
+            simHeight:height,
+            simBase:base,
+            selected:false,
+            impacted:false
+          },
+          geometry:split.outside
+        });
+      }
+
+      if(split.inside){
+        const insideKey=key+'|inside';
+        const insideScene={
+          type:'Feature',
+          properties:{
+            simHeight:height,
+            simBase:base,
+            selected:true,
+            impacted:false
+          },
+          geometry:split.inside
+        };
+        sceneFeatures.set(insideKey,insideScene);
+        selected.push({feature:insideScene,key:insideKey});
+      }
     }
 
     return {selected,sceneCount:sceneFeatures.size,source,sourceLayer};
@@ -609,8 +588,8 @@ export function createLocalFloodUI({
     }
 
     publishBuildingScene();
-    // Hide the native grey 3D extrusion only after the full grey/blue replacement
-    // scene is ready, so there is never a blank or overlapping building state.
+    // Hide native OSM building geometry only after the split replacement scene is ready.
+    // Every building is clipped at the red polygon: grey outside, orange inside.
     setCityBuildingFloodSelection?.({active:true});
 
     try{
@@ -622,7 +601,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋 · 按红色框实际地理坐标完整轮廓筛选。'
+        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋 · 按红色框实际地理坐标精确裁切。'
       );
       setButtons();
     }catch(error){
