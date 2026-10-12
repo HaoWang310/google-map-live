@@ -247,7 +247,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.18.1</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.18.2</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -452,21 +452,21 @@
         <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.18.1 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
-          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.18.1" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.18.2 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.18.2" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
         <p>排水网络：后台保留一份完整 Thames 上游 50 m 累积汇水栅格（每格 0.0025 km²），仅作为动态阈值计算源；界面不再单独显示「汇水贡献面积」图层。「地形推导排水网络」直接按用户设置的最小汇水面积阈值实时筛选这同一份数据，不生成独立网络数据。
           <a href="https://deltares.github.io/pyflwdir/latest/_generated/pyflwdir.from_dem.html" target="_blank" rel="noopener noreferrer">D8 / depression filling 方法</a> ·
-          <a href="assets/drainage_area/metadata.json?v=3.18.1" target="_blank" rel="noopener noreferrer">共享水文数据元数据</a>
+          <a href="assets/drainage_area/metadata.json?v=3.18.2" target="_blank" rel="noopener noreferrer">共享水文数据元数据</a>
         </p>
-        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.18.1" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
+        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.18.2" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
         <p>后台汇水数据校核：完整 Thames 上游分析域先进行 50 m DEM 水文校正、D8 流向与 flow accumulation，再裁出 London 70 km 研究范围。NRFA 39001 Thames at Kingston 官方集水面积为 9,948 km²；本次模型在站点附近得到 9,957.1 km²，相对误差约 0.09%，校核通过。<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
         <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
-        <p>局部洪涝模拟：数值地形采用同一 OS Terrain 50 数据重新投影到 EPSG:3857 后的 50 m DEM；圈选范围内的建筑轮廓来自当前 OSM / OpenFreeMap building 矢量瓦片，并在模拟网格中作为不可穿透障碍。浏览器采用质量守恒的快速地形路由近似雨洪传播，并以相邻积水 ≥5 cm 判定建筑碰撞高亮。该模拟用于城市设计方案比较，不应替代基于 1 m LiDAR、排水管网和二维浅水方程的工程洪水模型。<a href="assets/drainage_area/metadata.json?v=3.18.1" target="_blank" rel="noopener noreferrer">地形数据元数据</a></p>
+        <p>局部洪涝模拟：数值地形采用同一 OS Terrain 50 数据重新投影到 EPSG:3857 后的 50 m DEM；圈选范围内的建筑轮廓来自当前 OSM / OpenFreeMap building 矢量瓦片，并在模拟网格中作为不可穿透障碍。浏览器采用质量守恒的快速地形路由近似雨洪传播，并以相邻积水 ≥5 cm 判定建筑碰撞高亮。该模拟用于城市设计方案比较，不应替代基于 1 m LiDAR、排水管网和二维浅水方程的工程洪水模型。<a href="assets/drainage_area/metadata.json?v=3.18.2" target="_blank" rel="noopener noreferrer">地形数据元数据</a></p>
         <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
           <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
-          <a href="assets/london_flood_risk_metadata.json?v=3.18.1" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
+          <a href="assets/london_flood_risk_metadata.json?v=3.18.2" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
         <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
@@ -518,14 +518,14 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.18.1';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.18.1';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.18.1';
-  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.18.1';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.18.1';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.18.2';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.18.2';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.18.2';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.18.2';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.18.2';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.18.1';
+  const APP_VERSION='3.18.2';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
@@ -534,7 +534,7 @@
   const ZOOM=10;
 
   // Environment Agency LiDAR Composite DTM 1 m source.
-  // v3.18.1 uses only the locally cached official terrain rendering at runtime.
+  // v3.18.2 uses only the locally cached official terrain rendering at runtime.
   // The browser builds WebMercator XYZ tiles in a worker, so no EA WMS/WMTS
   // request is made while panning, zooming or pitching the map.
   const TERRAIN_LOCAL_TILES=['ea-terrain-local://tiles/{z}/{x}/{y}'];
@@ -708,6 +708,7 @@
   let googleFocusCircle=null;
   let osmFocusReady=false;
   let cityBuildingsShown=false;
+  let localFloodBuildingOverride=false;
   let searchMarker=null;
   let searchController=null;
   let searchRequestId=0;
@@ -1467,21 +1468,13 @@
 
   function setCityBuildingFloodSelection(polygonCoordinates=null){
     if(!osmMap||!osmStyleReady||!osmMap.getLayer(CITY_BUILDINGS_LAYER))return;
-    const baseFilter=['!=',['get','hide_3d'],true];
-    if(!polygonCoordinates?.length){
-      osmMap.setFilter(CITY_BUILDINGS_LAYER,baseFilter);
-      return;
+    localFloodBuildingOverride=Boolean(polygonCoordinates?.length);
+    if(localFloodBuildingOverride){
+      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility','none');
+      cityBuildingsShown=false;
+    }else{
+      syncCityView();
     }
-
-    // The native grey OSM extrusion is removed ONLY inside the user's polygon.
-    // A separate non-overlapping GeoJSON extrusion is drawn there by local_flood_ui.js.
-    // This avoids both vector-tile feature-id collisions and coplanar z-fighting.
-    const selectionGeometry={type:'Polygon',coordinates:polygonCoordinates};
-    osmMap.setFilter(CITY_BUILDINGS_LAYER,[
-      'all',
-      baseFilter,
-      ['!', ['within',selectionGeometry]]
-    ]);
   }
 
   function syncCityView(){
@@ -1489,9 +1482,16 @@
     const pitch=osmMap.getPitch(),is3D=pitch>.5;
     $('view2D').setAttribute('aria-pressed',String(!is3D));
     $('view3D').setAttribute('aria-pressed',String(is3D));
-    if(osmMap.getLayer(CITY_BUILDINGS_LAYER)&&is3D!==cityBuildingsShown){
-      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',is3D?'visible':'none');
-      cityBuildingsShown=is3D;
+    if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
+      if(localFloodBuildingOverride){
+        if(cityBuildingsShown){
+          osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility','none');
+          cityBuildingsShown=false;
+        }
+      }else if(is3D!==cityBuildingsShown){
+        osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',is3D?'visible':'none');
+        cityBuildingsShown=is3D;
+      }
     }
   }
 
