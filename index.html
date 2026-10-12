@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.35</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.36</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.35';
+  const APP_VERSION='3.21.36';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -2530,7 +2530,7 @@
     };
   }
 
-  function isDrivableStreetFeature(feature){
+  function isDrivableStreetFeature(feature,trustedRenderedRoad=false){
     const p=feature?.properties||{};
     const cls=String(
       p.class??p.transportation_class??p.highway??''
@@ -2539,15 +2539,17 @@
       p.subclass??p.service??''
     ).toLowerCase();
 
-    const blocked=/(rail|subway|tram|path|foot|pedestrian|cycle|steps|runway|ferry)/;
+    // Motor traffic must never use pedestrian paths, park tracks or non-road lines.
+    const blocked=/(rail|subway|tram|path|foot|footway|pedestrian|cycle|cycleway|steps|bridle|track|construction|raceway|runway|ferry)/;
     if(blocked.test(cls)||blocked.test(subclass))return false;
 
-    if(/^(motorway|trunk|primary|secondary|tertiary|minor|service|road|street|residential|living_street|track)$/.test(cls)){
+    if(/^(motorway|trunk|primary|secondary|tertiary|minor|service|road|street|residential|living_street)$/.test(cls)){
       return true;
     }
 
-    // Rendered style layers already tell us that an unclassified LineString is a road.
-    return cls==='';
+    // Empty-class geometry is accepted only from a rendered layer whose identity
+    // explicitly says it is a motor-road layer. Raw source features remain strict.
+    return trustedRenderedRoad&&cls==='';
   }
 
   function streetRoadSourceDescriptors(){
@@ -2561,7 +2563,7 @@
       const sourceLayer=String(layer['source-layer']||'');
       const combined=(id+' '+sourceLayer).toLowerCase();
 
-      if(/rail|subway|tram|path|foot|pedestrian|cycle|runway|water|ferry|boundary/.test(combined)){
+      if(/rail|subway|tram|path|foot|footway|pedestrian|cycle|cycleway|steps|bridle|track|construction|raceway|runway|water|ferry|boundary/.test(combined)){
         continue;
       }
 
@@ -2634,8 +2636,11 @@
       routes.push(route);
     };
 
-    const addFeature=feature=>{
-      if(!feature?.geometry||!isDrivableStreetFeature(feature))return;
+    const addFeature=(feature,trustedRenderedRoad=false)=>{
+      if(
+        !feature?.geometry||
+        !isDrivableStreetFeature(feature,trustedRenderedRoad)
+      )return;
       const g=feature.geometry;
       if(g.type==='LineString')addCoords(g.coordinates,feature);
       else if(g.type==='MultiLineString'){
@@ -2651,7 +2656,7 @@
           [[0,0],[canvas.clientWidth,canvas.clientHeight]],
           {layers:layerIds}
         )||[];
-        for(const feature of rendered)addFeature(feature);
+        for(const feature of rendered)addFeature(feature,true);
       }catch(error){
         console.warn('Unable to query rendered street routes',error);
       }
@@ -2665,14 +2670,20 @@
       )||[];
       for(const feature of allRendered){
         const sourceLayer=String(feature?.sourceLayer||feature?.layer?.['source-layer']||'');
+        const renderedLayerId=String(feature?.layer?.id||'');
         if(
           feature?.geometry?.type?.includes('LineString')&&
           (
             sourceLayer.includes('transportation')||
-            /road|street|highway/i.test(String(feature?.layer?.id||''))
+            /road|street|highway/i.test(renderedLayerId)
           )
         ){
-          addFeature(feature);
+          addFeature(
+            feature,
+            /road|street|highway|motorway|trunk|primary|secondary|tertiary/i.test(
+              renderedLayerId
+            )
+          );
         }
       }
     }catch(error){
@@ -2688,7 +2699,7 @@
           descriptor.source,
           {sourceLayer:descriptor.sourceLayer}
         )||[];
-        for(const feature of sourceFeatures)addFeature(feature);
+        for(const feature of sourceFeatures)addFeature(feature,false);
       }catch(error){
         // Some style sources do not support querySourceFeatures; just skip them.
       }
@@ -2756,20 +2767,6 @@
 
   function streetVehicleSample(vehicle,distanceM=vehicle?.distanceM){
     if(!vehicle?.route||vehicle.active===false)return null;
-
-    if(vehicle.exitMode){
-      const point=streetVehicleOffsetMeters(
-        vehicle.exitOrigin,
-        vehicle.exitBearing,
-        vehicle.exitDistance||0,
-        0
-      );
-      return {
-        point,
-        bearing:vehicle.exitBearing
-      };
-    }
-
     return routePointAt(
       vehicle.route,
       distanceM,
@@ -3147,7 +3144,7 @@
   }
 
   function streetVehicleUpcomingSignal(vehicle,time){
-    if(!vehicle?.route||vehicle.exitMode)return null;
+    if(!vehicle?.route)return null;
     const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
     if(distanceToEnd>STREET_VEHICLE_JUNCTION_LOOKAHEAD_M)return null;
 
@@ -3506,8 +3503,7 @@
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
-      clearStreetVehicleExit(vehicle);
-      ensureStreetVehicleDriver(vehicle);
+        ensureStreetVehicleDriver(vehicle);
       const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
         (route.speedLimitMps??8.9)*
@@ -3521,41 +3517,87 @@
     return false;
   }
 
-  function beginStreetVehicleExit(vehicle){
-    const atForwardEnd=vehicle.direction>=0;
-    const endDistance=atForwardEnd?vehicle.route.lengthM:0;
-    const laneEnd=routePointAt(
+  function clearStreetVehicleRouteEndWait(vehicle){
+    vehicle.routeEndWait=false;
+    vehicle.routeEndWaitSince=0;
+    vehicle.routeEndRetryAt=0;
+  }
+
+  function streetVehicleRouteEndpointSample(vehicle){
+    if(!vehicle?.route)return null;
+    const distanceM=vehicle.direction>=0
+      ?vehicle.route.lengthM
+      :0;
+    return routePointAt(
       vehicle.route,
-      endDistance,
+      distanceM,
       vehicle.direction,
       vehicle.laneIndex||0
     );
-    vehicle.exitOrigin=laneEnd?.point||(
-      atForwardEnd
-        ?vehicle.route.coords.at(-1)
-        :vehicle.route.coords[0]
-    );
-    vehicle.exitBearing=streetVehicleRouteTravelBearing(
-      vehicle.route,
-      vehicle.direction,
-      true
-    );
-    vehicle.exitDistance=0;
-    vehicle.exitMode=true;
-    vehicle.state='exit_view';
-    vehicle.speedMps=Math.max(2.5,vehicle.speedMps);
   }
 
-  function clearStreetVehicleExit(vehicle){
-    vehicle.exitMode=false;
-    vehicle.exitOrigin=null;
-    vehicle.exitBearing=0;
-    vehicle.exitDistance=0;
+  function streetVehicleEndpointNearViewportEdge(vehicle,marginPx=95){
+    const sample=streetVehicleRouteEndpointSample(vehicle);
+    if(!sample||!osmMap)return false;
+    const canvas=osmMap.getCanvas();
+    const p=osmMap.project(sample.point);
+    return (
+      p.x<=marginPx||
+      p.y<=marginPx||
+      p.x>=canvas.clientWidth-marginPx||
+      p.y>=canvas.clientHeight-marginPx
+    );
+  }
+
+  function holdStreetVehicleAtRouteEnd(vehicle,time){
+    vehicle.distanceM=vehicle.direction>=0
+      ?vehicle.route.lengthM
+      :0;
+    vehicle.speedMps=0;
+    vehicle.state='route_end_wait';
+    vehicle.routeEndWait=true;
+    if(!vehicle.routeEndWaitSince)vehicle.routeEndWaitSince=time;
+    vehicle.routeEndRetryAt=time+260;
+  }
+
+  function recoverStreetVehicleAtRouteEnd(vehicle,time){
+    if(!vehicle?.routeEndWait)return false;
+    if(time<Number(vehicle.routeEndRetryAt||0))return true;
+    vehicle.routeEndRetryAt=time+300;
+
+    if(continueStreetVehicleOntoConnectedRoute(vehicle)){
+      clearStreetVehicleRouteEndWait(vehicle);
+      vehicle.state='cruise';
+      vehicle.speedMps=Math.max(1.6,vehicle.speedMps);
+      return true;
+    }
+
+    // True dead end in the visible scene: perform a restrained U-turn on the SAME
+    // road after waiting. Never invent a straight-line escape across open ground.
+    if(
+      time-Number(vehicle.routeEndWaitSince||time)>1800&&
+      streetVehicleDirectionAllowed(vehicle.route,-vehicle.direction)
+    ){
+      vehicle.direction=-vehicle.direction;
+      vehicle.laneIndex=streetVehicleChooseLaneIndex(
+        vehicle,
+        vehicle.route,
+        vehicle.direction
+      );
+      vehicle.distanceM=vehicle.direction>=0
+        ?Math.min(0.7,vehicle.route.lengthM)
+        :Math.max(0,vehicle.route.lengthM-0.7);
+      clearStreetVehicleRouteEndWait(vehicle);
+      vehicle.state='u_turn';
+      vehicle.speedMps=1.8;
+      return true;
+    }
+
+    return true;
   }
 
   function retireStreetVehicle(vehicle,time){
     vehicle.active=false;
-    clearStreetVehicleExit(vehicle);
     vehicle.state='retired';
     vehicle.respawnAt=
       time+
@@ -3602,8 +3644,7 @@
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
-      clearStreetVehicleExit(vehicle);
-      ensureStreetVehicleDriver(vehicle);
+        ensureStreetVehicleDriver(vehicle);
       const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
         (route.speedLimitMps??8.9)*
@@ -3675,10 +3716,9 @@
         lastSignalId:null,
         signalState:'green',
         laneIndex:0,
-        exitMode:false,
-        exitOrigin:null,
-        exitBearing:0,
-        exitDistance:0
+        routeEndWait:false,
+        routeEndWaitSince:0,
+        routeEndRetryAt:0
       };
 
       // On first load put vehicles into view immediately. Later lifecycle respawns
@@ -3738,22 +3778,8 @@
           continue;
         }
 
-        if(vehicle.exitMode){
-          vehicle.exitDistance+=Math.max(2.5,vehicle.speedMps)*dt;
-          const exitSample=streetVehicleSample(vehicle);
-          if(!exitSample)continue;
-          const exitPoint=osmMap.project(exitSample.point);
-
-          // A vehicle is retired ONLY after its whole movement has carried it beyond
-          // the browser edge. It is never removed at an interior vector-tile endpoint.
-          if(
-            exitPoint.x<-STREET_VEHICLE_EXIT_MARGIN_PX||
-            exitPoint.y<-STREET_VEHICLE_EXIT_MARGIN_PX||
-            exitPoint.x>canvas.clientWidth+STREET_VEHICLE_EXIT_MARGIN_PX||
-            exitPoint.y>canvas.clientHeight+STREET_VEHICLE_EXIT_MARGIN_PX
-          ){
-            retireStreetVehicle(vehicle,time);
-          }
+        if(vehicle.routeEndWait){
+          recoverStreetVehicleAtRouteEnd(vehicle,time);
           continue;
         }
 
@@ -3773,19 +3799,28 @@
             continue;
           }
 
-          // No continuation in the currently loaded vector graph.
-          // NEVER delete the vehicle here: the endpoint may simply be a tile split.
-          // Continue along the final road tangent until the vehicle physically leaves
-          // the browser view, then retire it off-screen.
+          // No connected segment is available yet. The vehicle MUST remain
+          // on the road. At a viewport-edge road endpoint it may retire naturally;
+          // at an interior endpoint it stops, waits for refreshed route data, then
+          // either continues onto a real connected road or U-turns on this same road.
           vehicle.distanceM=vehicle.direction>=0
             ?vehicle.route.lengthM
             :0;
-          beginStreetVehicleExit(vehicle);
+
+          if(streetVehicleEndpointNearViewportEdge(vehicle)){
+            retireStreetVehicle(vehicle,time);
+          }else{
+            holdStreetVehicleAtRouteEnd(vehicle,time);
+            scheduleStreetVehicleRefresh(40);
+          }
           continue;
         }
 
         const nextSample=routePointAt(
-          vehicle.route,nextDistance,vehicle.direction
+          vehicle.route,
+          nextDistance,
+          vehicle.direction,
+          vehicle.laneIndex||0
         );
         if(!nextSample)continue;
 
@@ -4014,7 +4049,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.35)
+     * DISPLAY STABILITY ONLY (v3.21.36)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
