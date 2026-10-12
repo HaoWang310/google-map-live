@@ -292,6 +292,8 @@ export function createLocalFloodUI({
   let hideSelectedBuildings=false;
   let isolatedSelection=false;
   let isolateCamera=null;
+  let isolateLayerVisibility=new Map();
+  let isolateSceneFilters=new Map();
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -442,6 +444,84 @@ export function createLocalFloodUI({
     return [[west,south],[east,north]];
   }
 
+  function enterIsolateLayerMode(){
+    isolateLayerVisibility=new Map();
+    isolateSceneFilters=new Map();
+
+    const keepIds=new Set([
+      SEL_FILL,
+      SEL_LINE,
+      BUILDING_SCENE_FILL,
+      BUILDING_SCENE_3D,
+      WATER_LAYER
+    ]);
+
+    const style=map.getStyle?.();
+    for(const layer of style?.layers||[]){
+      if(!layer?.id)continue;
+
+      const currentVisibility=map.getLayoutProperty(layer.id,'visibility');
+      isolateLayerVisibility.set(
+        layer.id,
+        currentVisibility===undefined?null:currentVisibility
+      );
+
+      // Keep only the neutral map background plus the local selected-site layers.
+      // This avoids using a giant 3D polygon mask, which was physically occluding
+      // the scene and leaving skyline artefacts outside the site.
+      const keep=layer.type==='background'||keepIds.has(layer.id);
+      if(!keep){
+        map.setLayoutProperty(layer.id,'visibility','none');
+      }
+    }
+
+    // In isolated view, do not keep grey outside fragments from buildings that
+    // cross the red boundary. Only the clipped inside/site fragment is visible.
+    for(const id of [BUILDING_SCENE_FILL,BUILDING_SCENE_3D]){
+      if(!map.getLayer(id))continue;
+      const oldFilter=map.getFilter(id);
+      isolateSceneFilters.set(id,oldFilter===undefined?null:oldFilter);
+      map.setFilter(id,[
+        '==',
+        ['boolean',['get','selected'],false],
+        true
+      ]);
+      map.setLayoutProperty(
+        id,
+        'visibility',
+        id===BUILDING_SCENE_3D?'visible':'none'
+      );
+    }
+
+    // The polygon fill is only a subtle site tint; the red line remains the main edge.
+    if(map.getLayer(SEL_FILL))map.setLayoutProperty(SEL_FILL,'visibility','visible');
+    if(map.getLayer(SEL_LINE))map.setLayoutProperty(SEL_LINE,'visibility','visible');
+  }
+
+  function exitIsolateLayerMode(){
+    for(const [id,visibility] of isolateLayerVisibility){
+      if(!map.getLayer(id))continue;
+      if(visibility===null){
+        // "visible" is the style default when visibility was not explicitly set.
+        map.setLayoutProperty(id,'visibility','visible');
+      }else{
+        map.setLayoutProperty(id,'visibility',visibility);
+      }
+    }
+
+    for(const [id,filter] of isolateSceneFilters){
+      if(!map.getLayer(id))continue;
+      if(filter===null){
+        map.setFilter(id,null);
+      }else{
+        map.setFilter(id,filter);
+      }
+    }
+
+    isolateLayerVisibility.clear();
+    isolateSceneFilters.clear();
+  }
+
   function enterSelectionIsolate(){
     if(
       isolatedSelection||
@@ -460,13 +540,17 @@ export function createLocalFloodUI({
       bearing:map.getBearing()
     };
 
-    map.getSource(ISOLATE_SOURCE)?.setData(isolateMaskGeoJson(polygon[0]));
+    // Do not use the old outside polygon mask in 3D. It behaves like a real
+    // horizontal surface and can occlude the isolated site at pitched camera angles.
+    map.getSource(ISOLATE_SOURCE)?.setData({
+      type:'FeatureCollection',
+      features:[]
+    });
     if(map.getLayer(ISOLATE_MASK)){
-      map.setLayoutProperty(ISOLATE_MASK,'visibility','visible');
-      // Keep the mask above all ordinary map content so nothing outside the
-      // selected polygon remains visible.
-      map.moveLayer(ISOLATE_MASK);
+      map.setLayoutProperty(ISOLATE_MASK,'visibility','none');
     }
+
+    enterIsolateLayerMode();
 
     // Keep the red boundary, but hide editing handles / edge dimensions in focus mode.
     setSelectionEditVisibility(false);
@@ -498,7 +582,7 @@ export function createLocalFloodUI({
       });
     }
 
-    status('已进入选区独立视图：红线内区域放大居中，红线外全部隐藏；按 Esc 返回完整地图。');
+    status('已进入选区独立视图：仅保留红线范围与范围内建筑，周边地图图层全部隐藏；按 Esc 返回完整地图。');
     return true;
   }
 
@@ -513,6 +597,8 @@ export function createLocalFloodUI({
       type:'FeatureCollection',
       features:[]
     });
+
+    exitIsolateLayerMode();
     setSelectionEditVisibility(true);
 
     if(restoreCamera&&isolateCamera){
