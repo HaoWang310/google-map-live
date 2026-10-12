@@ -585,12 +585,27 @@ export function createLocalFloodUI({
     isolateClipTargets=[];
   }
 
+  function raiseIsolatedSiteLayers(){
+    // Thematic rasters (terrain / flood / drainage / contours) must remain BELOW
+    // the selected 3D buildings. If the building layer sits underneath a raster,
+    // the raster colours paint across roofs/facades and look like overlapping geometry.
+    if(map.getLayer(BUILDING_SCENE_3D)){
+      map.moveLayer(BUILDING_SCENE_3D);
+    }
+    if(map.getLayer(BUILDING_SCENE_FILL)){
+      map.moveLayer(BUILDING_SCENE_FILL);
+    }
+
+    // Selection graphics should remain readable above the architecture.
+    if(map.getLayer(SEL_FILL))map.moveLayer(SEL_FILL);
+    if(map.getLayer(SEL_LINE))map.moveLayer(SEL_LINE);
+  }
+
   function enterIsolateLayerMode(){
     isolateSceneFilters=new Map();
 
     // Keep every layer's own visibility state exactly as the user set it.
-    // The common canvas clip below is what limits ALL currently visible layers
-    // to the selected polygon.
+    // The common canvas clip below limits ALL currently visible layers to the site.
     for(const id of [BUILDING_SCENE_FILL,BUILDING_SCENE_3D]){
       if(!map.getLayer(id))continue;
       const oldFilter=map.getFilter(id);
@@ -605,6 +620,7 @@ export function createLocalFloodUI({
     if(map.getLayer(SEL_FILL))map.setLayoutProperty(SEL_FILL,'visibility','visible');
     if(map.getLayer(SEL_LINE))map.setLayoutProperty(SEL_LINE,'visibility','visible');
 
+    raiseIsolatedSiteLayers();
     applyIsolateCanvasClip();
   }
 
@@ -846,6 +862,7 @@ export function createLocalFloodUI({
       features
     });
     syncBuildingSceneView();
+    if(isolatedSelection)raiseIsolatedSiteLayers();
   }
 
   function removeBuildingScene(){
@@ -1644,6 +1661,10 @@ export function createLocalFloodUI({
       if(map.getLayer(BUILDING_SCENE_FILL)){
         map.setLayoutProperty(BUILDING_SCENE_FILL,'visibility','none');
       }
+
+      // Reassert draw order because turning thematic layers on/off may add or move
+      // them after the site was isolated.
+      raiseIsolatedSiteLayers();
     }
 
     map.triggerRepaint();
