@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.9';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.0';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -227,6 +227,24 @@ function geometryWithinSelection(geometry,selectionRing){
     if(ringEdgesIntersect(outer,selectionRing))return false;
   }
   return true;
+}
+
+function hide3DFlag(value){
+  return value===true||value===1||value==='1'||String(value).toLowerCase()==='true';
+}
+
+function stableBuildingIdentity(feature){
+  const p=feature?.properties||{};
+  const explicit=
+    feature?.id ??
+    p.osm_id ??
+    p.osm_way_id ??
+    p.osm_relation_id ??
+    p.openstreetmap_id ??
+    p.id;
+  return explicit!==undefined&&explicit!==null
+    ?'id:'+String(explicit)
+    :'geom:'+featureKey(feature);
 }
 
 function featureKey(feature){
@@ -619,15 +637,17 @@ export function createLocalFloodUI({
     const sourceLayer=cityLayer?.['source-layer']||'building';
     if(!source)return {selected:[],sceneCount:0,visibleCount:0,source:null,sourceLayer};
 
-    const raw=[];
-    const seen=new Set();
+    // queryRenderedFeatures alone is camera-dependent: pitched/rotated views may omit
+    // occluded or distant buildings. Merge it with querySourceFeatures from every
+    // currently loaded source tile, then merge tile fragments by a stable building id.
+    const groups=new Map();
     const addFeature=feature=>{
       if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
-      if(feature.properties?.hide_3d===true)return;
-      const key=featureKey(feature);
-      if(seen.has(key))return;
-      seen.add(key);
-      raw.push({feature,key});
+      if(hide3DFlag(feature.properties?.hide_3d))return;
+
+      const id=stableBuildingIdentity(feature);
+      if(!groups.has(id))groups.set(id,[]);
+      groups.get(id).push(feature);
     };
 
     try{
@@ -638,26 +658,29 @@ export function createLocalFloodUI({
       console.warn('Rendered building query failed',error);
     }
 
-    if(!raw.length){
-      try{
-        for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
-          addFeature(feature);
-        }
-      }catch(error){
-        console.warn('Source building query failed',error);
+    try{
+      for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
+        addFeature(feature);
       }
+    }catch(error){
+      console.warn('Source building query failed',error);
+    }
+
+    const raw=[];
+    for(const [id,fragments] of groups){
+      const merged=mergeBuildingFragments(id,fragments);
+      if(merged)raw.push({feature:merged,key:id});
     }
 
     sceneFeatures.clear();
     const selected=[];
 
     for(const {feature,key} of raw){
+      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
+
       const p=feature.properties||{};
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
-
-      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
-
       const split=splitBuildingBySelection(feature.geometry,selectionRing);
       if(!split.inside)continue;
 
@@ -733,17 +756,29 @@ export function createLocalFloodUI({
     if(area<5000){status('圈选范围太小，请至少圈选约 5,000 m²。',true);return false;}
     if(area>60_000_000){status('圈选范围过大，请控制在约 60 km² 内。',true);return false;}
 
-    status('正在准备模拟：放大选区并读取当前 OSM 建筑轮廓…');
+    status('正在准备模拟：完整加载红色范围内的 OSM 建筑轮廓…');
     prepared=false;
     setButtons();
+
+    const keepPitch=map.getPitch();
+    const keepBearing=map.getBearing();
     map.fitBounds([[bounds.west,bounds.south],[bounds.east,bounds.north]],{
-      padding:55,maxZoom:16.2,duration:500
+      padding:55,
+      maxZoom:16.2,
+      duration:500,
+      pitch:keepPitch,
+      bearing:keepBearing
     });
-    setCityView(true);
-    await onceIdle(map,3200);
+    await onceIdle(map,4500);
 
     clearSelectedBuildingStates();
-    const queried=queryBuildings(bounds,ring);
+    let queried=queryBuildings(bounds,ring);
+
+    // One short retry catches vector tiles that finished decoding immediately after idle.
+    if(!queried.visibleCount){
+      await new Promise(resolve=>setTimeout(resolve,250));
+      queried=queryBuildings(bounds,ring);
+    }
     buildingSourceId=queried.source;
     buildingSourceLayer=queried.sourceLayer;
     selectedBuildings=queried.selected.map(item=>item.feature);
@@ -760,8 +795,8 @@ export function createLocalFloodUI({
     }
 
     publishBuildingScene();
-    // Hide native OSM building geometry only after the split replacement scene is ready.
-    // Every building is clipped at the red polygon: grey outside, orange inside.
+    // Native grey OSM buildings stay streamed continuously. This scene only overlays
+    // the red-polygon intersection in orange/red, so camera movement cannot empty the city.
     setCityBuildingFloodSelection?.({active:true});
 
     try{
