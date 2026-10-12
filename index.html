@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.45</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.46</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.45';
+  const APP_VERSION='3.21.46';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -2346,6 +2346,44 @@
         }
       ];
 
+      // Wheels are always present in the compact model. Previously the
+      // performance-optimized bus used only body/upper/window geometry, which made
+      // buses look like floating red boxes.
+      const busWheelRadius=Number(spec.wheelRadius??0.47);
+      const busWheelWidth=Number(spec.wheelWidth??0.28);
+      const busAxles=[
+        Number(spec.frontAxle??spec.wheelbase/2),
+        Number(spec.rearAxle??-spec.wheelbase/2)
+      ];
+      const busWheels=[];
+      for(const axle of busAxles){
+        for(const left of [
+          spec.width/2+0.075,
+          -spec.width/2-0.075
+        ]){
+          busWheels.push(
+            streetVehicleRect(
+              origin,
+              bearing,
+              busWheelRadius*1.72,
+              busWheelWidth,
+              axle,
+              left
+            )
+          );
+        }
+      }
+      features.push({
+        type:'Feature',
+        properties:{
+          vehicleId:id,vehicleType:spec.id,part:'wheels',
+          minHeight:0.03,
+          height:busWheelRadius*1.82,
+          color:'#111827'
+        },
+        geometry:streetVehicleMultiPolygon(busWheels)
+      });
+
       if(medium){
         const side=spec.width/2-0.05;
         features.push({
@@ -2387,28 +2425,29 @@
       }
     ];
 
-    if(medium){
-      const wheelForward=spec.wheelbase/2;
-      const wheelLeft=spec.width/2+0.02;
-      const wheels=[];
-      for(const forward of [wheelForward,-wheelForward]){
-        for(const left of [wheelLeft,-wheelLeft]){
-          wheels.push(
-            streetVehicleRect(origin,bearing,0.72,0.23,forward,left)
-          );
-        }
+    // Keep one grouped wheel feature at every 3D LOD. Four small wheel
+    // rectangles are cheap compared with the body geometry and prevent cars/vans
+    // from appearing to float above the road.
+    const wheelForward=spec.wheelbase/2;
+    const wheelLeft=spec.width/2+0.055;
+    const wheels=[];
+    for(const forward of [wheelForward,-wheelForward]){
+      for(const left of [wheelLeft,-wheelLeft]){
+        wheels.push(
+          streetVehicleRect(origin,bearing,0.74,0.25,forward,left)
+        );
       }
-      features.push({
-        type:'Feature',
-        properties:{
-          vehicleId:id,vehicleType:spec.id,part:'wheels',
-          minHeight:0.04,
-          height:spec.id==='van'?0.68:0.56,
-          color:'#111827'
-        },
-        geometry:streetVehicleMultiPolygon(wheels)
-      });
     }
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'wheels',
+        minHeight:0.03,
+        height:spec.id==='van'?0.70:0.58,
+        color:'#111827'
+      },
+      geometry:streetVehicleMultiPolygon(wheels)
+    });
     return features;
   }
 
@@ -5841,7 +5880,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.45)
+     * DISPLAY STABILITY ONLY (v3.21.46)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
