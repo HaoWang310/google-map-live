@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.2';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.3';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -247,6 +247,8 @@ export function createLocalFloodUI({
 }){
   let drawing=false;
   let editingSelection=false;
+  let selectionDirty=false;
+  let isPreparingSelection=false;
   let dragVertexIndex=-1;
   let dragPanWasEnabled=true;
   let vertices=[];
@@ -320,10 +322,11 @@ export function createLocalFloodUI({
   }
 
   function setButtons(){
-    $('localFloodFinish').disabled=!drawing||vertices.length<3;
-    $('localFloodRun').disabled=!prepared;
-    $('localFloodPause').disabled=!prepared;
-    $('localFloodReset').disabled=!prepared;
+    $('localFloodFinish').disabled=!drawing||vertices.length<3||isPreparingSelection;
+    const simulationLocked=!prepared||selectionDirty||isPreparingSelection;
+    $('localFloodRun').disabled=simulationLocked;
+    $('localFloodPause').disabled=simulationLocked;
+    $('localFloodReset').disabled=simulationLocked;
   }
 
   function syncEditablePolygon(){
@@ -421,6 +424,8 @@ export function createLocalFloodUI({
     if(!keepSelection){
       drawing=false;
       editingSelection=false;
+      selectionDirty=false;
+      isPreparingSelection=false;
       dragVertexIndex=-1;
       vertices=[];
       polygon=null;
@@ -436,6 +441,8 @@ export function createLocalFloodUI({
     clearSimulation(false);
     drawing=true;
     editingSelection=false;
+    selectionDirty=false;
+    isPreparingSelection=false;
     dragVertexIndex=-1;
     map.doubleClickZoom.disable();
     map.getCanvas().style.cursor='crosshair';
@@ -447,6 +454,7 @@ export function createLocalFloodUI({
     if(!drawing||vertices.length<3)return;
     drawing=false;
     editingSelection=true;
+    selectionDirty=true;
     dragVertexIndex=-1;
     map.doubleClickZoom.enable();
     dragPanWasEnabled=map.dragPan.isEnabled();
@@ -458,15 +466,39 @@ export function createLocalFloodUI({
   }
 
   async function confirmEditedSelection(){
-    if(!editingSelection||vertices.length<3)return;
-    editingSelection=false;
+    if(!editingSelection||vertices.length<3||isPreparingSelection)return;
+
     dragVertexIndex=-1;
     syncEditablePolygon();
-    map.getCanvas().style.cursor='';
-    if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
+    simulator?.pause();
+    isPreparingSelection=true;
     setButtons();
-    status('边界已确认，正在按最终红色框生成范围内建筑…');
-    await prepareSimulation();
+    map.getCanvas().style.cursor='';
+    status(
+      prepared
+        ?'正在按修改后的红色范围重新生成建筑与洪涝网格…'
+        :'边界已确认，正在按最终红色框生成范围内建筑…'
+    );
+
+    const success=await prepareSimulation();
+
+    isPreparingSelection=false;
+    if(success){
+      // Deliberately stay in edit mode after generation. Anchors remain live so the
+      // user can expand/shrink the parcel and press Enter again to regenerate.
+      editingSelection=true;
+      selectionDirty=false;
+      if(map.dragPan.isEnabled())map.dragPan.disable();
+      status(
+        '范围已生成：红色锚点仍可拖动。修改边界后按 Enter 重新生成范围内建筑；未修改时可直接运行模拟。'
+      );
+    }else{
+      editingSelection=true;
+      selectionDirty=true;
+      if(map.dragPan.isEnabled())map.dragPan.disable();
+    }
+    setButtons();
+    return success;
   }
 
   function normaliseBuilding(feature,id,sceneKey){
@@ -600,12 +632,12 @@ export function createLocalFloodUI({
   }
 
   async function prepareSimulation(){
-    if(!polygon)return;
+    if(!polygon)return false;
     const ring=polygon[0];
     const bounds=bboxLngLat(ring);
     const area=ringAreaM2(ring);
-    if(area<5000){status('圈选范围太小，请至少圈选约 5,000 m²。',true);return;}
-    if(area>60_000_000){status('圈选范围过大，请控制在约 60 km² 内。',true);return;}
+    if(area<5000){status('圈选范围太小，请至少圈选约 5,000 m²。',true);return false;}
+    if(area>60_000_000){status('圈选范围过大，请控制在约 60 km² 内。',true);return false;}
 
     status('正在准备模拟：放大选区并读取当前 OSM 建筑轮廓…');
     map.fitBounds([[bounds.west,bounds.south],[bounds.east,bounds.north]],{
@@ -628,7 +660,7 @@ export function createLocalFloodUI({
 
     if(!queried.sceneCount){
       status('没有读取到 OSM 建筑。请等待地图瓦片加载完成后重新圈选。',true);
-      return;
+      return false;
     }
 
     publishBuildingScene();
@@ -643,14 +675,15 @@ export function createLocalFloodUI({
       ensureWaterLayer(info);
       $('localFloodGridInfo').textContent=
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
-      status(
-        '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋 · 按红色框实际地理坐标精确裁切。'
-      );
+      $('localFloodStats').textContent=
+        '范围 '+(area/1e6).toFixed(2)+' km² · '+info.cellSizeM+' m 网格 · 圈内建筑 '+info.buildingCount+' 栋';
       setButtons();
+      return true;
     }catch(error){
-      prepared=false;setButtons();
+      prepared=false;
+      setButtons();
       status(error.message,true);
+      return false;
     }
   }
 
@@ -749,14 +782,23 @@ export function createLocalFloodUI({
     event.preventDefault?.();
     event.originalEvent?.preventDefault?.();
     dragVertexIndex=index;
+    simulator?.pause();
+    selectionDirty=true;
+    setButtons();
     map.getCanvas().style.cursor='grabbing';
-    status('正在调整锚点 '+(index+1)+'；拖动会实时更新红色范围，按 Enter 生成建筑。');
+    status(
+      prepared
+        ?'正在调整锚点 '+(index+1)+'；红色范围实时变化，松开后按 Enter 重新生成建筑。'
+        :'正在调整锚点 '+(index+1)+'；拖动会实时更新红色范围，按 Enter 生成建筑。'
+    );
   };
 
   const onMouseMove=event=>{
     if(dragVertexIndex>=0&&editingSelection){
       vertices[dragVertexIndex]=[event.lngLat.lng,event.lngLat.lat];
+      selectionDirty=true;
       syncEditablePolygon();
+      setButtons();
       return;
     }
 
@@ -770,7 +812,11 @@ export function createLocalFloodUI({
     if(dragVertexIndex<0)return;
     dragVertexIndex=-1;
     map.getCanvas().style.cursor='';
-    status('边界已更新：可继续拖动任意红色锚点；按 Enter 生成最终范围内建筑。');
+    status(
+      prepared
+        ?'边界已修改：可继续拖动锚点扩大/缩小选区；按 Enter 按新范围重新生成建筑。'
+        :'边界已更新：可继续拖动任意红色锚点；按 Enter 生成最终范围内建筑。'
+    );
   };
 
   map.on('mousedown',onMouseDown);
@@ -812,7 +858,7 @@ export function createLocalFloodUI({
       }
     }
 
-    if(event.key==='Escape'&&(drawing||editingSelection)){
+    if(event.key==='Escape'&&(drawing||editingSelection)&&!prepared){
       event.preventDefault();
       cancelSelectionEdit();
     }
@@ -850,7 +896,7 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('先点击“圈选区域”画边界；确定范围后可拖动红色锚点，按 Enter 生成范围内建筑。');
+  status('先点击“圈选区域”画边界；生成后红色锚点仍可继续拖动，按 Enter 按新范围重新生成。');
 
   return {
     clear:()=>clearSimulation(false),
