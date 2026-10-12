@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.50</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.51</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.50';
+  const APP_VERSION='3.21.51';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -676,16 +676,18 @@
   const STREET_VEHICLE_CORRIDOR_LOOKAHEAD_M=52;
   const STREET_VEHICLE_SAME_CORRIDOR_LINK_M=18;
   const STREET_VEHICLE_CORRIDOR_LATERAL_M=5.5;
-  const STREET_SIGNAL_JUNCTION_BOX_RADIUS_M=10.5;
+  const STREET_SIGNAL_JUNCTION_BOX_RADIUS_M=7.0;
   const STREET_SIGNAL_SPAWN_CLEARANCE_M=24;
   const STREET_SIGNAL_EXIT_CLEARANCE_M=16;
   const STREET_VEHICLE_FLOW_REBALANCE_MS=2500;
-  const STREET_VEHICLE_QUEUE_REPLAN_MS=9000;
-  const STREET_VEHICLE_QUEUE_RECOVERY_MS=16000;
+  const STREET_VEHICLE_QUEUE_REPLAN_MS=6000;
+  const STREET_VEHICLE_QUEUE_RECOVERY_MS=12000;
   const STREET_VEHICLE_RETIRE_INTENT_MS=65000;
   const STREET_VEHICLE_EDGE_RETIRE_PX=72;
   const STREET_VEHICLE_UNEXPLAINED_STOP_MS=3200;
   const STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS=2200;
+  const STREET_VEHICLE_DOWNSTREAM_CLEARANCE_M=24;
+  const STREET_VEHICLE_QUEUE_SPEED_MPS=1.35;
   const STREET_VEHICLE_FRAGMENT_LINK_M=28;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
@@ -3369,19 +3371,43 @@
   }
 
   function streetVehicleTargetCount(){
-    if(!osmMap)return 28;
+    if(!osmMap)return 24;
     const pitch=osmMap.getPitch();
     const zoom=osmMap.getZoom();
 
-    // Keep enough traffic for visual continuity without filling every road segment.
+    // Dense traffic looked like congestion because nearly every visible corridor was
+    // filled to capacity. Keep a moving background population instead of a traffic jam.
     let target=
-      zoom<13.0?34:
-      zoom<14.5?40:
-      zoom<16.0?38:
-      zoom<17.5?34:
-      28;
+      zoom<13.0?22:
+      zoom<14.5?28:
+      zoom<16.0?30:
+      zoom<17.5?28:
+      24;
 
     if(pitch>=45)target+=2;
+
+    // Sparse street networks should never be forced to hold the same number of cars
+    // as central London. Estimate capacity from unique visible corridors.
+    if(streetVehicleRoutes.length){
+      const corridorCapacity=new Map();
+      for(const route of streetVehicleRoutes){
+        const key=streetVehicleCorridorKey(route);
+        corridorCapacity.set(
+          key,
+          Math.max(
+            corridorCapacity.get(key)||0,
+            streetVehicleCorridorCapacity(route)
+          )
+        );
+      }
+      const networkCapacity=[...corridorCapacity.values()]
+        .reduce((sum,value)=>sum+value,0);
+      target=Math.min(
+        target,
+        Math.max(12,Math.floor(networkCapacity*0.72))
+      );
+    }
+
     return Math.min(STREET_VEHICLE_COUNT,target);
   }
 
@@ -3458,6 +3484,26 @@
 
   function streetVehicleCorridorCongestion(route){
     return streetVehicleCorridorLoad(route)/
+      Math.max(1,streetVehicleCorridorCapacity(route));
+  }
+
+  function streetVehicleCorridorQueuePressure(route,direction=null){
+    if(!route)return 0;
+    const key=streetVehicleCorridorKey(route);
+    let pressure=0;
+
+    for(const vehicle of streetVehicles){
+      if(vehicle.active===false||!vehicle.route)continue;
+      if(streetVehicleCorridorKey(vehicle.route)!==key)continue;
+      if(direction!==null&&vehicle.direction!==direction)continue;
+
+      const speed=Math.max(0,Number(vehicle.speedMps)||0);
+      if(speed<0.45)pressure+=1;
+      else if(speed<STREET_VEHICLE_QUEUE_SPEED_MPS)pressure+=0.55;
+      else if(speed<3.0)pressure+=0.18;
+    }
+
+    return pressure/
       Math.max(1,streetVehicleCorridorCapacity(route));
   }
 
@@ -4271,25 +4317,9 @@
     const resolved=streetVehicleResolvePlannedConnection(vehicle);
     if(!resolved)return true;
 
-    const probeDistance=Math.max(
-      0,
-      Math.min(
-        resolved.route.lengthM,
-        resolved.distanceM+
-        (resolved.direction>=0
-          ?STREET_SIGNAL_EXIT_CLEARANCE_M
-          :-STREET_SIGNAL_EXIT_CLEARANCE_M)
-      )
-    );
-    const probe=routePointAt(
-      resolved.route,
-      probeDistance,
-      resolved.direction,
-      resolved.laneIndex||0
-    );
-    if(!probe)return true;
-
     const targetCorridor=streetVehicleCorridorKey(resolved.route);
+    const entryDistance=resolved.distanceM;
+
     for(const other of streetVehicles){
       if(other===vehicle||other.active===false)continue;
       if(other.direction!==resolved.direction)continue;
@@ -4302,12 +4332,47 @@
       const otherSample=streetVehicleSample(other);
       if(!otherSample)continue;
 
+      let forwardGap=null;
+
+      if(other.route===resolved.route){
+        const delta=resolved.direction>=0
+          ?other.distanceM-entryDistance
+          :entryDistance-other.distanceM;
+        if(delta>0)forwardGap=delta;
+      }else{
+        const entrySample=resolved.sample;
+        const xy=streetVehicleLocalXY(
+          otherSample.point,
+          entrySample.point
+        );
+        const heading=entrySample.bearing*Math.PI/180;
+        const forward=
+          xy[0]*Math.sin(heading)+
+          xy[1]*Math.cos(heading);
+        const lateral=Math.abs(
+          xy[0]*Math.cos(heading)-
+          xy[1]*Math.sin(heading)
+        );
+        if(forward>0&&lateral<4.8)forwardGap=forward;
+      }
+
+      if(forwardGap===null||forwardGap>STREET_VEHICLE_DOWNSTREAM_CLEARANCE_M){
+        continue;
+      }
+
+      const otherSpeed=Math.max(0,Number(other.speedMps)||0);
+
+      // Very close physical spacing always blocks entry. Otherwise moving traffic
+      // is allowed to clear as a platoon; only a slow/stopped downstream queue blocks.
+      if(forwardGap<7.0)return false;
       if(
-        streetVehicleDistanceM(probe.point,otherSample.point)<9.5
+        otherSpeed<STREET_VEHICLE_QUEUE_SPEED_MPS&&
+        forwardGap<STREET_VEHICLE_DOWNSTREAM_CLEARANCE_M
       ){
         return false;
       }
     }
+
     return true;
   }
 
@@ -4479,6 +4544,21 @@
         vehicle.decongestIntent=true;
         vehicle.plannedConnection=null;
         streetVehiclePlanNextConnection(vehicle,time,true);
+
+        // Give the queue head enough movement to break a stop-go deadlock when there
+        // is no red light and no immediately blocking lead vehicle.
+        const lead=streetVehicleLeadInfo(vehicle);
+        const signal=streetVehicleUpcomingSignal(vehicle,time);
+        const blockedByRed=signal&&signal.state!=='green';
+        if(
+          !blockedByRed&&
+          (!lead||lead.gap>10)
+        ){
+          vehicle.speedMps=Math.max(
+            vehicle.speedMps,
+            Math.min(2.4,(vehicle.route?.speedLimitMps??8.9)*0.28)
+          );
+        }
       }
 
       if(
@@ -4573,15 +4653,26 @@
       const corridorLoad=streetVehicleCorridorLoad(candidate.route);
       const corridorCapacity=streetVehicleCorridorCapacity(candidate.route);
       const corridorPressure=corridorLoad/Math.max(1,corridorCapacity);
+      const queuePressure=streetVehicleCorridorQueuePressure(
+        candidate.route,
+        candidate.direction
+      );
       const sameCorridor=
         streetVehicleCorridorKey(candidate.route)===
         streetVehicleCorridorKey(vehicle.route);
 
       weight*=1/(1+load*0.22);
       weight*=1/(1+Math.pow(corridorPressure,2)*1.8);
+      weight*=1/(1+Math.pow(queuePressure,2)*4.2);
+
+      // A branch containing stopped traffic should be strongly disfavoured before
+      // the car enters it. This is the main anti-gridlock route-selection rule.
+      if(queuePressure>=0.55){
+        weight*=vehicle.decongestIntent?0.08:0.28;
+      }
 
       if(corridorPressure>=1.0){
-        weight*=sameCorridor?0.55:0.10;
+        weight*=sameCorridor?0.40:0.12;
       }
 
       if(vehicle.decongestIntent&&sameCorridor){
@@ -5110,6 +5201,7 @@
     const leadSpeed=lead?Math.max(0,Number(lead.vehicle.speedMps)||0):0;
     const genuinelySlowLead=
       lead&&
+      distanceToEnd>28&&
       lead.gap<Math.max(10,vehicle.speedMps*1.45)&&
       leadSpeed<desired*0.62&&
       vehicle.speedMps>2.0;
@@ -5147,7 +5239,7 @@
       }
       const leadSpeed=Math.max(0,Number(lead.vehicle.speedMps)||0);
       const deltaV=v-leadSpeed;
-      const dynamicGap=
+      let dynamicGap=
         driver.minGap+
         Math.max(
           0,
@@ -5160,6 +5252,26 @@
             )
           ))
         );
+
+      // Queue discharge mode: once the lead vehicle starts moving, use a shorter
+      // low-speed gap so a traffic-light queue clears as a platoon instead of
+      // accelerating one vehicle every several seconds.
+      if(
+        v<4.0&&
+        leadSpeed>0.6&&
+        lead.gap<14
+      ){
+        const queueGap=
+          Math.max(2.3,driver.minGap*0.58+v*0.52);
+        dynamicGap=Math.min(dynamicGap,queueGap);
+
+        if(leadSpeed>v+0.35){
+          acceleration=Math.max(
+            acceleration,
+            Math.min(driver.maxAccel,0.75+driver.aggression*0.55)
+          );
+        }
+      }
 
       acceleration-=
         driver.maxAccel*
@@ -5345,6 +5457,9 @@
       if(
         streetVehicleCorridorLoad(route)>=
         streetVehicleCorridorCapacity(route)
+      )continue;
+      if(
+        streetVehicleCorridorQueuePressure(route,resolvedDirection)>0.42
       )continue;
       if(
         vehicle?.vehicleType&&
@@ -6135,7 +6250,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.50)
+     * DISPLAY STABILITY ONLY (v3.21.51)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
