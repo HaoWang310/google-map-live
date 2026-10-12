@@ -413,13 +413,16 @@ export function createLocalFloodUI({
       console.warn('Rendered building query failed',error);
     }
 
-    // Then merge any additional loaded source-tile fragments.
-    try{
-      for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
-        addFeature(feature);
+    // Fallback to source tiles only if nothing is currently rendered.
+    // Mixing rendered and source fragments can duplicate the same roof geometry.
+    if(!raw.length){
+      try{
+        for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
+          addFeature(feature);
+        }
+      }catch(error){
+        console.warn('Source building query failed',error);
       }
-    }catch(error){
-      console.warn('Source building query failed',error);
     }
 
     sceneFeatures.clear();
