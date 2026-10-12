@@ -882,9 +882,9 @@ export function createLocalFloodUI({
         map.setFeatureState(
           {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
           {
-            localFloodSelected:true,
-            localFloodBoundary:boundaryCrossing,
-            localFloodHidden:hideSelectedBuildings,
+            localFloodSelected:false,
+            localFloodBoundary:false,
+            localFloodHidden:false,
             localFloodImpacted:false
           }
         );
@@ -896,16 +896,8 @@ export function createLocalFloodUI({
   }
 
   function setNativeHiddenStates(hidden){
-    if(!buildingSourceId)return;
-    for(const sourceFeatureId of selectedSourceFeatureIds){
-      if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
-      try{
-        map.setFeatureState(
-          {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
-          {localFloodHidden:Boolean(hidden)}
-        );
-      }catch(error){}
-    }
+    // Selection visibility is polygon-driven in index.html. Do not use vector-tile
+    // feature ids here because the same id can occur in another tile.
     map.triggerRepaint();
   }
 
@@ -1093,7 +1085,9 @@ export function createLocalFloodUI({
     setSelectedNativeFeatureStates();
     setCityBuildingFloodSelection?.({
       active:true,
-      sourceFeatureIds:[...selectedSourceFeatureIds]
+      sourceFeatureIds:[...selectedSourceFeatureIds],
+      selectionRing:ring.map(point=>[point[0],point[1]]),
+      hideSelectedBuildings
     });
 
     // Restore the complete user camera after extraction.
@@ -1532,6 +1526,14 @@ export function createLocalFloodUI({
     hideSelectedBuildings=Boolean(event.target.checked);
     setNativeHiddenStates(hideSelectedBuildings);
     publishBuildingScene();
+
+    const activeRing=(committedPolygon?.[0]||polygon?.[0]||[]);
+    setCityBuildingFloodSelection?.({
+      active:prepared,
+      sourceFeatureIds:[...selectedSourceFeatureIds],
+      selectionRing:activeRing.map(point=>[point[0],point[1]]),
+      hideSelectedBuildings
+    });
 
     status(
       hideSelectedBuildings
