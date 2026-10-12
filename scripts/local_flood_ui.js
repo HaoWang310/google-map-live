@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.5';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.6';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -6,6 +6,7 @@ const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
 const SEL_LINE='local-flood-selection-line';
 const SEL_POINTS='local-flood-selection-points';
+const SEL_DISTANCE='local-flood-selection-distance';
 const WATER_SOURCE='local-flood-water-source';
 const WATER_LAYER='local-flood-water-layer';
 const BUILDING_SCENE_SOURCE='local-flood-building-scene-source';
@@ -20,6 +21,31 @@ function mercator(lng,lat){
   const lon=lng*Math.PI/180;
   const phi=clamp(lat,-85.05112878,85.05112878)*Math.PI/180;
   return [R*lon,R*Math.log(Math.tan(Math.PI/4+phi/2))];
+}
+
+function geodesicDistanceM(a,b){
+  const earthRadius=6371008.8;
+  const lat1=a[1]*Math.PI/180;
+  const lat2=b[1]*Math.PI/180;
+  const dLat=(b[1]-a[1])*Math.PI/180;
+  const dLng=(b[0]-a[0])*Math.PI/180;
+  const h=
+    Math.sin(dLat/2)*Math.sin(dLat/2)+
+    Math.cos(lat1)*Math.cos(lat2)*
+    Math.sin(dLng/2)*Math.sin(dLng/2);
+  return 2*earthRadius*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));
+}
+
+function edgeMidpoint(a,b){
+  const [ax,ay]=mercator(a[0],a[1]);
+  const [bx,by]=mercator(b[0],b[1]);
+  return unmercator((ax+bx)/2,(ay+by)/2);
+}
+
+function formatEdgeDistance(metres){
+  if(metres>=1000)return (metres/1000).toFixed(metres>=10000?1:2)+' km';
+  if(metres>=100)return Math.round(metres)+' m';
+  return metres.toFixed(1)+' m';
 }
 
 function unmercator(x,y){
@@ -291,12 +317,40 @@ export function createLocalFloodUI({
     if(!map.getLayer(SEL_POINTS)){
       map.addLayer({
         id:SEL_POINTS,type:'circle',source:SEL_SOURCE,
-        filter:['==',['geometry-type'],'Point'],
+        filter:['all',
+          ['==',['geometry-type'],'Point'],
+          ['has','vertexIndex']
+        ],
         paint:{
           'circle-radius':7,
           'circle-color':'#ffffff',
           'circle-stroke-color':'#ef4444',
           'circle-stroke-width':3
+        }
+      });
+    }
+    if(!map.getLayer(SEL_DISTANCE)){
+      map.addLayer({
+        id:SEL_DISTANCE,
+        type:'symbol',
+        source:SEL_SOURCE,
+        filter:['all',
+          ['==',['geometry-type'],'Point'],
+          ['has','distanceLabel']
+        ],
+        layout:{
+          'text-field':['get','distanceLabel'],
+          'text-size':13,
+          'text-font':['Noto Sans Regular'],
+          'text-allow-overlap':false,
+          'text-ignore-placement':false,
+          'text-anchor':'center'
+        },
+        paint:{
+          'text-color':'#b91c1c',
+          'text-halo-color':'#ffffff',
+          'text-halo-width':2,
+          'text-halo-blur':0.5
         }
       });
     }
@@ -318,6 +372,26 @@ export function createLocalFloodUI({
         geometry:{type:'Point',coordinates:point}
       });
     });
+
+    const edgeCount=vertices.length>=3?vertices.length:Math.max(0,vertices.length-1);
+    for(let i=0;i<edgeCount;i++){
+      const j=(i+1)%vertices.length;
+      const a=vertices[i],b=vertices[j];
+      const metres=geodesicDistanceM(a,b);
+      features.push({
+        type:'Feature',
+        properties:{
+          edgeIndex:i,
+          distanceM:metres,
+          distanceLabel:formatEdgeDistance(metres)
+        },
+        geometry:{
+          type:'Point',
+          coordinates:edgeMidpoint(a,b)
+        }
+      });
+    }
+
     map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features});
   }
 
@@ -463,7 +537,7 @@ export function createLocalFloodUI({
 
     syncEditablePolygon();
     setButtons();
-    status('范围已确定：拖动锚点修改；双击边线增加点，双击现有点删除；按 Enter 生成范围内建筑。');
+    status('范围已确定：边线上显示实际距离；拖动锚点修改，双击边线加点，双击现有点删除；按 Enter 生成。');
   }
 
   async function confirmEditedSelection(){
@@ -1001,7 +1075,7 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('圈选后：拖动锚点修改；双击边线加点；双击现有点删除；空白处拖动视窗；Enter 生成或重新生成。');
+  status('圈选后边线显示实际距离；可拖动锚点、双击加/删点、空白处移动视窗；Enter 生成或重新生成。');
 
   return {
     clear:()=>clearSimulation(false),
