@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.2';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.3';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -113,23 +113,29 @@ function geometryWithinSelection(geometry,selectionRing){
   return true;
 }
 
-function ringCentroid(ring){
+function stableRingCentroid(ring){
   if(!ring?.length)return null;
   const pts=ring.length>1&&
     ring[0][0]===ring[ring.length-1][0]&&ring[0][1]===ring[ring.length-1][1]
     ?ring.slice(0,-1):ring;
-  if(!pts.length)return null;
+  if(pts.length<3)return pts[0]||null;
 
-  let twiceArea=0,cx=0,cy=0;
+  // Work in local coordinates around the first vertex. Using raw lon/lat values
+  // caused catastrophic cancellation for small London building footprints.
+  const ox=pts[0][0],oy=pts[0][1];
+  let area2=0,cx=0,cy=0;
   for(let i=0,j=pts.length-1;i<pts.length;j=i++){
-    const cross=pts[j][0]*pts[i][1]-pts[i][0]*pts[j][1];
-    twiceArea+=cross;
-    cx+=(pts[j][0]+pts[i][0])*cross;
-    cy+=(pts[j][1]+pts[i][1])*cross;
+    const ax=pts[j][0]-ox, ay=pts[j][1]-oy;
+    const bx=pts[i][0]-ox, by=pts[i][1]-oy;
+    const cross=ax*by-bx*ay;
+    area2+=cross;
+    cx+=(ax+bx)*cross;
+    cy+=(ay+by)*cross;
   }
 
-  if(Math.abs(twiceArea)>1e-14){
-    return [cx/(3*twiceArea),cy/(3*twiceArea)];
+  if(Math.abs(area2)>1e-18){
+    const point=[ox+cx/(3*area2),oy+cy/(3*area2)];
+    if(Number.isFinite(point[0])&&Number.isFinite(point[1]))return point;
   }
 
   let sx=0,sy=0;
@@ -143,42 +149,44 @@ function buildingRepresentativePoint(geometry){
     :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
   if(!polygons.length)return null;
 
-  let bestRing=null,bestScore=-Infinity;
+  let bestRing=null,bestScore=-1;
   for(const polygon of polygons){
     const ring=polygon?.[0];
     if(!ring?.length)continue;
     const box=geometryBBox({type:'Polygon',coordinates:[ring]});
-    const score=(box.east-box.west)*(box.north-box.south);
+    const score=Math.max(0,box.east-box.west)*Math.max(0,box.north-box.south);
     if(score>bestScore){bestScore=score;bestRing=ring;}
   }
   if(!bestRing)return null;
 
-  const centroid=ringCentroid(bestRing);
-  if(centroid)return centroid;
+  const centroid=stableRingCentroid(bestRing);
+  if(centroid&&pointInRingLngLat(centroid,bestRing))return centroid;
 
-  const box=geometryBBox(geometry);
-  return [(box.west+box.east)/2,(box.south+box.north)/2];
+  const box=geometryBBox({type:'Polygon',coordinates:[bestRing]});
+  const centre=[(box.west+box.east)/2,(box.south+box.north)/2];
+  if(pointInRingLngLat(centre,bestRing))return centre;
+
+  // Final stable fallback: use the first footprint vertex rather than a numerically
+  // unstable value that could jump to the other side of London.
+  return bestRing[0]||centre;
 }
 
 function buildingBelongsToSelection(geometry,selectionRing){
   const point=buildingRepresentativePoint(geometry);
-  if(point&&pointInRingLngLat(point,selectionRing))return true;
+  if(!point)return false;
 
-  // Fallback for tile-clipped footprints: if most vertices are inside, treat the
-  // building as belonging to the selected parcel.
-  const polygons=geometry?.type==='Polygon'
-    ?[geometry.coordinates]
-    :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
-  let inside=0,total=0;
-  for(const polygon of polygons){
-    const ring=polygon?.[0]||[];
-    const pts=ring.length>1?ring.slice(0,-1):ring;
-    for(const p of pts){
-      total++;
-      if(pointInRingLngLat(p,selectionRing))inside++;
-    }
-  }
-  return total>0&&inside/total>=0.5;
+  // Fast, strict guard before point-in-polygon. A selected building centre can never
+  // lie outside the selection polygon's bounding box.
+  const selectionBox=geometryBBox({
+    type:'Polygon',
+    coordinates:[selectionRing]
+  });
+  if(
+    point[0]<selectionBox.west||point[0]>selectionBox.east||
+    point[1]<selectionBox.south||point[1]>selectionBox.north
+  )return false;
+
+  return pointInRingLngLat(point,selectionRing);
 }
 
 function featureKey(feature){
@@ -591,7 +599,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋。'
+        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋 · 按建筑中心点筛选。'
       );
       setButtons();
     }catch(error){
