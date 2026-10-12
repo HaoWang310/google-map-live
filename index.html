@@ -273,7 +273,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.3</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.4</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -573,7 +573,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.3';
+  const APP_VERSION='3.22.4';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -691,6 +691,7 @@
   const STREET_VEHICLE_QUEUE_RECOVERY_MS=16000;
   const STREET_VEHICLE_RETIRE_INTENT_MS=65000;
   const STREET_VEHICLE_EDGE_RETIRE_PX=72;
+  const STREET_TRAFFIC_MIN_ZOOM=14.5;
   const STREET_VEHICLE_UNEXPLAINED_STOP_MS=3200;
   const STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS=2200;
   const STREET_VEHICLE_FRAGMENT_LINK_M=28;
@@ -2485,7 +2486,7 @@
         id:STREET_VEHICLE_LAYER,
         type:'fill-extrusion',
         source:STREET_VEHICLE_SOURCE,
-        minzoom:12,
+        minzoom:STREET_TRAFFIC_MIN_ZOOM,
         layout:{
           visibility:streetVehiclesEnabled&&osmMap.getPitch()>.5?'visible':'none'
         },
@@ -2505,7 +2506,7 @@
         id:STREET_VEHICLE_2D_LAYER,
         type:'fill',
         source:STREET_VEHICLE_SOURCE,
-        minzoom:12,
+        minzoom:STREET_TRAFFIC_MIN_ZOOM,
         layout:{
           visibility:streetVehiclesEnabled&&osmMap.getPitch()<=.5?'visible':'none'
         },
@@ -3312,16 +3313,16 @@
   }
 
   function streetVehicleTargetCount(){
-    if(!osmMap)return 28;
+    if(!osmMap)return 0;
     const pitch=osmMap.getPitch();
     const zoom=osmMap.getZoom();
 
-    // Keep enough traffic for visual continuity without filling every road segment.
+    if(zoom<STREET_TRAFFIC_MIN_ZOOM)return 0;
+
     let target=
-      zoom<13.0?34:
-      zoom<14.5?40:
-      zoom<16.0?38:
-      zoom<17.5?34:
+      zoom<15.25?20:
+      zoom<16.25?28:
+      zoom<17.25?32:
       28;
 
     if(pitch>=45)target+=2;
@@ -3579,6 +3580,13 @@
   }
 
   function refreshStreetBuildingObstacles(){
+    if(
+      !osmMap ||
+      osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM
+    ){
+      streetBuildingObstacles=[];
+      return;
+    }
     if(!osmMap||!osmStyleReady||!osmMap.getSource(CITY_BUILDINGS_SOURCE)){
       streetBuildingObstacles=[];
       return;
@@ -4190,6 +4198,10 @@
   }
 
   function rebuildStreetTrafficSignals(){
+    if(!osmMap || osmMap.getZoom()<15){
+      streetTrafficSignals=[];
+      return;
+    }
     const clusters=[];
 
     const addApproach=(point,bearing,route)=>{
@@ -5764,6 +5776,32 @@
     clearTimeout(streetVehicleRefreshTimer);
     streetVehicleRefreshTimer=null;
 
+    if(
+      osmMap &&
+      (
+        osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM ||
+        streetVehicleCameraInteracting ||
+        osmMap.isMoving?.() ||
+        osmMap.isZooming?.()
+      )
+    ){
+      streetVehicles=[];
+      streetVehicleRoutes=[];
+      streetTrafficSignals=[];
+      streetBuildingObstacles=[];
+
+      const vehicleSource=osmMap.getSource(STREET_VEHICLE_SOURCE);
+      if(vehicleSource){
+        vehicleSource.setData({type:'FeatureCollection',features:[]});
+      }
+
+      const signalSource=osmMap.getSource(STREET_SIGNAL_SOURCE);
+      if(signalSource){
+        signalSource.setData({type:'FeatureCollection',features:[]});
+      }
+      return;
+    }
+
     if(!osmMap||!osmStyleReady||!streetVehiclesEnabled||currentProvider!=='osm'){
       streetVehicles=[];
       if(osmMap?.getSource(STREET_VEHICLE_SOURCE))publishStreetVehicles();
@@ -5899,7 +5937,27 @@
   function scheduleStreetVehicleRefresh(delay=120){
     if(!streetVehiclesEnabled)return;
     clearTimeout(streetVehicleRefreshTimer);
-    streetVehicleRefreshTimer=setTimeout(refreshStreetVehicles,delay);
+
+    if(
+      !osmMap ||
+      osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM ||
+      streetVehicleCameraInteracting ||
+      osmMap.isMoving?.() ||
+      osmMap.isZooming?.()
+    ){
+      streetVehicleRefreshTimer=null;
+      return;
+    }
+
+    streetVehicleRefreshTimer=setTimeout(()=>{
+      if(
+        !osmMap ||
+        streetVehicleCameraInteracting ||
+        osmMap.isMoving?.() ||
+        osmMap.isZooming?.()
+      )return;
+      refreshStreetVehicles();
+    },delay);
   }
 
   function startStreetVehicleAnimation(){
@@ -5914,7 +5972,8 @@
         !streetVehiclesEnabled||
         currentProvider!=='osm'||
         document.hidden||
-        !osmMap||!osmStyleReady
+        !osmMap||!osmStyleReady||
+        osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM
       ){
         streetVehicleLastFrame=time;
         return;
@@ -6268,28 +6327,31 @@
 
   function tuneCityBuildingFarField(){
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
+    if(typeof osmMap.setSourceTileLodParams!=='function')return;
 
-    /*
-     * DISPLAY STABILITY ONLY (v3.22.3)
-     *
-     * The building source contains reliable detailed geometry at z13/z14. At high pitch
-     * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
-     * changes that tile cover and can make some buildings appear/disappear even though the
-     * selection geometry itself is unchanged.
-     *
-     * Keep ONE tile zoom level on screen for this source and allow a large high-pitch
-     * tile budget. At the working zoom this keeps the city source on the detailed z14
-     * coverage while bearing/pitch changes, instead of swapping to coarser building tiles.
-     */
-    if(typeof osmMap.setSourceTileLodParams==='function'){
-      try{
-        osmMap.setSourceTileLodParams(1,48,CITY_BUILDINGS_SOURCE);
-      }catch(error){
-        console.warn('Unable to tune building tile LOD',error);
+    try{
+      const zoom=osmMap.getZoom();
+      const pitch=osmMap.getPitch();
+
+      if(pitch<20 || zoom<14.5){
+        // Conservative tile budget while browsing the whole city.
+        osmMap.setSourceTileLodParams(
+          4,
+          3,
+          CITY_BUILDINGS_SOURCE
+        );
+      }else{
+        // Preserve distant 3D buildings without the previous 48x tile budget.
+        osmMap.setSourceTileLodParams(
+          2,
+          8,
+          CITY_BUILDINGS_SOURCE
+        );
       }
+    }catch(error){
+      console.warn('Unable to tune building tile LOD',error);
     }
   }
-
 
   function isCompetingOsmBuildingExtrusionLayer(layer){
     if(!layer||layer.type!=='fill-extrusion')return false;
@@ -6665,8 +6727,36 @@
       syncCityView();
       syncFloodView();
 
-      // Reconcile traffic only after camera motion is fully settled.
-      scheduleStreetVehicleRefresh(380);
+      if(
+        streetVehiclesEnabled &&
+        osmMap.getZoom()>=STREET_TRAFFIC_MIN_ZOOM
+      ){
+        clearTimeout(streetVehicleRefreshTimer);
+        streetVehicleRefreshTimer=setTimeout(()=>{
+          if(
+            !osmMap.isMoving?.() &&
+            !osmMap.isZooming?.()
+          ){
+            refreshStreetVehicles();
+          }
+        },550);
+      }else{
+        streetVehicles=[];
+        streetVehicleRoutes=[];
+        streetTrafficSignals=[];
+        streetBuildingObstacles=[];
+
+        const vehicleSource=osmMap.getSource(STREET_VEHICLE_SOURCE);
+        if(vehicleSource){
+          vehicleSource.setData({type:'FeatureCollection',features:[]});
+        }
+
+        const signalSource=osmMap.getSource(STREET_SIGNAL_SOURCE);
+        if(signalSource){
+          signalSource.setData({type:'FeatureCollection',features:[]});
+        }
+      }
+
       osmMap.triggerRepaint();
     });
     osmMap.on('error',e=>{
