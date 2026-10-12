@@ -19,7 +19,18 @@
     }
     #googleMap,#osmMap{position:absolute;inset:0}
     #googleMap{display:none}
-    #osmMap{display:block}
+    #osmMap{
+      display:block;
+      pointer-events:auto;
+      touch-action:none;
+      user-select:none;
+      cursor:grab
+    }
+    #osmMap:active{cursor:grabbing}
+    #osmMap .maplibregl-canvas{
+      touch-action:none!important;
+      pointer-events:auto!important
+    }
     #terrainScreenOverlay{
       position:absolute;inset:0;z-index:6;display:none!important;
       pointer-events:none;overflow:hidden
@@ -262,7 +273,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.2</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.3</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +573,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.2';
+  const APP_VERSION='3.22.3';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -6259,7 +6270,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.22.2)
+     * DISPLAY STABILITY ONLY (v3.22.3)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -6497,7 +6508,15 @@
       pitch:0,
       bearing:0,
       maxPitch:70,
+      interactive:true,
+      cooperativeGestures:false,
+      dragPan:true,
+      scrollZoom:true,
+      boxZoom:true,
+      doubleClickZoom:true,
+      keyboard:true,
       dragRotate:true,
+      touchZoomRotate:true,
       pitchWithRotate:true,
       touchPitch:true,
 
@@ -6512,22 +6531,25 @@
       attributionControl:true
     });
 
-    // Explicit interaction contract. Traffic simulation must never own or disable
-    // MapLibre camera controls.
-    osmMap.scrollZoom?.enable?.();
-    osmMap.doubleClickZoom?.enable?.();
-    osmMap.dragPan?.enable?.();
-    osmMap.dragRotate?.enable?.();
-    osmMap.touchZoomRotate?.enable?.();
-    osmMap.keyboard?.enable?.();
-    osmMap.boxZoom?.enable?.();
+    function ensureOsmMapInteractions(){
+      if(!osmMap)return;
+      osmMap.scrollZoom?.enable?.();
+      osmMap.doubleClickZoom?.enable?.();
+      osmMap.dragPan?.enable?.();
+      osmMap.dragRotate?.enable?.();
+      osmMap.touchZoomRotate?.enable?.();
+      osmMap.keyboard?.enable?.();
+      osmMap.boxZoom?.enable?.();
+    }
 
-    // Slightly gentler wheel rate gives Mac trackpads/mice predictable zooming.
-    osmMap.scrollZoom?.setWheelZoomRate?.(1/420);
-    osmMap.scrollZoom?.setZoomRate?.(1/90);
+    ensureOsmMapInteractions();
 
     osmMap.addControl(new maplibregl.NavigationControl({showCompass:true,visualizePitch:true}),'top-right');
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
+
+    osmMap.on('styledata',()=>{
+      ensureOsmMapInteractions();
+    });
 
     osmMap.on('sourcedata',e=>{
       if(e.sourceId===TERRAIN_TILE_SOURCE)syncTerrainView();
@@ -6566,6 +6588,7 @@
     });
     osmMap.on('load',()=>{
       osmStyleReady=true;
+      ensureOsmMapInteractions();
       ensureCityBuildings();
       tuneCityBuildingFarField();
       syncCityView();
@@ -6613,11 +6636,8 @@
     });
 
     osmMap.on('zoom',()=>{
-      syncCityView();
-      if(currentProvider==='osm')terrainCameraChanged();
-      syncFloodView();
-      // Do not rebuild traffic routes while the wheel/pinch gesture is active.
-      // That graph work previously starved MapLibre's own zoom animation.
+      // Keep camera motion pure. City/flood/terrain visibility and traffic graph
+      // reconciliation are deferred until moveend to avoid fighting drag/zoom input.
     });
 
     osmMap.on('sourcedata',e=>{
@@ -6625,33 +6645,28 @@
     });
 
     osmMap.on('move',()=>{
-      if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
-      // Camera motion remains lightweight; traffic is reconciled after moveend.
+      // Intentionally empty: panning must not trigger data/layer recomputation.
     });
 
     osmMap.on('pitch',()=>{
-      tuneCityBuildingFarField();
-      syncCityView();
-      if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
+      // Defer expensive layer updates until moveend.
     });
 
     osmMap.on('rotate',()=>{
-      tuneCityBuildingFarField();
-      syncCityView();
-      osmMap.triggerRepaint();
-      if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
+      // MapLibre handles camera redraw internally; avoid extra style/layer work here.
     });
 
     osmMap.on('moveend',()=>{
       streetVehicleCameraInteracting=false;
+      ensureOsmMapInteractions();
+
       if(currentProvider==='osm')terrainCameraEnded();
       tuneCityBuildingFarField();
       syncCityView();
       syncFloodView();
 
-      // Debounce expensive road-graph/path planning so successive wheel ticks or
-      // trackpad gestures stay responsive.
-      scheduleStreetVehicleRefresh(320);
+      // Reconcile traffic only after camera motion is fully settled.
+      scheduleStreetVehicleRefresh(380);
       osmMap.triggerRepaint();
     });
     osmMap.on('error',e=>{
