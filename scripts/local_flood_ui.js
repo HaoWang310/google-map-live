@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.2';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.3';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -266,10 +266,14 @@ function mergeBuildingFragments(id,fragments){
   let maxHeight=5;
   let minBase=0;
   let firstProps={};
+  let sourceFeatureId=null;
   const seenGeometry=new Set();
 
   for(const feature of fragments){
     firstProps=feature.properties||firstProps;
+    if(sourceFeatureId===null&&feature.id!==undefined&&feature.id!==null){
+      sourceFeatureId=feature.id;
+    }
     maxHeight=Math.max(
       maxHeight,
       Number(feature.properties?.render_height)||Number(feature.properties?.height)||5
@@ -291,6 +295,7 @@ function mergeBuildingFragments(id,fragments){
     id,
     properties:{
       ...firstProps,
+      __sourceFeatureId:sourceFeatureId,
       render_height:maxHeight,
       render_min_height:minBase
     },
@@ -326,6 +331,7 @@ export function createLocalFloodUI({
   let selectedBuildings=[];
   let buildingById=new Map();
   let impactedStateIds=new Set();
+  let selectedSourceFeatureIds=new Set();
   let buildingSourceId=null;
   let buildingSourceLayer='building';
   let sceneFeatures=new Map();
@@ -527,6 +533,7 @@ export function createLocalFloodUI({
   }
 
   function clearSelectedBuildingStates(){
+    clearSelectedNativeFeatureStates();
     impactedStateIds.clear();
     buildingById.clear();
     buildingSourceId=null;
@@ -631,10 +638,11 @@ export function createLocalFloodUI({
     return success;
   }
 
-  function normaliseBuilding(feature,id,sceneKey){
+  function normaliseBuilding(feature,id,sceneKey,sourceFeatureId=null){
     return {
       id,
       sceneKey,
+      sourceFeatureId,
       geometry:feature.geometry
     };
   }
@@ -646,35 +654,26 @@ export function createLocalFloodUI({
     const sourceLayer=cityLayer?.['source-layer']||'building';
     if(!source)return {selected:[],sceneCount:0,visibleCount:0,source:null,sourceLayer};
 
-    // Use every currently loaded source-tile feature, plus rendered features as a
-    // fallback. This is camera-independent enough for pitched views and lets the scene
-    // refill itself as new far/background tiles arrive.
     const groups=new Map();
     const addFeature=feature=>{
       if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
       if(hide3DFlag(feature.properties?.hide_3d))return;
-
       const id=stableBuildingIdentity(feature);
       if(!groups.has(id))groups.set(id,[]);
       groups.get(id).push(feature);
     };
 
+    // Dedicated z13/z14 source is authoritative. queryRenderedFeatures is only a
+    // fallback for a tile that has already rendered but has not yet appeared in the
+    // source query result.
     try{
-      for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
-        addFeature(feature);
-      }
+      for(const feature of map.querySourceFeatures(source,{sourceLayer})||[])addFeature(feature);
     }catch(error){
       console.warn('Source building query failed',error);
     }
-
     try{
-      for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[]){
-        addFeature(feature);
-      }
-    }catch(error){
-      // CITY_BUILDINGS_LAYER is intentionally hidden during flood mode, so an empty
-      // rendered query is normal. querySourceFeatures above remains authoritative.
-    }
+      for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[])addFeature(feature);
+    }catch(error){}
 
     const raw=[];
     for(const [id,fragments] of groups){
@@ -686,16 +685,21 @@ export function createLocalFloodUI({
     const selected=[];
 
     for(const {feature,key} of raw){
+      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
+
+      const split=splitBuildingBySelection(feature.geometry,selectionRing);
+      if(!split.inside)continue;
+
       const p=feature.properties||{};
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
-      const mayIntersect=boxesIntersect(bounds,geometryBBox(feature.geometry));
-      const split=mayIntersect
-        ?splitBuildingBySelection(feature.geometry,selectionRing)
-        :{inside:null,outside:feature.geometry};
+      const sourceFeatureId=
+        p.__sourceFeatureId!==undefined&&p.__sourceFeatureId!==null
+          ?p.__sourceFeatureId
+          :(feature.id!==undefined&&feature.id!==null?feature.id:null);
 
-      // Grey geometry is rebuilt from the same loaded OSM source tiles. For a building
-      // that crosses the red polygon, this is only the outside fragment.
+      // Only buildings intersecting the red polygon enter the local scene. The native
+      // source continues rendering every other grey city building dynamically.
       if(split.outside){
         sceneFeatures.set(key+'|outside',{
           type:'Feature',
@@ -709,23 +713,23 @@ export function createLocalFloodUI({
         });
       }
 
-      // Orange geometry is the exact red-polygon intersection. There is no native grey
-      // extrusion underneath it, so the side walls cannot z-fight or show grey patches.
-      if(split.inside){
-        const insideKey=key+'|inside';
-        const insideScene={
-          type:'Feature',
-          properties:{
-            simHeight:height,
-            simBase:base,
-            selected:true,
-            impacted:false
-          },
-          geometry:split.inside
-        };
-        sceneFeatures.set(insideKey,insideScene);
-        selected.push({feature:insideScene,key:insideKey});
-      }
+      const insideKey=key+'|inside';
+      const insideScene={
+        type:'Feature',
+        properties:{
+          simHeight:height,
+          simBase:base,
+          selected:true,
+          impacted:false
+        },
+        geometry:split.inside
+      };
+      sceneFeatures.set(insideKey,insideScene);
+      selected.push({
+        feature:insideScene,
+        key:insideKey,
+        sourceFeatureId
+      });
     }
 
     return {
@@ -737,46 +741,36 @@ export function createLocalFloodUI({
     };
   }
 
-  function restoreImpactedSceneColours(){
-    for(const id of impactedStateIds){
-      const entry=buildingById.get(id);
-      const scene=entry&&sceneFeatures.get(entry.sceneKey);
-      if(scene)scene.properties.impacted=true;
-    }
-  }
-
-  function refreshBuildingSceneFromLoadedTiles(){
-    if(!prepared||isPreparingSelection||!committedPolygon?.[0])return;
-    if(sceneRefreshBusy){
-      sceneRefreshQueued=true;
-      return;
-    }
-
-    sceneRefreshBusy=true;
-    try{
-      const ring=committedPolygon[0];
-      const bounds=bboxLngLat(ring);
-      const queried=queryBuildings(bounds,ring);
-      if(queried.visibleCount){
-        restoreImpactedSceneColours();
-        publishBuildingScene();
-      }
-    }finally{
-      sceneRefreshBusy=false;
-      if(sceneRefreshQueued){
-        sceneRefreshQueued=false;
-        scheduleBuildingSceneRefresh(90);
+  function setSelectedNativeFeatureStates(){
+    if(!buildingSourceId)return;
+    for(const sourceFeatureId of selectedSourceFeatureIds){
+      if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
+      try{
+        map.setFeatureState(
+          {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
+          {localFloodSelected:true}
+        );
+      }catch(error){
+        console.warn('Unable to hide native selected building',sourceFeatureId,error);
       }
     }
+    map.triggerRepaint();
   }
 
-  function scheduleBuildingSceneRefresh(delay=140){
-    if(!prepared||isPreparingSelection||!committedPolygon?.[0])return;
-    clearTimeout(sceneRefreshTimer);
-    sceneRefreshTimer=setTimeout(()=>{
-      sceneRefreshTimer=null;
-      refreshBuildingSceneFromLoadedTiles();
-    },delay);
+  function clearSelectedNativeFeatureStates(){
+    if(buildingSourceId){
+      for(const sourceFeatureId of selectedSourceFeatureIds){
+        if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
+        try{
+          map.setFeatureState(
+            {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
+            {localFloodSelected:false,localFloodImpacted:false}
+          );
+        }catch(error){}
+      }
+    }
+    selectedSourceFeatureIds.clear();
+    map.triggerRepaint();
   }
 
   function ensureSimulator(){
@@ -833,12 +827,16 @@ export function createLocalFloodUI({
 
     const keepPitch=map.getPitch();
     const keepBearing=map.getBearing();
+
+    // Load the complete red polygon once in top-down view. A high-pitch fit can leave
+    // part of the polygon outside the tile pyramid chosen for the current camera,
+    // which was the reason orange buildings disappeared after a subsequent rotation.
     map.fitBounds([[bounds.west,bounds.south],[bounds.east,bounds.north]],{
       padding:55,
       maxZoom:16.2,
-      duration:500,
-      pitch:keepPitch,
-      bearing:keepBearing
+      duration:350,
+      pitch:0,
+      bearing:0
     });
     await onceIdle(map,5200);
 
@@ -853,9 +851,19 @@ export function createLocalFloodUI({
     buildingSourceId=queried.source;
     buildingSourceLayer=queried.sourceLayer;
     selectedBuildings=queried.selected.map(item=>item.feature);
+    selectedSourceFeatureIds=new Set(
+      queried.selected
+        .map(item=>item.sourceFeatureId)
+        .filter(id=>id!==null&&id!==undefined)
+    );
 
     const buildings=queried.selected.map((item,id)=>{
-      const entry=normaliseBuilding(item.feature,id,item.key);
+      const entry=normaliseBuilding(
+        item.feature,
+        id,
+        item.key,
+        item.sourceFeatureId
+      );
       buildingById.set(id,entry);
       return {id,geometry:entry.geometry};
     });
@@ -866,10 +874,15 @@ export function createLocalFloodUI({
     }
 
     publishBuildingScene();
-    // Activate the complete local replacement scene only after it is ready. Native
-    // building geometry is hidden to remove grey/orange coplanar overlap; this scene
-    // keeps refilling from loaded OSM source tiles as the camera moves.
+    setSelectedNativeFeatureStates();
     setCityBuildingFloodSelection?.({active:true});
+
+    // Restore the user's viewing direction after the one-time complete tile load.
+    map.easeTo({
+      pitch:keepPitch,
+      bearing:keepBearing,
+      duration:300
+    });
 
     try{
       const info=await ensureSimulator().setup({polygon,buildings});
@@ -1198,17 +1211,11 @@ export function createLocalFloodUI({
   map.on('mousemove',onMapMouseMove);
 
   const syncSceneOnPitch=()=>syncBuildingSceneView();
-  const refreshSceneAfterCamera=()=>scheduleBuildingSceneRefresh(90);
-  const refreshSceneFromSource=event=>{
-    if(!prepared||!buildingSourceId||event.sourceId!==buildingSourceId)return;
-    if(event.isSourceLoaded) scheduleBuildingSceneRefresh(60);
-  };
 
+  // Selected replacement geometry is intentionally static after Enter. The streamed
+  // native OSM layer handles all background/far-field tile changes. Re-querying and
+  // clearing the selected scene on rotate/move was what caused buildings to vanish.
   map.on('pitch',syncSceneOnPitch);
-  map.on('moveend',refreshSceneAfterCamera);
-  map.on('zoomend',refreshSceneAfterCamera);
-  map.on('rotateend',refreshSceneAfterCamera);
-  map.on('sourcedata',refreshSceneFromSource);
 
   const cancelSelectionEdit=()=>{
     drawing=false;
@@ -1293,10 +1300,6 @@ export function createLocalFloodUI({
       window.removeEventListener('mouseup',onAnchorMouseUpWindow);
       map.off('mousemove',onMapMouseMove);
       map.off('pitch',syncSceneOnPitch);
-      map.off('moveend',refreshSceneAfterCamera);
-      map.off('zoomend',refreshSceneAfterCamera);
-      map.off('rotateend',refreshSceneAfterCamera);
-      map.off('sourcedata',refreshSceneFromSource);
       clearTimeout(sceneRefreshTimer);
       document.removeEventListener('keydown',keydown);
     }
