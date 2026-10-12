@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.53</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.54</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -294,10 +294,6 @@
         <input id="osmStructureToggle" type="checkbox" autocomplete="off" disabled>
       </label>
 
-      <div class="row viewButtons" role="group" aria-label="地图视角">
-        <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D 平面</button>
-        <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D 城市</button>
-      </div>
       <label class="layerRow" title="独立控制街道车辆显示；不再受“隐藏 OSM 名称 / POI 标注”开关影响">
         <span class="layerName">
           <strong>显示街道小车</strong>
@@ -305,6 +301,11 @@
         </span>
         <input id="streetVehicleToggle" type="checkbox" autocomplete="off" checked disabled>
       </label>
+
+      <div class="row viewButtons" role="group" aria-label="地图视角">
+        <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D 平面</button>
+        <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D 城市</button>
+      </div>
       <select id="provider" class="googleOnly">
         <option value="osm" selected>OpenStreetMap / OpenFreeMap</option>
       </select>
@@ -562,7 +563,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.53';
+  const APP_VERSION='3.21.54';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -6514,7 +6515,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.53)
+     * DISPLAY STABILITY ONLY (v3.21.54)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
