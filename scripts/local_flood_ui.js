@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.1';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.2';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -840,7 +840,7 @@ export function createLocalFloodUI({
       pitch:keepPitch,
       bearing:keepBearing
     });
-    await onceIdle(map,4500);
+    await onceIdle(map,5200);
 
     clearSelectedBuildingStates();
     let queried=queryBuildings(bounds,ring);
