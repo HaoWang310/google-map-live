@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.18.2';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.18.3';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -124,6 +124,48 @@ function geometryWithinSelection(geometry,selectionRing){
     if(ringEdgesIntersect(outer,selectionRing))return false;
   }
   return true;
+}
+
+function geometryRepresentativePoint(geometry){
+  const polygons=geometry?.type==='Polygon'
+    ?[geometry.coordinates]
+    :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
+  let best=null,bestArea=-1;
+  for(const polygon of polygons){
+    const ring=polygon?.[0];
+    if(!ring?.length)continue;
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for(const [x,y] of ring){
+      if(x<minX)minX=x;if(x>maxX)maxX=x;
+      if(y<minY)minY=y;if(y>maxY)maxY=y;
+    }
+    const area=(maxX-minX)*(maxY-minY);
+    if(area>bestArea){
+      bestArea=area;
+      best=[(minX+maxX)/2,(minY+maxY)/2];
+    }
+  }
+  return best;
+}
+
+function buildingBelongsToSelection(geometry,selectionRing){
+  const point=geometryRepresentativePoint(geometry);
+  if(point&&pointInRingLngLat(point,selectionRing))return true;
+  // If a clipped tile fragment has an awkward bbox centre, accept it when most of
+  // its vertices are inside the user's polygon.
+  const polygons=geometry?.type==='Polygon'
+    ?[geometry.coordinates]
+    :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
+  let inside=0,total=0;
+  for(const polygon of polygons){
+    const ring=polygon?.[0]||[];
+    const points=ring.length>1?ring.slice(0,-1):ring;
+    for(const point of points){
+      total++;
+      if(pointInRingLngLat(point,selectionRing))inside++;
+    }
+  }
+  return total>0&&inside/total>=0.5;
 }
 
 function featureKey(feature){
@@ -335,12 +377,23 @@ export function createLocalFloodUI({
     };
   }
 
-  function queryLoadedBuildings(){
+  function queryLoadedBuildings(preferRendered=false){
     const {source,sourceLayer}=sourceBuildingContext();
     if(!source)return {features:[],source:null,sourceLayer};
+
     let raw=[];
-    try{raw=map.querySourceFeatures(source,{sourceLayer})||[];}
-    catch(error){console.warn('Source building query failed',error);}
+    if(preferRendered&&map.getLayer(cityBuildingsLayerId)){
+      try{
+        raw=map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[];
+      }catch(error){
+        console.warn('Rendered building query failed',error);
+      }
+    }
+    if(!raw.length){
+      try{raw=map.querySourceFeatures(source,{sourceLayer})||[];}
+      catch(error){console.warn('Source building query failed',error);}
+    }
+
     const view=map.getBounds();
     const bounds={west:view.getWest(),east:view.getEast(),south:view.getSouth(),north:view.getNorth()};
     const seen=new Set(),out=[];
@@ -355,28 +408,25 @@ export function createLocalFloodUI({
     return {features:out,source,sourceLayer};
   }
 
-  function rebuildVisualBuildings(selectionRing){
+  function rebuildVisualBuildings(selectionRing,{preferRendered=false}={}){
     if(!selectionRing)return;
-    const queried=queryLoadedBuildings();
+    const queried=queryLoadedBuildings(preferRendered);
     buildingSourceId=queried.source;
     buildingSourceLayer=queried.sourceLayer;
 
-    const impactedKeys=new Set();
-    for(const entry of buildingById.values()){
-      if(entry.feature.properties.impacted)impactedKeys.add(entry.key);
-    }
-
-    const next=new Map();
+    // Keep previously loaded buildings so panning never makes geometry disappear.
+    const next=new Map(visualBuildingsByKey);
     for(const feature of queried.features){
-      const selected=geometryWithinSelection(feature.geometry,selectionRing);
+      const key=featureKey(feature);
+      if(next.has(key))continue;
+      const selected=buildingBelongsToSelection(feature.geometry,selectionRing);
       const visual=makeVisualBuilding(feature,selected);
-      if(impactedKeys.has(visual.key))visual.feature.properties.impacted=true;
       next.set(visual.key,visual.feature);
     }
 
-    // Ensure every simulation building remains visible even if its source tile just unloaded.
+    // Simulation buildings are authoritative for the selected region and for red impacts.
     for(const entry of buildingById.values()){
-      if(!next.has(entry.key))next.set(entry.key,entry.feature);
+      next.set(entry.key,entry.feature);
     }
 
     visualBuildingsByKey=next;
@@ -441,7 +491,7 @@ export function createLocalFloodUI({
     const seen=new Set(),out=[];
     for(const feature of queried.features){
       if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
-      if(!geometryWithinSelection(feature.geometry,selectionRing))continue;
+      if(!buildingBelongsToSelection(feature.geometry,selectionRing))continue;
       const key=featureKey(feature);
       if(seen.has(key))continue;
       seen.add(key);
@@ -507,7 +557,17 @@ export function createLocalFloodUI({
     await onceIdle(map,3200);
 
     clearSelectedBuildingStates();
-    const queried=queryBuildings(bounds,ring);
+    const rendered=queryLoadedBuildings(true);
+    const seenSelected=new Set(),selected=[];
+    for(const feature of rendered.features){
+      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
+      if(!buildingBelongsToSelection(feature.geometry,ring))continue;
+      const key=featureKey(feature);
+      if(seenSelected.has(key))continue;
+      seenSelected.add(key);
+      selected.push(feature);
+    }
+    const queried={features:selected,source:rendered.source,sourceLayer:rendered.sourceLayer};
     selectedBuildings=queried.features;
     buildingSourceId=queried.source;
     buildingSourceLayer=queried.sourceLayer;
@@ -520,7 +580,7 @@ export function createLocalFloodUI({
 
     // Build a complete replacement 3D scene first: grey outside, blue inside.
     // Only after the replacement exists do we hide the native OSM extrusion layer.
-    rebuildVisualBuildings(ring);
+    rebuildVisualBuildings(ring,{preferRendered:true});
     setCityBuildingFloodSelection?.(polygon);
     syncSelectedBuildingVisibility();
 
@@ -533,7 +593,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内高亮建筑 '+info.buildingCount+'。'
+        '（'+info.cellSizeM+' m）· 圈内建筑 '+info.buildingCount+' 栋已纳入模拟。'
       );
       setButtons();
     }catch(error){
