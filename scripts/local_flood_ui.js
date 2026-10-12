@@ -1030,7 +1030,8 @@ export function createLocalFloodUI({
     setSelectedNativeFeatureStates();
     setCityBuildingFloodSelection?.({
       active:true,
-      sourceFeatureIds:[...selectedSourceFeatureIds]
+      sourceFeatureIds:[...selectedSourceFeatureIds],
+      selectionRing:ring.map(point=>[point[0],point[1]])
     });
 
     // Restore the complete user camera after extraction.
