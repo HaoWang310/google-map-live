@@ -237,6 +237,21 @@
       border-top-color:#1f2937!important;
       border-bottom-color:#1f2937!important
     }
+    .contour-elevation-popup .maplibregl-popup-content{
+      background:rgba(31,41,55,.95);
+      color:#fff;
+      border:1px solid rgba(255,255,255,.2);
+      border-radius:8px;
+      box-shadow:0 8px 24px rgba(0,0,0,.24);
+      padding:7px 10px;
+      font-size:11px;
+      line-height:1.4;
+      white-space:nowrap
+    }
+    .contour-elevation-popup .maplibregl-popup-tip{
+      border-top-color:rgba(31,41,55,.95)!important;
+      border-bottom-color:rgba(31,41,55,.95)!important
+    }
     @media(max-width:600px){
       .panel{
         top:8px;left:8px;width:min(370px,calc(100vw - 16px))!important;
@@ -368,7 +383,7 @@
             </select>
           </div>
           <div class="layerMeta">
-            基于 OS Terrain 50 · 50 m 数值高程网格实时生成等高线；可选择 5 / 10 / 25 / 50 / 100 m 垂直等高距。5 m 等高线为基于 50 m DEM 网格插值生成，不代表原始数据具有 5 m 水平空间分辨率。
+            基于 OS Terrain 50 · 50 m 数值高程网格实时生成等高线；可选择 5 / 10 / 25 / 50 / 100 m 垂直等高距。放大后在线标注高程，鼠标移到任意等高线上也会显示该线高程。5 m 等高线为基于 50 m DEM 网格插值生成，不代表原始数据具有 5 m 水平空间分辨率。
           </div>
           <div id="contourStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
@@ -899,6 +914,8 @@
   let contourPendingTimer=null;
   let contourLastAppliedRequest=0;
   let contourError=null;
+  let contourHoverPopup=null;
+  let contourHoverBound=false;
 
   let networkEnabled=false;
   let networkOpacity=0.9;
@@ -1441,21 +1458,85 @@
         id:CONTOUR_LABEL_LAYER,
         type:'symbol',
         source:CONTOUR_SOURCE,
-        minzoom:12.5,
-        filter:['==',['get','major'],1],
+        minzoom:11.5,
         layout:{
           visibility:contourEnabled?'visible':'none',
           'symbol-placement':'line',
-          'symbol-spacing':420,
+          'symbol-spacing':300,
           'text-field':['get','label'],
-          'text-size':11,
-          'text-allow-overlap':false
+          'text-size':[
+            'case',
+            ['==',['get','major'],1],
+            11.5,
+            10
+          ],
+          'text-allow-overlap':false,
+          'text-ignore-placement':false,
+          'text-keep-upright':true,
+          'text-max-angle':35
         },
         paint:{
-          'text-color':'#5e4f40',
-          'text-halo-color':'rgba(255,255,255,0.92)',
-          'text-halo-width':1.2
+          'text-color':[
+            'case',
+            ['==',['get','major'],1],
+            '#4f4338',
+            '#75685c'
+          ],
+          'text-halo-color':'rgba(255,255,255,0.94)',
+          'text-halo-width':1.35,
+          'text-opacity':[
+            'interpolate',['linear'],['zoom'],
+            11.5,['case',['==',['get','major'],1],1,0.72],
+            14,1
+          ]
         }
+      });
+    }
+
+    if(!contourHoverBound){
+      contourHoverBound=true;
+
+      const showContourElevation=event=>{
+        if(!contourEnabled||currentProvider!=='osm')return;
+        const feature=event.features?.[0];
+        const elevation=Number(feature?.properties?.elevation);
+        if(!Number.isFinite(elevation))return;
+
+        osmMap.getCanvas().style.cursor='pointer';
+
+        if(!contourHoverPopup){
+          contourHoverPopup=new maplibregl.Popup({
+            closeButton:false,
+            closeOnClick:false,
+            offset:10,
+            className:'contour-elevation-popup'
+          });
+        }
+
+        contourHoverPopup
+          .setLngLat(event.lngLat)
+          .setHTML(
+            '<strong>等高线高程</strong><br>'+
+            Math.round(elevation)+' m'
+          )
+          .addTo(osmMap);
+      };
+
+      osmMap.on('mouseenter',CONTOUR_LINE_LAYER,event=>{
+        showContourElevation(event);
+      });
+
+      osmMap.on('mousemove',CONTOUR_LINE_LAYER,event=>{
+        showContourElevation(event);
+      });
+
+      osmMap.on('mouseleave',CONTOUR_LINE_LAYER,()=>{
+        osmMap.getCanvas().style.cursor='';
+        contourHoverPopup?.remove();
+      });
+
+      osmMap.on('click',CONTOUR_LINE_LAYER,event=>{
+        showContourElevation(event);
       });
     }
   }
