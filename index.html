@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.37</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.38</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -301,7 +301,7 @@
       <label class="layerRow" title="在当前可见街道范围内自动生成双向行驶的小车；平移、缩放或旋转地图后会按新的浏览窗口自动刷新">
         <span class="layerName">
           <strong>街道小车</strong>
-          <small>双向行驶 · 随当前浏览窗口自动刷新</small>
+          <small>视图自适应 · 分区生成 · 车道防拥堵</small>
         </span>
         <input id="streetVehicleToggle" type="checkbox" autocomplete="off" checked disabled>
       </label>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.37';
+  const APP_VERSION='3.21.38';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -634,7 +634,7 @@
     }
   };
 
-  const STREET_VEHICLE_COUNT=36;
+  const STREET_VEHICLE_COUNT=52;
   const STREET_VEHICLE_MIN_SPAWN_GAP_M=11.0;
   const STREET_VEHICLE_SAME_LANE_HEADWAY_M=12.0;
   const STREET_VEHICLE_MIN_VISIBLE=14;
@@ -2652,6 +2652,7 @@
       // querySourceFeatures, sometimes reversed. Treat it as ONE route.
       if(seen.has(key))return;
       seen.add(key);
+      route.routeKey=key;
       routes.push(route);
     };
 
@@ -2729,15 +2730,25 @@
       .slice(0,420);
   }
 
-  function randomVisibleStreetDistance(route){
+  function randomVisibleStreetDistance(
+    route,
+    preferredCell=null,
+    grid=streetVehicleViewportGrid(),
+    directionHint=null
+  ){
     if(!route)return null;
     const canvas=osmMap.getCanvas();
-    const testDirection=streetVehicleDirectionAllowed(route,1)?1:-1;
+
+    let testDirection=
+      directionHint??(streetVehicleDirectionAllowed(route,1)?1:-1);
+    if(!streetVehicleDirectionAllowed(route,testDirection)){
+      testDirection=-testDirection;
+    }
     if(!streetVehicleDirectionAllowed(route,testDirection))return null;
 
     const fractions=[
-      0.50,0.35,0.65,0.22,0.78,0.12,0.88,
-      ...Array.from({length:14},()=>0.06+Math.random()*0.88)
+      0.08,0.14,0.22,0.30,0.38,0.46,0.54,0.62,0.70,0.78,0.86,0.92,
+      ...Array.from({length:12},()=>0.06+Math.random()*0.88)
     ];
 
     for(const f of fractions){
@@ -2746,10 +2757,17 @@
       if(!sample)continue;
       const p=osmMap.project(sample.point);
       if(
-        p.x>=12&&p.y>=12&&
-        p.x<=canvas.clientWidth-12&&
-        p.y<=canvas.clientHeight-12
-      )return d;
+        p.x<12||p.y<12||
+        p.x>canvas.clientWidth-12||
+        p.y>canvas.clientHeight-12
+      )continue;
+
+      if(
+        preferredCell&&
+        streetVehicleCellKey(sample.point,grid)!==preferredCell
+      )continue;
+
+      return d;
     }
     return null;
   }
@@ -2814,16 +2832,144 @@
   }
 
   function streetVehicleTargetCount(){
-    if(!osmMap)return 24;
+    if(!osmMap)return 30;
     const pitch=osmMap.getPitch();
     const zoom=osmMap.getZoom();
 
-    // Dense enough to read as traffic in street-level/pitched views, while avoiding
-    // an unrealistic swarm in wide-area views.
-    let target=pitch>=45?34:(pitch>=20?30:26);
-    if(zoom<13.5)target=Math.min(target,20);
-    if(zoom>=17.5)target=Math.min(STREET_VEHICLE_COUNT,target+2);
+    // A wider viewport needs a larger population because the same fixed count
+    // otherwise collapses into one small district after zooming out.
+    let target=
+      zoom<13.0?48:
+      zoom<14.5?50:
+      zoom<16.0?46:
+      zoom<17.5?40:
+      34;
+
+    if(pitch>=45)target+=2;
     return Math.min(STREET_VEHICLE_COUNT,target);
+  }
+
+  function streetVehicleViewportGrid(){
+    const zoom=osmMap?.getZoom?.()??15;
+    return zoom<14.5
+      ?{cols:5,rows:4}
+      :{cols:4,rows:3};
+  }
+
+  function streetVehicleCellKey(point,grid=streetVehicleViewportGrid()){
+    if(!osmMap||!point)return null;
+    const canvas=osmMap.getCanvas();
+    const p=osmMap.project(point);
+    if(
+      p.x<0||p.y<0||
+      p.x>canvas.clientWidth||
+      p.y>canvas.clientHeight
+    )return null;
+
+    const col=Math.min(
+      grid.cols-1,
+      Math.max(0,Math.floor(p.x/Math.max(1,canvas.clientWidth/grid.cols)))
+    );
+    const row=Math.min(
+      grid.rows-1,
+      Math.max(0,Math.floor(p.y/Math.max(1,canvas.clientHeight/grid.rows)))
+    );
+    return col+':'+row;
+  }
+
+  function streetVehicleRouteKey(route){
+    if(route?.routeKey)return route.routeKey;
+    if(!route?.coords?.length)return '';
+    const first=route.coords[0];
+    const last=route.coords.at(-1);
+    return [
+      Number(first[0]).toFixed(5),
+      Number(first[1]).toFixed(5),
+      Number(last[0]).toFixed(5),
+      Number(last[1]).toFixed(5)
+    ].join('|');
+  }
+
+  function streetVehicleRouteLoad(route){
+    const key=streetVehicleRouteKey(route);
+    if(!key)return 0;
+    let count=0;
+    for(const vehicle of streetVehicles){
+      if(vehicle.active===false)continue;
+      if(streetVehicleRouteKey(vehicle.route)===key)count++;
+    }
+    return count;
+  }
+
+  function streetVehicleRouteCapacity(route){
+    // Keep short streets lightly populated; long arterials may carry more traffic.
+    return Math.max(
+      1,
+      Math.min(6,Math.floor((route?.lengthM||0)/75)+1)
+    );
+  }
+
+  function streetVehicleBuildSpawnCells(grid=streetVehicleViewportGrid()){
+    const cells=new Map();
+    const fractions=[0.08,0.18,0.30,0.42,0.54,0.66,0.78,0.90];
+
+    for(const route of streetVehicleRoutes){
+      const direction=streetVehicleDirectionAllowed(route,1)?1:-1;
+      if(!streetVehicleDirectionAllowed(route,direction))continue;
+
+      const routeKey=streetVehicleRouteKey(route);
+      for(const fraction of fractions){
+        const sample=routePointAt(
+          route,
+          route.lengthM*fraction,
+          direction,
+          0
+        );
+        if(!sample)continue;
+        const key=streetVehicleCellKey(sample.point,grid);
+        if(!key)continue;
+
+        if(!cells.has(key))cells.set(key,[]);
+        const list=cells.get(key);
+        if(!list.some(item=>streetVehicleRouteKey(item)===routeKey)){
+          list.push(route);
+        }
+      }
+    }
+    return cells;
+  }
+
+  function streetVehicleCellOccupancy(grid=streetVehicleViewportGrid()){
+    const occupancy=new Map();
+    for(const vehicle of streetVehicles){
+      if(vehicle.active===false)continue;
+      const sample=streetVehicleSample(vehicle);
+      if(!sample)continue;
+      const key=streetVehicleCellKey(sample.point,grid);
+      if(key)occupancy.set(key,(occupancy.get(key)||0)+1);
+    }
+    return occupancy;
+  }
+
+  function streetVehicleCullFarOffscreen(){
+    if(!osmMap)return;
+    const canvas=osmMap.getCanvas();
+    const margin=260;
+
+    streetVehicles=streetVehicles.filter(vehicle=>{
+      if(vehicle.active===false)return false;
+      const sample=streetVehicleSample(vehicle);
+      if(!sample)return false;
+      const p=osmMap.project(sample.point);
+
+      // This never removes an on-screen vehicle. It only clears stale population
+      // well outside the viewport so a newly expanded view can repopulate evenly.
+      return (
+        p.x>=-margin&&p.y>=-margin&&
+        p.x<=canvas.clientWidth+margin&&
+        p.y<=canvas.clientHeight+margin
+      );
+    });
   }
 
   function streetVehicleFootprintCorners(sample,vehicle=null,marginM=0){
@@ -3830,16 +3976,46 @@
       );
   }
 
-  function assignStreetVehicleToVisibleRoute(vehicle,direction=null){
+  function assignStreetVehicleToVisibleRoute(
+    vehicle,
+    direction=null,
+    options={}
+  ){
     if(!streetVehicleRoutes.length)return false;
 
     let resolvedDirection=direction??(Math.random()<0.5?1:-1);
-    const attempts=Math.min(80,Math.max(20,streetVehicleRoutes.length*3));
+    const grid=options.grid||streetVehicleViewportGrid();
+    const preferredCell=options.preferredCell||null;
+    const sourceRoutes=(
+      Array.isArray(options.routes)&&options.routes.length
+        ?options.routes
+        :streetVehicleRoutes
+    );
+
+    const attempts=Math.min(
+      120,
+      Math.max(30,sourceRoutes.length*4)
+    );
 
     for(let i=0;i<attempts;i++){
-      const route=streetVehicleRoutes[
-        Math.floor(Math.random()*streetVehicleRoutes.length)
-      ];
+      // Sample a small pool and choose its least-loaded route. This prevents one
+      // arterial from receiving most of the viewport population.
+      const pool=[];
+      for(let j=0;j<Math.min(10,sourceRoutes.length);j++){
+        pool.push(
+          sourceRoutes[Math.floor(Math.random()*sourceRoutes.length)]
+        );
+      }
+      pool.sort((a,b)=>
+        streetVehicleRouteLoad(a)-streetVehicleRouteLoad(b)
+      );
+
+      const route=pool[0];
+      if(!route)continue;
+      if(
+        streetVehicleRouteLoad(route)>=streetVehicleRouteCapacity(route)
+      )continue;
+
       if(
         vehicle?.vehicleType&&
         !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,route)
@@ -3851,7 +4027,12 @@
         resolvedDirection=opposite;
       }
 
-      const distanceM=randomVisibleStreetDistance(route);
+      const distanceM=randomVisibleStreetDistance(
+        route,
+        preferredCell,
+        grid,
+        resolvedDirection
+      );
       if(distanceM===null)continue;
 
       const preferredLane=streetVehicleChooseLaneIndex(
@@ -3861,14 +4042,19 @@
         vehicle,route,resolvedDirection,distanceM,preferredLane
       );
       if(!safeLane)continue;
+
       vehicle.laneIndex=safeLane.laneIndex;
       const sample=safeLane.sample;
-      if(streetVehicleConflicts(sample,route,resolvedDirection,vehicle,true))continue;
+      if(
+        streetVehicleConflicts(
+          sample,route,resolvedDirection,vehicle,true
+        )
+      )continue;
 
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
-        ensureStreetVehicleDriver(vehicle);
+      ensureStreetVehicleDriver(vehicle);
       const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
         (route.speedLimitMps??8.9)*
@@ -3896,11 +4082,9 @@
     const nextRoutes=collectVisibleStreetRoutes();
 
     if(!nextRoutes.length){
-      // Do NOT clear the current 3D cars just because a new camera tile is still loading.
-      // Keeping the old population avoids the "street suddenly becomes empty" flash.
       osmMap.once('idle',()=>{
         if(streetVehiclesEnabled&&currentProvider==='osm'){
-          scheduleStreetVehicleRefresh(25);
+          scheduleStreetVehicleRefresh(35);
         }
       });
       return;
@@ -3910,23 +4094,39 @@
     refreshStreetBuildingObstacles();
     rebuildStreetTrafficSignals();
 
-    // Camera refreshes update the available road network but do not teleport cars.
-    // Keep the current population and only supplement a shortage.
-    const targetCount=streetVehicleTargetCount();
-    let attempts=0;
-    const maxAttempts=targetCount*30;
+    // Remove only vehicles far outside the current view. Visible cars are NEVER
+    // teleported or deleted by a zoom/pan refresh.
+    streetVehicleCullFarOffscreen();
 
-    // Alternate direction while placing, but reject any overlapping footprint/headway.
+    const targetCount=streetVehicleTargetCount();
+    const grid=streetVehicleViewportGrid();
+    const spawnCells=streetVehicleBuildSpawnCells(grid);
+    const occupancy=streetVehicleCellOccupancy(grid);
+    const availableCells=[...spawnCells.keys()];
+
+    let visibleCount=streetVehicleVisibleCount();
+    let attempts=0;
+    const maxAttempts=targetCount*42;
+
     while(
-      streetVehicles.length<targetCount&&
-      attempts<maxAttempts
+      visibleCount<targetCount&&
+      attempts<maxAttempts&&
+      availableCells.length
     ){
       attempts++;
+
+      // Always fill the least-populated road-bearing screen region first.
+      availableCells.sort((a,b)=>
+        (occupancy.get(a)||0)-(occupancy.get(b)||0)
+      );
+      const preferredCell=availableCells[0];
+      const routes=spawnCells.get(preferredCell)||[];
+
       const index=streetVehicles.length;
       const direction=index%2===0?1:-1;
       const vehicleType=chooseStreetVehicleType(index);
       const vehicle={
-        id:'street-vehicle-'+index+'-'+Date.now().toString(36),
+        id:'street-vehicle-'+index+'-'+Date.now().toString(36)+'-'+attempts,
         vehicleType,
         route:null,
         direction,
@@ -3946,10 +4146,23 @@
         routeEndRetryAt:0
       };
 
-      // On first load put vehicles into view immediately. Later lifecycle respawns
-      // enter from the road edge instead of popping into the middle of the screen.
-      if(assignStreetVehicleToVisibleRoute(vehicle,direction)){
+      if(
+        assignStreetVehicleToVisibleRoute(
+          vehicle,
+          direction,
+          {preferredCell,grid,routes}
+        )
+      ){
         streetVehicles.push(vehicle);
+        occupancy.set(
+          preferredCell,
+          (occupancy.get(preferredCell)||0)+1
+        );
+        visibleCount++;
+      }else{
+        // This cell may contain only blocked/short/fully occupied roads.
+        // Remove it from this refresh rather than hammering it and creating jams.
+        availableCells.shift();
       }
     }
 
@@ -4290,7 +4503,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.37)
+     * DISPLAY STABILITY ONLY (v3.21.38)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -4630,6 +4843,14 @@
       syncCityView();
       if(currentProvider==='osm')terrainCameraChanged();
       syncFloodView();
+
+      if(streetVehiclesEnabled&&currentProvider==='osm'){
+        const now=performance.now();
+        if(now-streetVehicleViewRefreshAt>180){
+          streetVehicleViewRefreshAt=now;
+          scheduleStreetVehicleRefresh(55);
+        }
+      }
     });
 
     osmMap.on('sourcedata',e=>{
@@ -4644,13 +4865,16 @@
         if(now-streetVehicleViewRefreshAt>260){
           streetVehicleViewRefreshAt=now;
 
-          // Only rebuild if the current camera is running short of visible cars.
-          // Otherwise keep the population stable during small camera movements.
+          // Refill an expanded/panned viewport whenever visible traffic drops
+          // below the adaptive target. Do not wait for route count to collapse.
           if(
-            streetVehicleVisibleCount()<STREET_VEHICLE_MIN_VISIBLE&&
-            streetVehicleRoutes.length<6
+            streetVehicleVisibleCount()<
+            Math.max(
+              STREET_VEHICLE_MIN_VISIBLE,
+              Math.floor(streetVehicleTargetCount()*0.72)
+            )
           ){
-            scheduleStreetVehicleRefresh(30);
+            scheduleStreetVehicleRefresh(45);
           }
         }
       }
