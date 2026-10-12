@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.44</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.44';
+  const APP_VERSION='3.22.0';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -683,6 +683,10 @@
   const STREET_VEHICLE_UNEXPLAINED_STOP_MS=3200;
   const STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS=2200;
   const STREET_VEHICLE_FRAGMENT_LINK_M=28;
+  const STREET_GRAPH_JOIN_M=4.0;
+  const STREET_GRAPH_SAME_CORRIDOR_JOIN_M=7.0;
+  const STREET_ROUTE_PLAN_MAX_HOPS=12;
+  const STREET_ROUTE_PLAN_BEAM=10;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -1733,13 +1737,36 @@
 
   function streetVehicleTypeAllowedOnRoute(type,route){
     const c=String(route?.roadClass||'').toLowerCase();
-    if(type==='doubleBus'){
-      return !/service|living_street|track|path/.test(c);
+    const service=String(route?.serviceType||'').toLowerCase();
+    const access=String(route?.accessTag||'').toLowerCase();
+    const motor=String(route?.motorVehicleTag||'').toLowerCase();
+
+    if(/^(no|private)$/.test(access)||/^(no|private)$/.test(motor))return false;
+    if(/service|living_street|track|path|pedestrian/.test(c))return false;
+    if(/parking_aisle|driveway|alley|emergency_access|parking/.test(service))return false;
+
+    const major=/motorway|trunk|primary|secondary|tertiary/.test(c);
+    const local=/residential|minor|unclassified/.test(c);
+    const generic=/^(road|street)$/.test(c);
+
+    // London buses are ambient through-traffic: keep them on real distributor roads.
+    if(type==='doubleBus'||type==='singleBus'){
+      return major;
     }
-    if(type==='singleBus'||type==='van'){
-      return !/track|path/.test(c);
-    }
-    return true;
+
+    // Vans/cabs/cars may use local streets, but generic unnamed geometry is rejected
+    // because it is often a courtyard/service connector in vector tiles.
+    if(major||local)return true;
+    if(generic)return Boolean(route?.corridorLabel)&&route.lengthM>=80;
+    return false;
+  }
+
+  function streetVehicleAmbientRouteAllowed(route){
+    return (
+      streetVehicleTypeAllowedOnRoute('hatchback',route)||
+      streetVehicleTypeAllowedOnRoute('blackCab',route)||
+      streetVehicleTypeAllowedOnRoute('van',route)
+    );
   }
 
   function chooseStreetVehicleType(index,route=null){
@@ -2754,6 +2781,21 @@
       properties['name:en']??
       ''
     ).trim().toLowerCase();
+    const serviceType=String(
+      properties.service??
+      properties.subclass??
+      ''
+    ).trim().toLowerCase();
+    const accessTag=String(
+      properties.access??
+      ''
+    ).trim().toLowerCase();
+    const motorVehicleTag=String(
+      properties.motor_vehicle??
+      properties.motorcar??
+      properties.vehicle??
+      ''
+    ).trim().toLowerCase();
     const corridorKey=corridorLabel
       ?roadClass+'|'+corridorLabel
       :'geom|'+clean[Math.floor(clean.length/2)]
@@ -2802,6 +2844,9 @@
       roadClass,
       corridorKey,
       corridorLabel,
+      serviceType,
+      accessTag,
+      motorVehicleTag,
       oneway,
       lanesTotal,
       lanesForward,
@@ -2861,18 +2906,33 @@
     const subclass=String(
       p.subclass??p.service??''
     ).toLowerCase();
+    const access=String(p.access??'').toLowerCase();
+    const motor=String(
+      p.motor_vehicle??p.motorcar??p.vehicle??''
+    ).toLowerCase();
 
-    // Motor traffic must never use pedestrian paths, park tracks or non-road lines.
+    // Ambient game traffic never uses pedestrian infrastructure or private/service
+    // destination roads. Those may be valid OSM ways, but they are NOT through traffic.
     const blocked=/(rail|subway|tram|path|foot|footway|pedestrian|cycle|cycleway|steps|bridle|track|construction|raceway|runway|ferry)/;
     if(blocked.test(cls)||blocked.test(subclass))return false;
 
-    if(/^(motorway|trunk|primary|secondary|tertiary|minor|service|road|street|residential|living_street)$/.test(cls)){
+    if(/^(no|private)$/.test(access))return false;
+    if(/^(no|private)$/.test(motor))return false;
+
+    if(
+      /parking_aisle|driveway|alley|emergency_access|drive-through|loading|parking/.test(subclass)
+    )return false;
+
+    // Service/living streets remain excluded from ambient traffic. This is the key
+    // distinction between a map road and a GTA/F4Map-style traffic road.
+    if(/service|living_street/.test(cls))return false;
+
+    if(/^(motorway|trunk|primary|secondary|tertiary|minor|road|street|residential|unclassified)$/.test(cls)){
       return true;
     }
 
-    // Empty-class geometry is accepted only from a rendered layer whose identity
-    // explicitly says it is a motor-road layer. Raw source features remain strict.
-    return trustedRenderedRoad&&cls==='';
+    // Unknown rendered lines are too risky for moving traffic.
+    return false;
   }
 
   function streetRoadSourceDescriptors(){
@@ -3272,6 +3332,7 @@
     const fractions=[0.08,0.18,0.30,0.42,0.54,0.66,0.78,0.90];
 
     for(const route of streetVehicleRoutes){
+      if(!streetVehicleAmbientRouteAllowed(route))continue;
       const direction=streetVehicleDirectionAllowed(route,1)?1:-1;
       if(!streetVehicleDirectionAllowed(route,direction))continue;
 
@@ -3796,15 +3857,18 @@
     return ((toBearing-fromBearing+540)%360)-180;
   }
 
-  function streetVehicleConnectionCandidates(vehicle){
-    if(!vehicle?.route||!streetVehicleRoutes.length)return [];
+  function streetVehicleConnectionCandidatesForState(
+    currentRoute,
+    direction,
+    vehicleType=null
+  ){
+    if(!currentRoute||!streetVehicleRoutes.length)return [];
 
-    const currentRoute=vehicle.route;
-    const currentEndpoint=vehicle.direction>=0
+    const currentEndpoint=direction>=0
       ?currentRoute.coords.at(-1)
       :currentRoute.coords[0];
     const currentBearing=streetVehicleRouteTravelBearing(
-      currentRoute,vehicle.direction,true
+      currentRoute,direction,true
     );
 
     const candidates=[];
@@ -3812,8 +3876,8 @@
     for(const candidate of streetVehicleRoutes){
       if(candidate===currentRoute||candidate.coords.length<2)continue;
       if(
-        vehicle?.vehicleType&&
-        !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,candidate)
+        vehicleType&&
+        !streetVehicleTypeAllowedOnRoute(vehicleType,candidate)
       )continue;
 
       const options=[];
@@ -3840,34 +3904,178 @@
           streetVehicleCorridorKey(candidate)===
           streetVehicleCorridorKey(currentRoute);
         const maxGap=sameCorridor
-          ?STREET_VEHICLE_FRAGMENT_LINK_M
-          :STREET_VEHICLE_CONTINUATION_TOLERANCE_M;
+          ?STREET_GRAPH_SAME_CORRIDOR_JOIN_M
+          :STREET_GRAPH_JOIN_M;
+
         if(gap>maxGap)continue;
 
         const signedAngle=streetVehicleSignedAngle(
           currentBearing,option.bearing
         );
         const angle=Math.abs(signedAngle);
-
-        if(
-          sameCorridor&&
-          gap>STREET_VEHICLE_SAME_CORRIDOR_LINK_M&&
-          angle>34
-        )continue;
-
         if(angle>118)continue;
+
+        // Cross-road joins must be essentially a shared intersection node.
+        // Same-road tile seams get a slightly wider snap, but remain heading-safe.
+        if(!sameCorridor&&gap>2.8&&angle<18)continue;
+        if(sameCorridor&&gap>4.5&&angle>28)continue;
 
         candidates.push({
           ...option,
           route:candidate,
           gap,
           angle,
-          signedAngle
+          signedAngle,
+          sameCorridor
         });
       }
     }
 
     return candidates;
+  }
+
+  function streetVehicleConnectionCandidates(vehicle){
+    if(!vehicle?.route)return [];
+    return streetVehicleConnectionCandidatesForState(
+      vehicle.route,
+      vehicle.direction,
+      vehicle.vehicleType
+    );
+  }
+
+  function streetVehicleStateEndpointNearViewportEdge(
+    route,
+    direction,
+    marginPx=95
+  ){
+    if(!osmMap||!route)return false;
+    const distanceM=direction>=0?route.lengthM:0;
+    const sample=routePointAt(route,distanceM,direction,0);
+    if(!sample)return false;
+
+    const canvas=osmMap.getCanvas();
+    const p=osmMap.project(sample.point);
+    return (
+      p.x<=marginPx||
+      p.y<=marginPx||
+      p.x>=canvas.clientWidth-marginPx||
+      p.y>=canvas.clientHeight-marginPx
+    );
+  }
+
+  function streetVehicleBuildRoutePlan(vehicle){
+    if(!vehicle?.route)return null;
+
+    const startKey=
+      streetVehicleRouteKey(vehicle.route)+'|'+vehicle.direction;
+    const queue=[{
+      route:vehicle.route,
+      direction:vehicle.direction,
+      path:[],
+      score:0,
+      visited:new Set([startKey])
+    }];
+
+    let expansions=0;
+    const maxExpansions=150;
+
+    while(queue.length&&expansions<maxExpansions){
+      queue.sort((a,b)=>a.score-b.score);
+      const state=queue.shift();
+      expansions++;
+
+      if(
+        state.path.length>0&&
+        streetVehicleStateEndpointNearViewportEdge(
+          state.route,state.direction,85
+        )
+      ){
+        return state.path;
+      }
+
+      if(state.path.length>=STREET_ROUTE_PLAN_MAX_HOPS)continue;
+
+      const candidates=streetVehicleConnectionCandidatesForState(
+        state.route,
+        state.direction,
+        vehicle.vehicleType
+      );
+
+      const ranked=[];
+      for(const candidate of candidates){
+        const stateKey=
+          streetVehicleRouteKey(candidate.route)+'|'+candidate.direction;
+        if(state.visited.has(stateKey))continue;
+
+        const pressure=streetVehicleCorridorCongestion(candidate.route);
+        const edgeScore=streetVehicleRouteEdgeScore(
+          candidate.route,
+          candidate.direction
+        );
+
+        let cost=
+          candidate.angle*0.035+
+          candidate.gap*0.14+
+          pressure*3.0-
+          edgeScore*1.8;
+
+        if(candidate.sameCorridor)cost-=0.55;
+        if(/residential|minor|unclassified/.test(candidate.route.roadClass)){
+          cost+=vehicle.vehicleType?.includes('Bus')?4:0.25;
+        }
+
+        ranked.push({candidate,cost});
+      }
+
+      ranked.sort((a,b)=>a.cost-b.cost);
+      for(const item of ranked.slice(0,STREET_ROUTE_PLAN_BEAM)){
+        const candidate=item.candidate;
+        const preferredLane=streetVehicleChooseLaneIndex(
+          vehicle,
+          candidate.route,
+          candidate.direction,
+          candidate.signedAngle
+        );
+
+        const nextVisited=new Set(state.visited);
+        nextVisited.add(
+          streetVehicleRouteKey(candidate.route)+'|'+candidate.direction
+        );
+
+        queue.push({
+          route:candidate.route,
+          direction:candidate.direction,
+          path:[
+            ...state.path,
+            {
+              routeKey:streetVehicleRouteKey(candidate.route),
+              direction:candidate.direction,
+              laneIndex:preferredLane,
+              distanceM:candidate.distanceM,
+              signedAngle:candidate.signedAngle,
+              angle:candidate.angle
+            }
+          ],
+          score:state.score+item.cost,
+          visited:nextVisited
+        });
+      }
+
+      if(queue.length>60){
+        queue.sort((a,b)=>a.score-b.score);
+        queue.length=60;
+      }
+    }
+
+    return null;
+  }
+
+  function streetVehicleInstallRoutePlan(vehicle){
+    const plan=streetVehicleBuildRoutePlan(vehicle);
+    if(plan===null)return false;
+    vehicle.routePlan=plan;
+    vehicle.plannedConnection=null;
+    return true;
   }
 
   function rebuildStreetTrafficSignals(){
@@ -4253,6 +4461,7 @@
       if(queueAge>STREET_VEHICLE_QUEUE_REPLAN_MS){
         vehicle.decongestIntent=true;
         vehicle.plannedConnection=null;
+        vehicle.routePlan=null;
         streetVehiclePlanNextConnection(vehicle,time,true);
       }
 
@@ -4290,6 +4499,7 @@
         if(vehicle.active===false)continue;
         vehicle.decongestIntent=true;
         vehicle.plannedConnection=null;
+        vehicle.routePlan=null;
         streetVehiclePlanNextConnection(vehicle,time,true);
       }
     }
@@ -4392,11 +4602,16 @@
   function streetVehiclePlanNextConnection(vehicle,time,force=false){
     if(!vehicle?.route)return null;
     const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
-    if(!force&&distanceToEnd>STREET_VEHICLE_PLAN_LOOKAHEAD_M){
+
+    if(
+      !force&&
+      distanceToEnd>STREET_VEHICLE_PLAN_LOOKAHEAD_M
+    ){
       return vehicle.plannedConnection||null;
     }
 
     const currentKey=streetVehicleRouteKey(vehicle.route);
+
     if(
       !force&&
       vehicle.plannedConnection&&
@@ -4405,20 +4620,37 @@
       return vehicle.plannedConnection;
     }
 
-    const chosen=streetVehicleWeightedConnection(vehicle);
-    if(!chosen){
+    if(force||!Array.isArray(vehicle.routePlan)){
+      if(!streetVehicleInstallRoutePlan(vehicle)){
+        vehicle.plannedConnection=null;
+        return null;
+      }
+    }
+
+    let next=vehicle.routePlan?.[0]||null;
+
+    // If the planned route disappeared after a tile refresh, rebuild once.
+    if(
+      next&&
+      !streetVehicleRoutes.some(
+        route=>streetVehicleRouteKey(route)===next.routeKey
+      )
+    ){
+      if(!streetVehicleInstallRoutePlan(vehicle)){
+        vehicle.plannedConnection=null;
+        return null;
+      }
+      next=vehicle.routePlan?.[0]||null;
+    }
+
+    if(!next){
       vehicle.plannedConnection=null;
       return null;
     }
 
     vehicle.plannedConnection={
+      ...next,
       fromRouteKey:currentKey,
-      routeKey:streetVehicleRouteKey(chosen.route),
-      direction:chosen.direction,
-      laneIndex:chosen.laneIndex||0,
-      distanceM:chosen.distanceM,
-      signedAngle:chosen.signedAngle,
-      angle:chosen.angle,
       plannedAt:time
     };
     return vehicle.plannedConnection;
@@ -5015,6 +5247,16 @@
     vehicle.lanePosition=vehicle.laneIndex;
     vehicle.laneTarget=vehicle.laneIndex;
     vehicle.distanceM=chosen.distanceM;
+
+    if(
+      Array.isArray(vehicle.routePlan)&&
+      vehicle.routePlan.length&&
+      vehicle.routePlan[0].routeKey===streetVehicleRouteKey(chosen.route)&&
+      vehicle.routePlan[0].direction===chosen.direction
+    ){
+      vehicle.routePlan.shift();
+    }
+
     vehicle.plannedConnection=null;
     clearStreetVehicleRouteEndWait(vehicle);
     vehicle.state='junction_exit';
@@ -5074,6 +5316,7 @@
 
     for(let i=0;i<streetVehicleRoutes.length;i++){
       const route=streetVehicleRoutes[(start+i)%streetVehicleRoutes.length];
+      if(!streetVehicleAmbientRouteAllowed(route))continue;
       if(
         streetVehicleCorridorLoad(route)>=
         streetVehicleCorridorCapacity(route)
@@ -5108,7 +5351,17 @@
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
-        ensureStreetVehicleDriver(vehicle);
+      ensureStreetVehicleDriver(vehicle);
+
+      if(!streetVehicleInstallRoutePlan(vehicle)){
+        vehicle.route=null;
+        continue;
+      }
+
+      if(!streetVehicleInstallRoutePlan(vehicle)){
+        vehicle.route=null;
+        continue;
+      }
       const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
         (route.speedLimitMps??8.9)*
@@ -5212,6 +5465,7 @@
     if(waited>STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS){
       vehicle.decongestIntent=true;
       vehicle.plannedConnection=null;
+      vehicle.routePlan=null;
       streetVehiclePlanNextConnection(vehicle,time,true);
       vehicle.routeEndRetryAt=time+120;
     }
@@ -5272,7 +5526,7 @@
       });
 
       const route=pool[0];
-      if(!route)continue;
+      if(!route||!streetVehicleAmbientRouteAllowed(route))continue;
       if(
         streetVehicleRouteLoad(route)>=streetVehicleRouteCapacity(route)
       )continue;
@@ -5372,9 +5626,18 @@
       return;
     }
 
-    streetVehicleRoutes=nextRoutes;
+    streetVehicleRoutes=nextRoutes.filter(
+      route=>streetVehicleAmbientRouteAllowed(route)
+    );
     refreshStreetBuildingObstacles();
     rebuildStreetTrafficSignals();
+
+    for(const vehicle of streetVehicles){
+      if(vehicle.active===false)continue;
+      vehicle.routePlan=null;
+      vehicle.plannedConnection=null;
+    }
+
     publishStreetSignals(performance.now(),true);
 
     // Remove only vehicles far outside the current view. Visible cars are NEVER
@@ -5389,21 +5652,13 @@
 
     let visibleCount=streetVehicleVisibleCount();
     let attempts=0;
-    const maxAttempts=targetCount*42;
+    const maxAttempts=targetCount*38;
 
     while(
       visibleCount<targetCount&&
-      attempts<maxAttempts&&
-      availableCells.length
+      attempts<maxAttempts
     ){
       attempts++;
-
-      // Always fill the least-populated road-bearing screen region first.
-      availableCells.sort((a,b)=>
-        (occupancy.get(a)||0)-(occupancy.get(b)||0)
-      );
-      const preferredCell=availableCells[0];
-      const routes=spawnCells.get(preferredCell)||[];
 
       const index=streetVehicles.length;
       const direction=index%2===0?1:-1;
@@ -5430,6 +5685,7 @@
         nextAiAt:0,
         lastAiAt:0,
         plannedConnection:null,
+        routePlan:null,
         previousRouteKey:null,
         lanePosition:0,
         laneTarget:0,
@@ -5448,23 +5704,32 @@
         retireIntent:false
       };
 
-      if(
-        assignStreetVehicleToVisibleRoute(
+      // Game-style ambient traffic should ENTER from the viewport edge first.
+      // Only use an interior spawn as a startup fallback, and only on a route with
+      // a complete precomputed path to an exit edge.
+      let assigned=assignStreetVehicleFromViewEdge(vehicle,direction);
+
+      if(!assigned&&visibleCount<Math.min(8,targetCount)){
+        availableCells.sort((a,b)=>
+          (occupancy.get(a)||0)-(occupancy.get(b)||0)
+        );
+        const preferredCell=availableCells[0]||null;
+        const routes=preferredCell
+          ?(spawnCells.get(preferredCell)||[])
+          :streetVehicleRoutes;
+
+        assigned=assignStreetVehicleToVisibleRoute(
           vehicle,
           direction,
           {preferredCell,grid,routes}
-        )
-      ){
-        streetVehicles.push(vehicle);
-        occupancy.set(
-          preferredCell,
-          (occupancy.get(preferredCell)||0)+1
         );
-        visibleCount++;
-      }else{
-        // This cell may contain only blocked/short/fully occupied roads.
-        // Remove it from this refresh rather than hammering it and creating jams.
-        availableCells.shift();
+      }
+
+      if(assigned){
+        streetVehicles.push(vehicle);
+        visibleCount=streetVehicleVisibleCount();
+      }else if(attempts>targetCount*12){
+        break;
       }
     }
 
@@ -5835,7 +6100,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.44)
+     * DISPLAY STABILITY ONLY (v3.22.0)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
