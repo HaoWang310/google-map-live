@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.23</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.24</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -298,6 +298,13 @@
         <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D 平面</button>
         <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D 城市</button>
       </div>
+      <label class="layerRow" title="在当前可见街道范围内自动生成双向行驶的小车；平移、缩放或旋转地图后会按新的浏览窗口自动刷新">
+        <span class="layerName">
+          <strong>街道小车</strong>
+          <small>双向行驶 · 随当前浏览窗口自动刷新</small>
+        </span>
+        <input id="streetVehicleToggle" type="checkbox" autocomplete="off" checked disabled>
+      </label>
       <select id="provider" class="googleOnly">
         <option value="osm" selected>OpenStreetMap / OpenFreeMap</option>
       </select>
@@ -555,11 +562,15 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.23';
+  const APP_VERSION='3.21.24';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const CITY_BUILDINGS_BACKGROUND_FILL='osm-city-buildings-2d';
+  const STREET_VEHICLE_SOURCE='osm-street-vehicles-source';
+  const STREET_VEHICLE_LAYER='osm-street-vehicles';
+  const STREET_VEHICLE_ICON='osm-street-vehicle-icon';
+  const STREET_VEHICLE_COUNT=18;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -723,6 +734,17 @@
   let floodAppliedOpacity=null;
 
   let localFloodUI=null;
+
+  // Lightweight, viewport-scoped street vehicles. They never participate in flood
+  // building selection or simulation geometry.
+  let streetVehiclesEnabled=true;
+  let streetVehicles=[];
+  let streetVehicleRoutes=[];
+  let streetVehicleAnimationFrame=null;
+  let streetVehicleLastFrame=0;
+  let streetVehicleLastPaint=0;
+  let streetVehicleRefreshTimer=null;
+
   let focus70Enabled=false;
   let googleFocusCircle=null;
   let osmFocusReady=false;
@@ -1549,6 +1571,380 @@
     syncCityView();
   }
 
+  function streetVehicleDistanceM(a,b){
+    const earth=6371008.8;
+    const lat1=a[1]*Math.PI/180,lat2=b[1]*Math.PI/180;
+    const dLat=(b[1]-a[1])*Math.PI/180;
+    const dLng=(b[0]-a[0])*Math.PI/180;
+    const h=Math.sin(dLat/2)**2+
+      Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+    return 2*earth*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));
+  }
+
+  function streetVehicleBearing(a,b){
+    const meanLat=(a[1]+b[1])*0.5*Math.PI/180;
+    const dx=(b[0]-a[0])*Math.cos(meanLat);
+    const dy=b[1]-a[1];
+    return (Math.atan2(dx,dy)*180/Math.PI+360)%360;
+  }
+
+  function offsetStreetVehiclePoint(point,bearing,distanceM){
+    // UK left-hand traffic: offset every vehicle to the LEFT of its movement direction.
+    const side=(bearing-90)*Math.PI/180;
+    const east=Math.sin(side)*distanceM;
+    const north=Math.cos(side)*distanceM;
+    const lat=point[1]+north/111320;
+    const lng=point[0]+east/(111320*Math.max(0.2,Math.cos(point[1]*Math.PI/180)));
+    return [lng,lat];
+  }
+
+  function makeStreetVehicleIcon(){
+    if(!osmMap||osmMap.hasImage(STREET_VEHICLE_ICON))return;
+    const canvas=document.createElement('canvas');
+    canvas.width=28;canvas.height=14;
+    const ctx=canvas.getContext('2d');
+
+    // Small map-aligned car silhouette. Kept visually simple so dozens remain legible.
+    ctx.clearRect(0,0,28,14);
+    ctx.fillStyle='#2563eb';
+    ctx.beginPath();
+    ctx.roundRect(2,3,24,8,2.5);
+    ctx.fill();
+    ctx.fillStyle='#dbeafe';
+    ctx.fillRect(8,4,8,6);
+    ctx.fillStyle='#111827';
+    ctx.fillRect(4,1,5,3);
+    ctx.fillRect(19,1,5,3);
+    ctx.fillRect(4,10,5,3);
+    ctx.fillRect(19,10,5,3);
+
+    osmMap.addImage(STREET_VEHICLE_ICON,ctx.getImageData(0,0,28,14),{
+      pixelRatio:2
+    });
+  }
+
+  function ensureStreetVehicleLayer(){
+    if(!osmMap||!osmStyleReady)return;
+    makeStreetVehicleIcon();
+
+    if(!osmMap.getSource(STREET_VEHICLE_SOURCE)){
+      osmMap.addSource(STREET_VEHICLE_SOURCE,{
+        type:'geojson',
+        data:{type:'FeatureCollection',features:[]}
+      });
+    }
+
+    if(!osmMap.getLayer(STREET_VEHICLE_LAYER)){
+      osmMap.addLayer({
+        id:STREET_VEHICLE_LAYER,
+        type:'symbol',
+        source:STREET_VEHICLE_SOURCE,
+        layout:{
+          visibility:streetVehiclesEnabled?'visible':'none',
+          'icon-image':STREET_VEHICLE_ICON,
+          'icon-size':0.72,
+          'icon-rotate':['get','bearing'],
+          'icon-rotation-alignment':'map',
+          'icon-pitch-alignment':'map',
+          'icon-allow-overlap':true,
+          'icon-ignore-placement':true
+        }
+      },getFirstSymbolLayerId());
+    }
+  }
+
+  function streetRoadLayerIds(){
+    if(!osmMap||!osmStyleReady)return [];
+    const blocked=/(rail|transit|path|foot|pedestrian|cycle|runway|water|ferry|boundary)/i;
+    const accepted=/(road|street|highway|motorway|trunk|primary|secondary|tertiary|residential|transportation)/i;
+
+    return (osmMap.getStyle()?.layers||[])
+      .filter(layer=>{
+        if(layer.type!=='line')return false;
+        if(layer.source===STREET_VEHICLE_SOURCE)return false;
+        const id=String(layer.id||'');
+        const sourceLayer=String(layer['source-layer']||'');
+        const combined=id+' '+sourceLayer;
+        if(blocked.test(combined))return false;
+        return sourceLayer.toLowerCase().includes('transportation')||accepted.test(combined);
+      })
+      .map(layer=>layer.id);
+  }
+
+  function makeStreetVehicleRoute(coords){
+    if(!Array.isArray(coords)||coords.length<2)return null;
+    const clean=coords.filter(p=>
+      Array.isArray(p)&&p.length>=2&&
+      Number.isFinite(Number(p[0]))&&Number.isFinite(Number(p[1]))
+    ).map(p=>[Number(p[0]),Number(p[1])]);
+    if(clean.length<2)return null;
+
+    const cumulative=[0];
+    for(let i=1;i<clean.length;i++){
+      cumulative.push(cumulative[i-1]+streetVehicleDistanceM(clean[i-1],clean[i]));
+    }
+    const lengthM=cumulative.at(-1);
+    if(!(lengthM>=55))return null;
+    return {coords:clean,cumulative,lengthM};
+  }
+
+  function routePointAt(route,distanceM,direction=1){
+    if(!route||route.coords.length<2)return null;
+    const d=Math.max(0,Math.min(route.lengthM,distanceM));
+    let i=1;
+    while(i<route.cumulative.length&&route.cumulative[i]<d)i++;
+    i=Math.min(i,route.coords.length-1);
+
+    const a=route.coords[i-1],b=route.coords[i];
+    const start=route.cumulative[i-1],end=route.cumulative[i];
+    const t=(d-start)/Math.max(1e-9,end-start);
+    const point=[
+      a[0]+(b[0]-a[0])*t,
+      a[1]+(b[1]-a[1])*t
+    ];
+
+    const bearing=direction>=0
+      ?streetVehicleBearing(a,b)
+      :(streetVehicleBearing(a,b)+180)%360;
+
+    return {
+      point:offsetStreetVehiclePoint(point,bearing,1.9),
+      bearing
+    };
+  }
+
+  function collectVisibleStreetRoutes(){
+    if(!osmMap||!osmStyleReady)return [];
+    const layerIds=streetRoadLayerIds();
+    if(!layerIds.length)return [];
+
+    const canvas=osmMap.getCanvas();
+    let features=[];
+    try{
+      features=osmMap.queryRenderedFeatures(
+        [[0,0],[canvas.clientWidth,canvas.clientHeight]],
+        {layers:layerIds}
+      )||[];
+    }catch(error){
+      console.warn('Unable to query visible street routes',error);
+      return [];
+    }
+
+    const routes=[];
+    const seen=new Set();
+
+    const addCoords=coords=>{
+      const route=makeStreetVehicleRoute(coords);
+      if(!route)return;
+
+      const first=route.coords[0];
+      const mid=route.coords[Math.floor(route.coords.length/2)];
+      const last=route.coords.at(-1);
+      const key=[first,mid,last]
+        .flat()
+        .map(v=>Number(v).toFixed(5))
+        .join('|');
+      if(seen.has(key))return;
+
+      // Require the route midpoint to be in/near the current viewport. This prevents
+      // a long road feature that merely touches the screen from spawning cars far away.
+      const p=osmMap.project(mid);
+      if(
+        p.x<-60||p.y<-60||
+        p.x>canvas.clientWidth+60||
+        p.y>canvas.clientHeight+60
+      )return;
+
+      seen.add(key);
+      routes.push(route);
+    };
+
+    for(const feature of features){
+      const g=feature?.geometry;
+      if(g?.type==='LineString')addCoords(g.coordinates);
+      else if(g?.type==='MultiLineString'){
+        for(const coords of g.coordinates||[])addCoords(coords);
+      }
+    }
+
+    return routes
+      .sort((a,b)=>b.lengthM-a.lengthM)
+      .slice(0,220);
+  }
+
+  function randomVisibleStreetDistance(route){
+    if(!route)return 0;
+    const canvas=osmMap.getCanvas();
+
+    for(let attempt=0;attempt<10;attempt++){
+      const d=route.lengthM*(0.08+Math.random()*0.84);
+      const sample=routePointAt(route,d,1);
+      if(!sample)continue;
+      const p=osmMap.project(sample.point);
+      if(
+        p.x>=-20&&p.y>=-20&&
+        p.x<=canvas.clientWidth+20&&
+        p.y<=canvas.clientHeight+20
+      )return d;
+    }
+    return route.lengthM*0.5;
+  }
+
+  function publishStreetVehicles(){
+    if(!osmMap||!osmStyleReady)return;
+    ensureStreetVehicleLayer();
+    const source=osmMap.getSource(STREET_VEHICLE_SOURCE);
+    if(!source)return;
+
+    const features=streetVehicles.map(vehicle=>{
+      const sample=routePointAt(vehicle.route,vehicle.distanceM,vehicle.direction);
+      if(!sample)return null;
+      vehicle.lng=sample.point[0];
+      vehicle.lat=sample.point[1];
+      vehicle.bearing=sample.bearing;
+
+      return {
+        type:'Feature',
+        properties:{
+          id:vehicle.id,
+          bearing:vehicle.bearing
+        },
+        geometry:{
+          type:'Point',
+          coordinates:[vehicle.lng,vehicle.lat]
+        }
+      };
+    }).filter(Boolean);
+
+    source.setData({type:'FeatureCollection',features});
+  }
+
+  function assignStreetVehicleToVisibleRoute(vehicle,direction=null){
+    if(!streetVehicleRoutes.length)return false;
+    const route=streetVehicleRoutes[Math.floor(Math.random()*streetVehicleRoutes.length)];
+    vehicle.route=route;
+    vehicle.direction=direction??(Math.random()<0.5?1:-1);
+    vehicle.distanceM=randomVisibleStreetDistance(route);
+    vehicle.speedMps=4.5+Math.random()*5.5;
+    return true;
+  }
+
+  function refreshStreetVehicles(){
+    clearTimeout(streetVehicleRefreshTimer);
+    streetVehicleRefreshTimer=null;
+
+    if(!osmMap||!osmStyleReady||!streetVehiclesEnabled||currentProvider!=='osm'){
+      streetVehicles=[];
+      if(osmMap?.getSource(STREET_VEHICLE_SOURCE))publishStreetVehicles();
+      return;
+    }
+
+    ensureStreetVehicleLayer();
+    streetVehicleRoutes=collectVisibleStreetRoutes();
+
+    if(!streetVehicleRoutes.length){
+      streetVehicles=[];
+      publishStreetVehicles();
+      return;
+    }
+
+    streetVehicles=[];
+
+    // Spawn in +/- pairs so every refresh contains traffic in BOTH directions.
+    let routeCursor=0;
+    while(streetVehicles.length<STREET_VEHICLE_COUNT){
+      const route=streetVehicleRoutes[routeCursor%streetVehicleRoutes.length];
+      routeCursor++;
+      const baseDistance=randomVisibleStreetDistance(route);
+
+      for(const direction of [1,-1]){
+        if(streetVehicles.length>=STREET_VEHICLE_COUNT)break;
+        streetVehicles.push({
+          id:'street-car-'+streetVehicles.length,
+          route,
+          direction,
+          distanceM:Math.max(0,Math.min(
+            route.lengthM,
+            baseDistance+(direction>0?-7:7)
+          )),
+          speedMps:4.5+Math.random()*5.5,
+          lng:0,lat:0,bearing:0
+        });
+      }
+    }
+
+    publishStreetVehicles();
+    startStreetVehicleAnimation();
+  }
+
+  function scheduleStreetVehicleRefresh(delay=120){
+    if(!streetVehiclesEnabled)return;
+    clearTimeout(streetVehicleRefreshTimer);
+    streetVehicleRefreshTimer=setTimeout(refreshStreetVehicles,delay);
+  }
+
+  function startStreetVehicleAnimation(){
+    if(streetVehicleAnimationFrame!==null)return;
+    streetVehicleLastFrame=0;
+    streetVehicleLastPaint=0;
+
+    const frame=time=>{
+      streetVehicleAnimationFrame=requestAnimationFrame(frame);
+
+      if(
+        !streetVehiclesEnabled||
+        currentProvider!=='osm'||
+        document.hidden||
+        !osmMap||!osmStyleReady
+      ){
+        streetVehicleLastFrame=time;
+        return;
+      }
+
+      if(!streetVehicleLastFrame){
+        streetVehicleLastFrame=time;
+        streetVehicleLastPaint=time;
+        return;
+      }
+
+      const dt=Math.min(0.12,(time-streetVehicleLastFrame)/1000);
+      streetVehicleLastFrame=time;
+      const canvas=osmMap.getCanvas();
+
+      for(const vehicle of streetVehicles){
+        vehicle.distanceM+=vehicle.direction*vehicle.speedMps*dt;
+
+        // When a car reaches the end of its current road, refresh it onto another
+        // visible road while preserving its direction. This avoids U-turns.
+        if(vehicle.distanceM<0||vehicle.distanceM>vehicle.route.lengthM){
+          assignStreetVehicleToVisibleRoute(vehicle,vehicle.direction);
+          continue;
+        }
+
+        const sample=routePointAt(vehicle.route,vehicle.distanceM,vehicle.direction);
+        if(!sample)continue;
+        const p=osmMap.project(sample.point);
+
+        // Keep the moving population inside the browser viewport.
+        if(
+          p.x<-100||p.y<-100||
+          p.x>canvas.clientWidth+100||
+          p.y>canvas.clientHeight+100
+        ){
+          assignStreetVehicleToVisibleRoute(vehicle,vehicle.direction);
+        }
+      }
+
+      // ~15 fps is visually smooth for map-scale cars and avoids excessive GeoJSON churn.
+      if(time-streetVehicleLastPaint>=66){
+        streetVehicleLastPaint=time;
+        publishStreetVehicles();
+      }
+    };
+
+    streetVehicleAnimationFrame=requestAnimationFrame(frame);
+  }
+
   function ensureCityBuildings(){
     if(!osmMap||!osmStyleReady)return;
 
@@ -1729,7 +2125,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.23)
+     * DISPLAY STABILITY ONLY (v3.21.24)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -2024,6 +2420,7 @@
       $('localFloodClear').disabled=false;
       $('osmStructureToggle').disabled=false;
       $('view2D').disabled=false;$('view3D').disabled=false;
+      $('streetVehicleToggle').disabled=false;
       $('placeSearchButton').disabled=false;
       for(const id of ['terrainToggle','floodToggle','networkToggle','focus70Toggle','osmStructureToggle']){
         $(id).disabled=false;
@@ -2035,6 +2432,7 @@
       if(currentProvider==='osm'){
         updateTerrainLayers();
         say('地图已连接。可切换 3D 城市或搜索地点；分析图层勾选后加载。');
+        osmMap.once('idle',()=>scheduleStreetVehicleRefresh(0));
       }
     });
     osmMap.on('mousemove',e=>{
@@ -2079,6 +2477,7 @@
       tuneCityBuildingFarField();
       syncCityView();
       syncFloodView();
+      scheduleStreetVehicleRefresh(120);
       osmMap.triggerRepaint();
     });
     osmMap.on('error',e=>{
@@ -2211,6 +2610,23 @@
   $('provider').addEventListener('change',e=>{ switchProvider(e.target.value); });
   $('view2D').addEventListener('click',()=>setCityView(false));
   $('view3D').addEventListener('click',()=>setCityView(true));
+
+  $('streetVehicleToggle').addEventListener('change',event=>{
+    streetVehiclesEnabled=Boolean(event.target.checked);
+    if(osmMap?.getLayer(STREET_VEHICLE_LAYER)){
+      osmMap.setLayoutProperty(
+        STREET_VEHICLE_LAYER,
+        'visibility',
+        streetVehiclesEnabled?'visible':'none'
+      );
+    }
+    if(streetVehiclesEnabled){
+      scheduleStreetVehicleRefresh(0);
+    }else{
+      streetVehicles=[];
+      publishStreetVehicles();
+    }
+  });
   $('placeSearchForm').addEventListener('submit',e=>{e.preventDefault();runPlaceSearch();});
   $('placeSearchInput').addEventListener('input',()=>{
     cancelPlaceSearch();$('placeSearchResults').replaceChildren();setSearchStatus('');
