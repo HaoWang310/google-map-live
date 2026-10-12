@@ -1418,12 +1418,17 @@ export function createLocalFloodUI({
   window.addEventListener('mouseup',onAnchorMouseUpWindow);
   map.on('mousemove',onMapMouseMove);
 
-  const syncSceneOnPitch=()=>syncBuildingSceneView();
+  const syncSceneOnCamera=()=>{
+    syncBuildingSceneView();
+    map.triggerRepaint();
+  };
 
-  // Selected replacement geometry is intentionally static after Enter. The streamed
-  // native OSM layer handles all background/far-field tile changes. Re-querying and
-  // clearing the selected scene on rotate/move was what caused buildings to vanish.
-  map.on('pitch',syncSceneOnPitch);
+  // Selected replacement geometry stays completely static after Enter.
+  // Camera movement only reasserts visibility/repaint; it NEVER re-queries, clears,
+  // recolours or rebuilds the selected orange/grey clipped geometry.
+  map.on('pitch',syncSceneOnCamera);
+  map.on('rotate',syncSceneOnCamera);
+  map.on('moveend',syncSceneOnCamera);
 
   const cancelSelectionEdit=()=>{
     drawing=false;
@@ -1523,7 +1528,9 @@ export function createLocalFloodUI({
       window.removeEventListener('mousemove',onAnchorMouseMoveWindow);
       window.removeEventListener('mouseup',onAnchorMouseUpWindow);
       map.off('mousemove',onMapMouseMove);
-      map.off('pitch',syncSceneOnPitch);
+      map.off('pitch',syncSceneOnCamera);
+      map.off('rotate',syncSceneOnCamera);
+      map.off('moveend',syncSceneOnCamera);
       clearTimeout(sceneRefreshTimer);
       document.removeEventListener('keydown',keydown);
     }
