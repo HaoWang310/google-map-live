@@ -254,6 +254,20 @@ function featureKey(feature){
     .map(v=>Number(v).toFixed(6)).join('|');
 }
 
+function geometryIdentity(feature){
+  /*
+   * Never use vector-tile feature id as the extraction/grouping key.
+   * OpenMapTiles ids may repeat between tiles and one logical OSM object may also
+   * arrive as several tile-clipped fragments. Exact geometry identity safely
+   * deduplicates source/rendered copies without merging unrelated buildings.
+   */
+  try{
+    return featureKey(feature)+'|'+JSON.stringify(feature.geometry?.coordinates||[]);
+  }catch(error){
+    return featureKey(feature);
+  }
+}
+
 function geometryPolygons(geometry){
   if(!geometry)return [];
   if(geometry.type==='Polygon')return [geometry.coordinates];
@@ -722,15 +736,16 @@ export function createLocalFloodUI({
     }
 
     /*
-     * IMPORTANT: use ONE authoritative vector source only.
+     * IMPORTANT: use ONE authoritative vector source only, and DO NOT group by
+     * OpenMapTiles feature id.
      *
-     * v3.21.9 queried both the dedicated city source and all OpenFreeMap building
-     * layers. The same real building could therefore enter the local scene twice with
-     * slightly different/generalised geometry. Those coplanar roofs caused the orange /
-     * beige triangular stripes seen in the screenshot.
+     * The same id can be reused by different vector tiles, while one OSM building or
+     * multipolygon can also be clipped into several tile fragments. Grouping by id was
+     * the source of "one site selection changes another building elsewhere".
      *
-     * The dedicated CITY_BUILDINGS_SOURCE is z14-detail and uses OpenMapTiles building
-     * feature ids. Grouping fragments by feature id gives one building geometry only.
+     * We now deduplicate only identical geometry. Tile fragments remain independent
+     * and are clipped spatially against the red polygon. This is deliberately robust
+     * to grouped/multipolygon OSM building records.
      */
     const groups=new Map();
     let sourceFeatureCount=0;
@@ -741,13 +756,10 @@ export function createLocalFloodUI({
       if(hide3DFlag(feature.properties?.hide_3d))return;
       if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))return;
 
-      const id=
-        feature.id!==undefined&&feature.id!==null
-          ?'id:'+String(feature.id)
-          :'geom:'+featureKey(feature);
+      const geometryId='geom:'+geometryIdentity(feature);
 
-      if(!groups.has(id))groups.set(id,[]);
-      groups.get(id).push(feature);
+      if(!groups.has(geometryId))groups.set(geometryId,[]);
+      groups.get(geometryId).push(feature);
     };
 
     try{
@@ -807,12 +819,10 @@ export function createLocalFloodUI({
       const boundaryCrossing=Boolean(split.outside);
 
       /*
-       * Fully-inside buildings are NOT duplicated into the local GeoJSON scene.
-       * Their original CITY_BUILDINGS_SOURCE feature is recoloured by feature-state.
-       *
-       * Only a building that actually crosses the red boundary needs clipping:
-       * collapse its native full footprint, then reconstruct grey-outside and
-       * orange/red-inside fragments here.
+       * Every geometry fragment that intersects the red polygon is handled locally.
+       * Fully-inside geometry becomes orange/red. Boundary-crossing geometry is split
+       * into grey-outside + orange/red-inside. The streamed native geometry beneath
+       * the site is suppressed spatially by index.html, never by feature id.
        */
       if(boundaryCrossing){
         sceneFeatures.set(key+'|outside',{
@@ -1492,8 +1502,8 @@ export function createLocalFloodUI({
 
     status(
       hideSelectedBuildings
-        ?'已隐藏当前红色范围内的橙色建筑；周边灰色建筑保持原样。'
-        :'已恢复当前红色范围内的橙色建筑。'
+        ?'已隐藏当前红色范围内的全部建筑；跨边界建筑仅保留红框外灰色部分，周边建筑不受影响。'
+        :'已恢复当前红色范围内建筑并显示为橙色。'
     );
   });
 
