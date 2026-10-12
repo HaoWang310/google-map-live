@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.3';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.4';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -113,80 +113,83 @@ function geometryWithinSelection(geometry,selectionRing){
   return true;
 }
 
-function stableRingCentroid(ring){
-  if(!ring?.length)return null;
-  const pts=ring.length>1&&
-    ring[0][0]===ring[ring.length-1][0]&&ring[0][1]===ring[ring.length-1][1]
-    ?ring.slice(0,-1):ring;
-  if(pts.length<3)return pts[0]||null;
-
-  // Work in local coordinates around the first vertex. Using raw lon/lat values
-  // caused catastrophic cancellation for small London building footprints.
-  const ox=pts[0][0],oy=pts[0][1];
-  let area2=0,cx=0,cy=0;
-  for(let i=0,j=pts.length-1;i<pts.length;j=i++){
-    const ax=pts[j][0]-ox, ay=pts[j][1]-oy;
-    const bx=pts[i][0]-ox, by=pts[i][1]-oy;
-    const cross=ax*by-bx*ay;
-    area2+=cross;
-    cx+=(ax+bx)*cross;
-    cy+=(ay+by)*cross;
-  }
-
-  if(Math.abs(area2)>1e-18){
-    const point=[ox+cx/(3*area2),oy+cy/(3*area2)];
-    if(Number.isFinite(point[0])&&Number.isFinite(point[1]))return point;
-  }
-
-  let sx=0,sy=0;
-  for(const [x,y] of pts){sx+=x;sy+=y;}
-  return [sx/pts.length,sy/pts.length];
+function pointOnSegment2D(p,a,b,tolerance=1.5){
+  const dx=b[0]-a[0],dy=b[1]-a[1];
+  const len2=dx*dx+dy*dy;
+  if(len2<1e-9)return Math.hypot(p[0]-a[0],p[1]-a[1])<=tolerance;
+  const t=clamp(((p[0]-a[0])*dx+(p[1]-a[1])*dy)/len2,0,1);
+  const x=a[0]+t*dx,y=a[1]+t*dy;
+  return Math.hypot(p[0]-x,p[1]-y)<=tolerance;
 }
 
-function buildingRepresentativePoint(geometry){
+function pointInRing2D(point,ring){
+  if(!ring?.length)return false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    if(pointOnSegment2D(point,ring[j],ring[i]))return true;
+  }
+
+  const [x,y]=point;
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const [xi,yi]=ring[i],[xj,yj]=ring[j];
+    const crosses=((yi>y)!==(yj>y)) &&
+      (x < (xj-xi)*(y-yi)/((yj-yi)||1e-12)+xi);
+    if(crosses)inside=!inside;
+  }
+  return inside;
+}
+
+function segmentsCross2D(a,b,c,d){
+  const cross=(p,q,r)=>
+    (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+  const abC=cross(a,b,c),abD=cross(a,b,d);
+  const cdA=cross(c,d,a),cdB=cross(c,d,b);
+  const eps=1e-7;
+
+  if(
+    ((abC>eps&&abD<-eps)||(abC<-eps&&abD>eps)) &&
+    ((cdA>eps&&cdB<-eps)||(cdA<-eps&&cdB>eps))
+  )return true;
+  return false;
+}
+
+function projectRing(map,ring){
+  return (ring||[]).map(([lng,lat])=>{
+    const p=map.project([lng,lat]);
+    return [p.x,p.y];
+  });
+}
+
+function buildingFullyInsideSelection(map,geometry,selectionRing){
+  const selectionPx=projectRing(map,selectionRing);
+  if(selectionPx.length<3)return false;
+
   const polygons=geometry?.type==='Polygon'
     ?[geometry.coordinates]
     :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
-  if(!polygons.length)return null;
+  if(!polygons.length)return false;
 
-  let bestRing=null,bestScore=-1;
   for(const polygon of polygons){
-    const ring=polygon?.[0];
-    if(!ring?.length)continue;
-    const box=geometryBBox({type:'Polygon',coordinates:[ring]});
-    const score=Math.max(0,box.east-box.west)*Math.max(0,box.north-box.south);
-    if(score>bestScore){bestScore=score;bestRing=ring;}
+    const outer=polygon?.[0];
+    if(!outer?.length)return false;
+    const buildingPx=projectRing(map,outer);
+
+    // Every footprint vertex must be inside or exactly on the red boundary.
+    for(const point of buildingPx){
+      if(!pointInRing2D(point,selectionPx))return false;
+    }
+
+    // Also reject any footprint edge that actually crosses the selection boundary.
+    // Touching the boundary is allowed; crossing out of it is not.
+    for(let i=1;i<buildingPx.length;i++){
+      const a=buildingPx[i-1],b=buildingPx[i];
+      for(let j=1;j<selectionPx.length;j++){
+        const c=selectionPx[j-1],d=selectionPx[j];
+        if(segmentsCross2D(a,b,c,d))return false;
+      }
+    }
   }
-  if(!bestRing)return null;
-
-  const centroid=stableRingCentroid(bestRing);
-  if(centroid&&pointInRingLngLat(centroid,bestRing))return centroid;
-
-  const box=geometryBBox({type:'Polygon',coordinates:[bestRing]});
-  const centre=[(box.west+box.east)/2,(box.south+box.north)/2];
-  if(pointInRingLngLat(centre,bestRing))return centre;
-
-  // Final stable fallback: use the first footprint vertex rather than a numerically
-  // unstable value that could jump to the other side of London.
-  return bestRing[0]||centre;
-}
-
-function buildingBelongsToSelection(geometry,selectionRing){
-  const point=buildingRepresentativePoint(geometry);
-  if(!point)return false;
-
-  // Fast, strict guard before point-in-polygon. A selected building centre can never
-  // lie outside the selection polygon's bounding box.
-  const selectionBox=geometryBBox({
-    type:'Polygon',
-    coordinates:[selectionRing]
-  });
-  if(
-    point[0]<selectionBox.west||point[0]>selectionBox.east||
-    point[1]<selectionBox.south||point[1]>selectionBox.north
-  )return false;
-
-  return pointInRingLngLat(point,selectionRing);
+  return true;
 }
 
 function featureKey(feature){
@@ -462,9 +465,8 @@ export function createLocalFloodUI({
       raw.push({feature,key});
     };
 
-    // Capture what is actually visible first. Selection is decided from each
-    // building footprint's representative point, not strict full containment,
-    // so tile clipping and tiny boundary crossings do not drop valid buildings.
+    // Capture what is actually visible first. A building turns orange only when
+    // its rendered footprint is fully inside the red selection polygon.
     try{
       for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[]){
         addFeature(feature);
@@ -493,7 +495,7 @@ export function createLocalFloodUI({
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
       const isInside=boxesIntersect(bounds,geometryBBox(feature.geometry))&&
-        buildingBelongsToSelection(feature.geometry,selectionRing);
+        buildingFullyInsideSelection(map,feature.geometry,selectionRing);
 
       const scene={
         type:'Feature',
@@ -599,7 +601,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋 · 按建筑中心点筛选。'
+        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋 · 按建筑完整轮廓严格筛选。'
       );
       setButtons();
     }catch(error){
