@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.5';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.6';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -691,31 +691,125 @@ export function createLocalFloodUI({
 
   function queryBuildings(bounds,selectionRing){
     ensureCityBuildings();
-    const cityLayer=map.getLayer(cityBuildingsLayerId);
-    const source=cityLayer?.source;
-    const sourceLayer=cityLayer?.['source-layer']||'building';
-    if(!source)return {selected:[],sceneCount:0,visibleCount:0,source:null,sourceLayer};
 
-    const groups=new Map();
-    const addFeature=feature=>{
-      if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
-      if(hide3DFlag(feature.properties?.hide_3d))return;
-      const id=stableBuildingIdentity(feature);
-      if(!groups.has(id))groups.set(id,[]);
-      groups.get(id).push(feature);
+    const style=map.getStyle?.()||{};
+    const layers=style.layers||[];
+    const sources=style.sources||{};
+    const cityLayer=map.getLayer(cityBuildingsLayerId);
+    const preferredSource=cityLayer?.source||null;
+    const preferredSourceLayer=cityLayer?.['source-layer']||'building';
+
+    const buildingLayerIds=[];
+    const sourceCandidates=[];
+
+    const addSourceCandidate=(sourceId,sourceLayer='building')=>{
+      if(!sourceId)return;
+      const key=sourceId+'|'+sourceLayer;
+      if(sourceCandidates.some(item=>item.key===key))return;
+      sourceCandidates.push({key,sourceId,sourceLayer});
     };
 
-    // Dedicated z13/z14 source is authoritative. queryRenderedFeatures is only a
-    // fallback for a tile that has already rendered but has not yet appeared in the
-    // source query result.
-    try{
-      for(const feature of map.querySourceFeatures(source,{sourceLayer})||[])addFeature(feature);
-    }catch(error){
-      console.warn('Source building query failed',error);
+    if(cityLayer){
+      buildingLayerIds.push(cityBuildingsLayerId);
+      addSourceCandidate(preferredSource,preferredSourceLayer);
     }
-    try{
-      for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[])addFeature(feature);
-    }catch(error){}
+
+    for(const layer of layers){
+      const sourceLayer=String(layer?.['source-layer']||'').toLowerCase();
+      const id=String(layer?.id||'').toLowerCase();
+      const isBuildingLayer=
+        sourceLayer==='building'||
+        sourceLayer.includes('building')||
+        id.includes('building');
+
+      if(!isBuildingLayer)continue;
+
+      if(layer.id&&!buildingLayerIds.includes(layer.id)){
+        buildingLayerIds.push(layer.id);
+      }
+
+      if(layer.source){
+        addSourceCandidate(layer.source,layer['source-layer']||'building');
+      }
+    }
+
+    // Last-resort fallback: standard OpenMapTiles vector sources use source-layer
+    // "building". Query every loaded vector source so a lagging dedicated source
+    // cannot make Enter appear to do nothing while basemap buildings are visible.
+    for(const [sourceId,sourceDef] of Object.entries(sources)){
+      if(sourceDef?.type==='vector'){
+        addSourceCandidate(sourceId,'building');
+      }
+    }
+
+    const groups=new Map();
+    let sourceFeatureCount=0;
+    let renderedFeatureCount=0;
+
+    const addFeature=(feature,sourceId=null,sourceLayer='building')=>{
+      if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
+      if(hide3DFlag(feature.properties?.hide_3d))return;
+
+      sourceFeatureCount++;
+
+      const wrapped={
+        ...feature,
+        properties:{
+          ...(feature.properties||{}),
+          __querySourceId:sourceId||feature.source||null,
+          __querySourceLayer:sourceLayer||feature.sourceLayer||'building'
+        }
+      };
+
+      const id=stableBuildingIdentity(wrapped);
+      if(!groups.has(id))groups.set(id,[]);
+      groups.get(id).push(wrapped);
+    };
+
+    // 1. Query all currently loaded building source tiles.
+    for(const candidate of sourceCandidates){
+      try{
+        const features=map.querySourceFeatures(
+          candidate.sourceId,
+          {sourceLayer:candidate.sourceLayer}
+        )||[];
+        for(const feature of features){
+          addFeature(feature,candidate.sourceId,candidate.sourceLayer);
+        }
+      }catch(error){}
+    }
+
+    // 2. Query every visible building layer too. This catches the common case where
+    // the map is visibly showing OSM buildings but the dedicated analysis source has
+    // not yet surfaced features to querySourceFeatures().
+    if(buildingLayerIds.length){
+      try{
+        const features=map.queryRenderedFeatures({layers:buildingLayerIds})||[];
+        renderedFeatureCount+=features.length;
+        for(const feature of features){
+          addFeature(
+            feature,
+            feature.source||null,
+            feature.sourceLayer||feature['source-layer']||'building'
+          );
+        }
+      }catch(error){
+        for(const layerId of buildingLayerIds){
+          if(!map.getLayer(layerId))continue;
+          try{
+            const features=map.queryRenderedFeatures({layers:[layerId]})||[];
+            renderedFeatureCount+=features.length;
+            for(const feature of features){
+              addFeature(
+                feature,
+                feature.source||null,
+                feature.sourceLayer||feature['source-layer']||'building'
+              );
+            }
+          }catch(error){}
+        }
+      }
+    }
 
     const raw=[];
     for(const [id,fragments] of groups){
@@ -740,8 +834,6 @@ export function createLocalFloodUI({
           ?p.__sourceFeatureId
           :(feature.id!==undefined&&feature.id!==null?feature.id:null);
 
-      // Only buildings intersecting the red polygon enter the local scene. The native
-      // source continues rendering every other grey city building dynamically.
       if(split.outside){
         sceneFeatures.set(key+'|outside',{
           type:'Feature',
@@ -767,10 +859,13 @@ export function createLocalFloodUI({
         geometry:split.inside
       };
       sceneFeatures.set(insideKey,insideScene);
+
       selected.push({
         feature:insideScene,
         key:insideKey,
-        sourceFeatureId
+        sourceFeatureId,
+        querySourceId:p.__querySourceId||null,
+        querySourceLayer:p.__querySourceLayer||'building'
       });
     }
 
@@ -778,8 +873,15 @@ export function createLocalFloodUI({
       selected,
       sceneCount:sceneFeatures.size,
       visibleCount:raw.length,
-      source,
-      sourceLayer
+      source:preferredSource,
+      sourceLayer:preferredSourceLayer,
+      diagnostics:{
+        buildingLayerCount:buildingLayerIds.length,
+        sourceCandidateCount:sourceCandidates.length,
+        sourceFeatureCount,
+        renderedFeatureCount,
+        mergedFeatureCount:raw.length
+      }
     };
   }
 
@@ -885,11 +987,37 @@ export function createLocalFloodUI({
     clearSelectedBuildingStates();
     let queried=queryBuildings(bounds,ring);
 
-    // One short retry catches vector tiles that finished decoding immediately after idle.
+    // Visual map readiness and vector feature query readiness are not always identical.
+    // Retry the same red polygon automatically; the user never needs to redraw it.
     if(!queried.visibleCount){
-      await new Promise(resolve=>setTimeout(resolve,250));
-      queried=queryBuildings(bounds,ring);
+      for(const delay of [250,500,900]){
+        await new Promise(resolve=>setTimeout(resolve,delay));
+        queried=queryBuildings(bounds,ring);
+        if(queried.visibleCount)break;
+      }
     }
+
+    if(!queried.visibleCount){
+      const d=queried.diagnostics||{};
+      status(
+        '没有读取到 OSM 建筑（建筑层 '+(d.buildingLayerCount||0)+
+        ' · 数据源 '+(d.sourceCandidateCount||0)+
+        ' · source '+(d.sourceFeatureCount||0)+
+        ' · rendered '+(d.renderedFeatureCount||0)+
+        '）。请稍后直接按 Enter 重试，无需重新圈选。',
+        true
+      );
+      return false;
+    }
+
+    if(!queried.selected.length){
+      status(
+        'OSM 建筑已经加载，但当前红色范围没有识别到有效建筑交集。请微调锚点后按 Enter 重试。',
+        true
+      );
+      return false;
+    }
+
     buildingSourceId=queried.source;
     buildingSourceLayer=queried.sourceLayer;
     selectedBuildings=queried.selected.map(item=>item.feature);
@@ -909,11 +1037,6 @@ export function createLocalFloodUI({
       buildingById.set(id,entry);
       return {id,geometry:entry.geometry};
     });
-
-    if(!queried.visibleCount){
-      status('没有读取到 OSM 建筑。请等待地图瓦片加载完成后重新圈选。',true);
-      return false;
-    }
 
     publishBuildingScene();
     setSelectedNativeFeatureStates();
