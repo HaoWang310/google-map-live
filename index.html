@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.36</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.37</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.36';
+  const APP_VERSION='3.21.37';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -827,6 +827,7 @@
   let streetVehicleRefreshTimer=null;
   let streetVehicleViewRefreshAt=0;
   let streetTrafficSignals=[];
+  let streetBuildingObstacles=[];
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -2825,10 +2826,10 @@
     return Math.min(STREET_VEHICLE_COUNT,target);
   }
 
-  function streetVehicleFootprintCorners(sample,vehicle=null){
+  function streetVehicleFootprintCorners(sample,vehicle=null,marginM=0){
     const spec=streetVehicleSpec(vehicle);
-    const halfL=spec.length/2;
-    const halfW=spec.width/2;
+    const halfL=spec.length/2+Math.max(0,marginM);
+    const halfW=spec.width/2+Math.max(0,marginM);
     return [
       streetVehicleOffsetMeters(sample.point,sample.bearing, halfL, halfW),
       streetVehicleOffsetMeters(sample.point,sample.bearing, halfL,-halfW),
@@ -2843,6 +2844,194 @@
       (point[0]-origin[0])*111320*Math.cos(meanLat),
       (point[1]-origin[1])*111320
     ];
+  }
+
+  function streetGeometryBBox(ring){
+    let minLng=Infinity,minLat=Infinity,maxLng=-Infinity,maxLat=-Infinity;
+    for(const p of ring||[]){
+      if(!Array.isArray(p)||p.length<2)continue;
+      const lng=Number(p[0]),lat=Number(p[1]);
+      if(!Number.isFinite(lng)||!Number.isFinite(lat))continue;
+      minLng=Math.min(minLng,lng);maxLng=Math.max(maxLng,lng);
+      minLat=Math.min(minLat,lat);maxLat=Math.max(maxLat,lat);
+    }
+    if(!Number.isFinite(minLng))return null;
+    return {minLng,minLat,maxLng,maxLat};
+  }
+
+  function streetBBoxOverlap(a,b){
+    return !(
+      a.maxLng<b.minLng||
+      b.maxLng<a.minLng||
+      a.maxLat<b.minLat||
+      b.maxLat<a.minLat
+    );
+  }
+
+  function streetPointInPolygonXY(point,polygon){
+    let inside=false;
+    for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){
+      const xi=polygon[i][0],yi=polygon[i][1];
+      const xj=polygon[j][0],yj=polygon[j][1];
+      const crosses=((yi>point[1])!==(yj>point[1]))&&
+        (
+          point[0]<
+          (xj-xi)*(point[1]-yi)/
+          Math.max(1e-12,(yj-yi))+
+          xi
+        );
+      if(crosses)inside=!inside;
+    }
+    return inside;
+  }
+
+  function streetSegmentsIntersectXY(a,b,c,d){
+    const cross=(p,q,r)=>
+      (q[0]-p[0])*(r[1]-p[1])-
+      (q[1]-p[1])*(r[0]-p[0]);
+
+    const abC=cross(a,b,c);
+    const abD=cross(a,b,d);
+    const cdA=cross(c,d,a);
+    const cdB=cross(c,d,b);
+
+    return (
+      ((abC>0&&abD<0)||(abC<0&&abD>0))&&
+      ((cdA>0&&cdB<0)||(cdA<0&&cdB>0))
+    );
+  }
+
+  function streetPolygonsIntersectXY(a,b){
+    if(!a?.length||!b?.length)return false;
+
+    if(a.some(p=>streetPointInPolygonXY(p,b)))return true;
+    if(b.some(p=>streetPointInPolygonXY(p,a)))return true;
+
+    for(let i=0;i<a.length;i++){
+      const a0=a[i],a1=a[(i+1)%a.length];
+      for(let j=0;j<b.length;j++){
+        const b0=b[j],b1=b[(j+1)%b.length];
+        if(streetSegmentsIntersectXY(a0,a1,b0,b1))return true;
+      }
+    }
+    return false;
+  }
+
+  function refreshStreetBuildingObstacles(){
+    if(!osmMap||!osmStyleReady||!osmMap.getSource(CITY_BUILDINGS_SOURCE)){
+      streetBuildingObstacles=[];
+      return;
+    }
+
+    let features=[];
+    try{
+      features=osmMap.querySourceFeatures(
+        CITY_BUILDINGS_SOURCE,
+        {sourceLayer:'building'}
+      )||[];
+    }catch(error){
+      return;
+    }
+
+    const next=[];
+    const seen=new Set();
+
+    const addRing=(ring,feature)=>{
+      if(!Array.isArray(ring)||ring.length<4)return;
+      const clean=ring
+        .filter(p=>
+          Array.isArray(p)&&p.length>=2&&
+          Number.isFinite(Number(p[0]))&&
+          Number.isFinite(Number(p[1]))
+        )
+        .map(p=>[Number(p[0]),Number(p[1])]);
+      if(clean.length<4)return;
+
+      const bbox=streetGeometryBBox(clean);
+      if(!bbox)return;
+
+      const key=[
+        bbox.minLng.toFixed(6),bbox.minLat.toFixed(6),
+        bbox.maxLng.toFixed(6),bbox.maxLat.toFixed(6),
+        clean.length
+      ].join('|');
+      if(seen.has(key))return;
+      seen.add(key);
+
+      const props=feature?.properties||{};
+      const minHeight=Math.max(
+        0,
+        Number(props.render_min_height??props.min_height??0)||0
+      );
+
+      next.push({ring:clean,bbox,minHeight});
+    };
+
+    for(const feature of features){
+      const g=feature?.geometry;
+      if(g?.type==='Polygon'){
+        if(g.coordinates?.[0])addRing(g.coordinates[0],feature);
+      }else if(g?.type==='MultiPolygon'){
+        for(const polygon of g.coordinates||[]){
+          if(polygon?.[0])addRing(polygon[0],feature);
+        }
+      }
+    }
+
+    streetBuildingObstacles=next;
+  }
+
+  function streetVehicleIntersectsBuilding(sample,vehicle,marginM=0.55){
+    if(!sample||!vehicle||!streetBuildingObstacles.length)return false;
+
+    const spec=streetVehicleSpec(vehicle);
+    const corners=streetVehicleFootprintCorners(
+      sample,vehicle,marginM
+    );
+    const vehicleBBox=streetGeometryBBox(corners);
+    if(!vehicleBBox)return false;
+
+    for(const obstacle of streetBuildingObstacles){
+      // Raised building volumes/bridges above the vehicle do not block road traffic.
+      if(obstacle.minHeight>spec.height+0.45)continue;
+      if(!streetBBoxOverlap(vehicleBBox,obstacle.bbox))continue;
+
+      const origin=sample.point;
+      const vehicleXY=corners.map(p=>streetVehicleLocalXY(p,origin));
+      const buildingXY=obstacle.ring.map(p=>streetVehicleLocalXY(p,origin));
+
+      if(streetPolygonsIntersectXY(vehicleXY,buildingXY)){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function streetVehicleSafeLaneSample(
+    vehicle,route,direction,distanceM,preferredLane=0
+  ){
+    const count=streetVehicleLaneCount(route,direction);
+    if(count<=0)return null;
+
+    const order=[];
+    const preferred=Math.max(
+      0,
+      Math.min(count-1,Math.round(preferredLane||0))
+    );
+    order.push(preferred);
+    for(let lane=0;lane<count;lane++){
+      if(!order.includes(lane))order.push(lane);
+    }
+
+    for(const laneIndex of order){
+      const sample=routePointAt(
+        route,distanceM,direction,laneIndex
+      );
+      if(!sample)continue;
+      if(streetVehicleIntersectsBuilding(sample,vehicle))continue;
+      return {sample,laneIndex};
+    }
+    return null;
   }
 
   function streetVehiclePolygonsOverlap(aSample,bSample,aVehicle=null,bVehicle=null){
@@ -2883,6 +3072,11 @@
 
   function streetVehicleConflicts(sample,route,direction,ignoreVehicle=null,spawn=false){
     if(!sample)return true;
+
+    // Hard world constraint: a vehicle footprint may never intersect a building.
+    if(ignoreVehicle&&streetVehicleIntersectsBuilding(sample,ignoreVehicle)){
+      return true;
+    }
 
     for(const other of streetVehicles){
       if(other===ignoreVehicle)continue;
@@ -3377,19 +3571,22 @@
     const weighted=[];
 
     for(const candidate of candidates){
-      const nextLaneIndex=streetVehicleChooseLaneIndex(
+      const preferredLane=streetVehicleChooseLaneIndex(
         vehicle,
         candidate.route,
         candidate.direction,
         candidate.signedAngle
       );
-      const sample=routePointAt(
+      const safeLane=streetVehicleSafeLaneSample(
+        vehicle,
         candidate.route,
-        candidate.distanceM,
         candidate.direction,
-        nextLaneIndex
+        candidate.distanceM,
+        preferredLane
       );
-      if(!sample)continue;
+      if(!safeLane)continue;
+      const nextLaneIndex=safeLane.laneIndex;
+      const sample=safeLane.sample;
       if(
         streetVehicleConflicts(
           sample,
@@ -3504,18 +3701,20 @@
         resolvedDirection=opposite;
       }
 
-      vehicle.laneIndex=streetVehicleChooseLaneIndex(
+      const preferredLane=streetVehicleChooseLaneIndex(
         vehicle,route,resolvedDirection
       );
       const distanceM=streetVehicleEdgeEntryDistance(
-        route,resolvedDirection,vehicle.laneIndex
+        route,resolvedDirection,preferredLane
       );
       if(distanceM===null)continue;
 
-      const sample=routePointAt(
-        route,distanceM,resolvedDirection,vehicle.laneIndex
+      const safeLane=streetVehicleSafeLaneSample(
+        vehicle,route,resolvedDirection,distanceM,preferredLane
       );
-      if(!sample)continue;
+      if(!safeLane)continue;
+      vehicle.laneIndex=safeLane.laneIndex;
+      const sample=safeLane.sample;
       if(streetVehicleConflicts(sample,route,resolvedDirection,vehicle,true))continue;
 
       vehicle.route=route;
@@ -3590,9 +3789,14 @@
       return true;
     }
 
+    const endpointSample=streetVehicleRouteEndpointSample(vehicle);
+    const endpointBlocked=
+      endpointSample&&streetVehicleIntersectsBuilding(endpointSample,vehicle);
+
     // True dead end in the visible scene: perform a restrained U-turn on the SAME
-    // road after waiting. Never invent a straight-line escape across open ground.
+    // road after waiting, but never if the endpoint footprint overlaps a building.
     if(
+      !endpointBlocked&&
       time-Number(vehicle.routeEndWaitSince||time)>1800&&
       streetVehicleDirectionAllowed(vehicle.route,-vehicle.direction)
     ){
@@ -3650,13 +3854,15 @@
       const distanceM=randomVisibleStreetDistance(route);
       if(distanceM===null)continue;
 
-      vehicle.laneIndex=streetVehicleChooseLaneIndex(
+      const preferredLane=streetVehicleChooseLaneIndex(
         vehicle,route,resolvedDirection
       );
-      const sample=routePointAt(
-        route,distanceM,resolvedDirection,vehicle.laneIndex
+      const safeLane=streetVehicleSafeLaneSample(
+        vehicle,route,resolvedDirection,distanceM,preferredLane
       );
-      if(!sample)continue;
+      if(!safeLane)continue;
+      vehicle.laneIndex=safeLane.laneIndex;
+      const sample=safeLane.sample;
       if(streetVehicleConflicts(sample,route,resolvedDirection,vehicle,true))continue;
 
       vehicle.route=route;
@@ -3701,6 +3907,7 @@
     }
 
     streetVehicleRoutes=nextRoutes;
+    refreshStreetBuildingObstacles();
     rebuildStreetTrafficSignals();
 
     // Camera refreshes update the available road network but do not teleport cars.
@@ -3834,13 +4041,29 @@
           continue;
         }
 
-        const nextSample=routePointAt(
+        let nextSample=routePointAt(
           vehicle.route,
           nextDistance,
           vehicle.direction,
           vehicle.laneIndex||0
         );
         if(!nextSample)continue;
+
+        // Building is a hard obstacle. If the current lane would enter a building,
+        // try another valid lane on the SAME road; otherwise brake and stay put.
+        if(streetVehicleIntersectsBuilding(nextSample,vehicle)){
+          const safeLane=streetVehicleSafeLaneSample(
+            vehicle,
+            vehicle.route,
+            vehicle.direction,
+            nextDistance,
+            vehicle.laneIndex||0
+          );
+          if(safeLane){
+            vehicle.laneIndex=safeLane.laneIndex;
+            nextSample=safeLane.sample;
+          }
+        }
 
         if(
           !streetVehicleConflicts(
@@ -4067,7 +4290,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.36)
+     * DISPLAY STABILITY ONLY (v3.21.37)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -4329,6 +4552,9 @@
       if(e.sourceId===CITY_BUILDINGS_SOURCE){
         tuneCityBuildingFarField();
         syncCityView();
+        if(e.isSourceLoaded){
+          refreshStreetBuildingObstacles();
+        }
 
         // If a high-pitch/close view initially had no transportation tile geometry,
         // populate vehicles as soon as the shared vector source finishes loading it.
