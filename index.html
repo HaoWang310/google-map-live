@@ -535,9 +535,7 @@
   const APP_VERSION='3.18.5';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const CITY_BUILDINGS_SELECTED_LAYER='osm-city-buildings-selected-3d';
-  const CITY_BUILDINGS_IMPACT_LAYER='osm-city-buildings-impact-3d';
   const CITY_BUILDINGS_SELECTED_FILL='osm-city-buildings-selected-2d';
-  const CITY_BUILDINGS_IMPACT_FILL='osm-city-buildings-impact-2d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -1023,8 +1021,7 @@
     if(osmMap.getLayer(FLOOD_DETAIL_LAYER))osmMap.moveLayer(FLOOD_DETAIL_LAYER,firstSymbol);
     if(osmMap.getLayer(NETWORK_LAYER))osmMap.moveLayer(NETWORK_LAYER,firstSymbol);
     for(const id of [
-      CITY_BUILDINGS_LAYER,CITY_BUILDINGS_SELECTED_FILL,CITY_BUILDINGS_IMPACT_FILL,
-      CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_IMPACT_LAYER
+      CITY_BUILDINGS_LAYER,CITY_BUILDINGS_SELECTED_FILL,CITY_BUILDINGS_SELECTED_LAYER
     ]){
       if(osmMap.getLayer(id))osmMap.moveLayer(id,firstSymbol);
     }
@@ -1464,8 +1461,7 @@
 
   function isOsmBuildingRoadLayer(layer){
     if(!layer||[
-      CITY_BUILDINGS_LAYER,CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_IMPACT_LAYER,
-      CITY_BUILDINGS_SELECTED_FILL,CITY_BUILDINGS_IMPACT_FILL
+      CITY_BUILDINGS_LAYER,CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_SELECTED_FILL
     ].includes(layer.id))return false;
     const id=String(layer.id||'').toLowerCase();
     const sourceLayer=String(layer['source-layer']||'').toLowerCase();
@@ -1528,6 +1524,11 @@
     const never=['==',1,0];
     const height=['max',0,['to-number',['get','render_height'],5]];
     const base=['max',0,['to-number',['get','render_min_height'],0]];
+    const selectedColour=[
+      'case',
+      ['boolean',['feature-state','localFloodImpacted'],false],'#ff3b30',
+      '#33b8ff'
+    ];
 
     osmMap.addLayer({
       id:CITY_BUILDINGS_LAYER,type:'fill-extrusion',source,'source-layer':'building',minzoom:14,
@@ -1543,31 +1544,17 @@
     osmMap.addLayer({
       id:CITY_BUILDINGS_SELECTED_FILL,type:'fill',source,'source-layer':'building',minzoom:14,
       filter:never,layout:{visibility:'none'},
-      paint:{'fill-color':'#33b8ff','fill-opacity':0.9}
-    },getFirstSymbolLayerId());
-
-    osmMap.addLayer({
-      id:CITY_BUILDINGS_IMPACT_FILL,type:'fill',source,'source-layer':'building',minzoom:14,
-      filter:never,layout:{visibility:'none'},
-      paint:{'fill-color':'#ff3b30','fill-opacity':0.96}
+      paint:{
+        'fill-color':selectedColour,
+        'fill-opacity':0.92
+      }
     },getFirstSymbolLayerId());
 
     osmMap.addLayer({
       id:CITY_BUILDINGS_SELECTED_LAYER,type:'fill-extrusion',source,'source-layer':'building',minzoom:14,
       filter:never,layout:{visibility:'none'},
       paint:{
-        'fill-extrusion-color':'#33b8ff',
-        'fill-extrusion-height':height,
-        'fill-extrusion-base':base,
-        'fill-extrusion-opacity':1
-      }
-    },getFirstSymbolLayerId());
-
-    osmMap.addLayer({
-      id:CITY_BUILDINGS_IMPACT_LAYER,type:'fill-extrusion',source,'source-layer':'building',minzoom:14,
-      filter:never,layout:{visibility:'none'},
-      paint:{
-        'fill-extrusion-color':'#ff3b30',
+        'fill-extrusion-color':selectedColour,
         'fill-extrusion-height':height,
         'fill-extrusion-base':base,
         'fill-extrusion-opacity':1
@@ -1589,27 +1576,20 @@
 
     if(!localFloodSelectionGeometry){
       osmMap.setFilter(CITY_BUILDINGS_LAYER,baseFilter);
-      for(const id of [
-        CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_IMPACT_LAYER,
-        CITY_BUILDINGS_SELECTED_FILL,CITY_BUILDINGS_IMPACT_FILL
-      ]){
-        if(osmMap.getLayer(id))osmMap.setFilter(id,never);
-      }
+      if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_LAYER))osmMap.setFilter(CITY_BUILDINGS_SELECTED_LAYER,never);
+      if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL))osmMap.setFilter(CITY_BUILDINGS_SELECTED_FILL,never);
       syncCityView();
       return;
     }
 
     const inside=['within',localFloodSelectionGeometry];
-    const impacted=['boolean',['feature-state','localFloodImpacted'],false];
 
-    // Exactly one building colour at a time:
-    // outside = grey; inside = blue; inside+impacted = red.
+    // Exactly one rendered building layer owns each location:
+    // outside polygon = grey base layer; inside polygon = selected layer.
+    // The selected layer itself changes blue -> red through a paint feature-state.
     osmMap.setFilter(CITY_BUILDINGS_LAYER,['all',baseFilter,['!',inside]]);
-    osmMap.setFilter(CITY_BUILDINGS_SELECTED_LAYER,['all',baseFilter,inside,['!',impacted]]);
-    osmMap.setFilter(CITY_BUILDINGS_IMPACT_LAYER,['all',baseFilter,inside,impacted]);
-    osmMap.setFilter(CITY_BUILDINGS_SELECTED_FILL,['all',baseFilter,inside,['!',impacted]]);
-    osmMap.setFilter(CITY_BUILDINGS_IMPACT_FILL,['all',baseFilter,inside,impacted]);
-
+    osmMap.setFilter(CITY_BUILDINGS_SELECTED_LAYER,['all',baseFilter,inside]);
+    osmMap.setFilter(CITY_BUILDINGS_SELECTED_FILL,['all',baseFilter,inside]);
     syncCityView();
   }
 
@@ -1619,25 +1599,26 @@
     $('view2D').setAttribute('aria-pressed',String(!is3D));
     $('view3D').setAttribute('aria-pressed',String(is3D));
 
-    const hideBase=osmStructuresHidden;
     if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
       osmMap.setLayoutProperty(
         CITY_BUILDINGS_LAYER,'visibility',
-        (!hideBase&&is3D)?'visible':'none'
+        (!osmStructuresHidden&&is3D)?'visible':'none'
       );
-      cityBuildingsShown=!hideBase&&is3D;
+      cityBuildingsShown=!osmStructuresHidden&&is3D;
     }
 
     const showSelection=localFloodBuildingOverride;
-    for(const id of [CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_IMPACT_LAYER]){
-      if(osmMap.getLayer(id)){
-        osmMap.setLayoutProperty(id,'visibility',(showSelection&&is3D)?'visible':'none');
-      }
+    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_LAYER)){
+      osmMap.setLayoutProperty(
+        CITY_BUILDINGS_SELECTED_LAYER,'visibility',
+        (showSelection&&is3D)?'visible':'none'
+      );
     }
-    for(const id of [CITY_BUILDINGS_SELECTED_FILL,CITY_BUILDINGS_IMPACT_FILL]){
-      if(osmMap.getLayer(id)){
-        osmMap.setLayoutProperty(id,'visibility',(showSelection&&!is3D)?'visible':'none');
-      }
+    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL)){
+      osmMap.setLayoutProperty(
+        CITY_BUILDINGS_SELECTED_FILL,'visibility',
+        (showSelection&&!is3D)?'visible':'none'
+      );
     }
   }
 
