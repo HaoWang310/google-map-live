@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.18</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.19</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -555,7 +555,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.18';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.18';
+  const APP_VERSION='3.21.19';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -747,6 +747,8 @@
   let localFloodBuildingOverride=false;
   const localFloodBaseBuildingVisibility=new Map();
   let localFloodSelectedBuildingIds=[];
+  let localFloodSelectionRing=[];
+  let localFloodHideSelectedBuildings=false;
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
   let osmStructuresHidden=false;
@@ -1616,41 +1618,17 @@
     const base=['max',0,['to-number',['get','render_min_height'],0]];
 
     /*
-     * ONE authoritative 3D building source:
-     * CITY_BUILDINGS_LAYER owns every ordinary building in the 3D city.
+     * One authoritative building source.
      *
-     * Fully-inside flood-selection buildings stay as their original vector feature:
-     * grey -> orange -> red, or zero height when hidden.
-     *
-     * Only boundary-crossing buildings are collapsed here and reconstructed as
-     * clipped grey-outside + orange/red-inside geometry by local_flood_ui.js.
+     * Selection colour/visibility is NOT keyed by vector-tile feature id.
+     * IDs can repeat between tiles, which previously turned unrelated buildings
+     * orange outside the red polygon. The current polygon is applied spatially
+     * in updateCityBuildingSelectionPaint().
      */
-    const nativeHidden=[
-      'any',
-      ['boolean',['feature-state','localFloodBoundary'],false],
-      ['boolean',['feature-state','localFloodHidden'],false]
-    ];
-    const nativeHeight=[
-      'case',
-      nativeHidden,0,
-      height
-    ];
-    const nativeBase=[
-      'case',
-      nativeHidden,0,
-      base
-    ];
-    const nativeColour=[
-      'case',
-      ['boolean',['feature-state','localFloodImpacted'],false],'#ff3b30',
-      ['boolean',['feature-state','localFloodSelected'],false],'#ff9f1a',
-      '#c6ced5'
-    ];
-    const selectedColour=[
-      'case',
-      ['boolean',['feature-state','localFloodImpacted'],false],'#ff3b30',
-      '#ff9f1a'
-    ];
+    const nativeHeight=height;
+    const nativeBase=base;
+    const nativeColour='#c6ced5';
+    const selectedColour='#ff9f1a';
 
     /*
      * Transparent driver layer: keep the dedicated building source requesting
@@ -1700,11 +1678,11 @@
         source:CITY_BUILDINGS_SOURCE,
         'source-layer':'building',
         minzoom:13,
-        filter:never,
+        filter:baseFilter,
         layout:{visibility:'none'},
         paint:{
-          'fill-color':selectedColour,
-          'fill-opacity':0.92
+          'fill-color':'#c6ced5',
+          'fill-opacity':0.96
         }
       },getFirstSymbolLayerId());
     }
@@ -1729,7 +1707,89 @@
     }
 
     cityBuildingsShown=false;
+    updateCityBuildingSelectionPaint();
     tuneCityBuildingFarField();
+  }
+
+  function normaliseFloodSelectionRing(ring){
+    if(!Array.isArray(ring))return [];
+    const clean=ring
+      .filter(point=>
+        Array.isArray(point)&&point.length>=2&&
+        Number.isFinite(Number(point[0]))&&Number.isFinite(Number(point[1]))
+      )
+      .map(point=>[Number(point[0]),Number(point[1])]);
+
+    if(clean.length<3)return [];
+    const first=clean[0],last=clean[clean.length-1];
+    if(first[0]!==last[0]||first[1]!==last[1])clean.push([...first]);
+    return clean;
+  }
+
+  function updateCityBuildingSelectionPaint(){
+    if(!osmMap||!osmStyleReady)return;
+
+    const height=['max',0,['to-number',['get','render_height'],5]];
+    const base=['max',0,['to-number',['get','render_min_height'],0]];
+    const ring=normaliseFloodSelectionRing(localFloodSelectionRing);
+
+    let colour='#c6ced5';
+    let visibleHeight=height;
+    let visibleBase=base;
+    let fillColour='#c6ced5';
+    let fillOpacity=0.96;
+
+    if(localFloodBuildingOverride&&ring.length>=4){
+      const selectionGeometry={type:'Polygon',coordinates:[ring]};
+
+      /*
+       * Spatial selection is the critical fix:
+       * - "within" marks only buildings actually contained by the current red polygon.
+       * - "distance <= 0.05 m" detects buildings touching/crossing the boundary.
+       *
+       * No selection colour or visibility is driven by feature id, so a repeated
+       * vector-tile id elsewhere in London cannot turn another building orange.
+       */
+      const inside=['within',selectionGeometry];
+      const intersects=['<=',['distance',selectionGeometry],0.05];
+      const boundary=['all',intersects,['!',inside]];
+      const hidden=localFloodHideSelectedBuildings
+        ?['any',boundary,inside]
+        :boundary;
+      const impactedInside=[
+        'all',
+        inside,
+        ['boolean',['feature-state','localFloodImpacted'],false]
+      ];
+
+      colour=[
+        'case',
+        impactedInside,'#ff3b30',
+        inside,'#ff9f1a',
+        '#c6ced5'
+      ];
+      visibleHeight=['case',hidden,0,height];
+      visibleBase=['case',hidden,0,base];
+
+      // Same authoritative source in plan view. Boundary fragments are supplied by
+      // local_flood_ui.js; therefore the native full footprint becomes transparent
+      // only for boundary-crossing buildings (and for all selected buildings when hidden).
+      fillColour=colour;
+      fillOpacity=['case',hidden,0,0.96];
+    }
+
+    if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
+      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',colour);
+      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-height',visibleHeight);
+      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-base',visibleBase);
+    }
+
+    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL)){
+      osmMap.setPaintProperty(CITY_BUILDINGS_SELECTED_FILL,'fill-color',fillColour);
+      osmMap.setPaintProperty(CITY_BUILDINGS_SELECTED_FILL,'fill-opacity',fillOpacity);
+    }
+
+    osmMap.triggerRepaint();
   }
 
   function tuneCityBuildingFarField(){
@@ -1841,10 +1901,15 @@
     localFloodSelectedBuildingIds=active
       ?[...new Set((selection?.sourceFeatureIds||[]).filter(id=>id!==null&&id!==undefined))]
       :[];
+    localFloodSelectionRing=active
+      ?normaliseFloodSelectionRing(selection?.selectionRing||[])
+      :[];
+    localFloodHideSelectedBuildings=active&&Boolean(selection?.hideSelectedBuildings);
 
-    // No second 3D source is allowed back in during selection/edit/hide cycles.
+    // Keep one 3D source, then recolour/hide it strictly by polygon geometry.
     setBaseOsmBuildingGeometryHidden(false);
     enforceSingleCityBuildingSource();
+    updateCityBuildingSelectionPaint();
     syncCityView();
   }
 
@@ -1860,20 +1925,24 @@
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
-      // Always keep the dedicated streamed building layer active in 3D. Selected
-      // buildings are suppressed individually through feature-state, never by hiding
-      // the entire city layer.
-      const showNative=is3D;
-      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',showNative?'visible':'none');
-      cityBuildingsShown=showNative;
+      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',is3D?'visible':'none');
+      cityBuildingsShown=is3D;
     }else{
       cityBuildingsShown=false;
     }
 
-    // Legacy selected layers stay disabled. CITY_BUILDINGS_LAYER owns normal/selected/impacted states; only boundary fragments use local_flood_ui.js.
-    for(const id of [CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_SELECTED_FILL]){
-      if(osmMap.getLayer(id))osmMap.setLayoutProperty(id,'visibility','none');
+    // Plan view now uses the SAME authoritative vector source as 3D, rendered as
+    // solid footprints. This fixes the previous top-view blank building blocks.
+    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL)){
+      osmMap.setLayoutProperty(CITY_BUILDINGS_SELECTED_FILL,'visibility',is3D?'none':'visible');
     }
+
+    // The old extra selected-extrusion layer remains permanently disabled.
+    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_LAYER)){
+      osmMap.setLayoutProperty(CITY_BUILDINGS_SELECTED_LAYER,'visibility','none');
+    }
+
+    updateCityBuildingSelectionPaint();
   }
 
   function setCityView(is3D){
