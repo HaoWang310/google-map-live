@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.25</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.26</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,15 +562,25 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.25';
+  const APP_VERSION='3.21.26';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
   const CITY_BUILDINGS_BACKGROUND_FILL='osm-city-buildings-2d';
   const STREET_VEHICLE_SOURCE='osm-street-vehicles-source';
-  const STREET_VEHICLE_LAYER='osm-street-vehicles';
-  const STREET_VEHICLE_ICON='osm-street-vehicle-icon';
+  const STREET_VEHICLE_LAYER='osm-street-vehicles-3d';
+  const STREET_VEHICLE_2D_LAYER='osm-street-vehicles-2d';
   const STREET_VEHICLE_COUNT=18;
+
+  // Real-world reference dimensions for a typical passenger car.
+  // Geometry is generated in metres, so vehicle scale stays physically consistent
+  // with the OSM/OpenMapTiles buildings instead of changing with screen pixels.
+  const STREET_VEHICLE_LENGTH_M=4.55;
+  const STREET_VEHICLE_WIDTH_M=1.82;
+  const STREET_VEHICLE_HEIGHT_M=1.48;
+  const STREET_VEHICLE_BODY_HEIGHT_M=0.78;
+  const STREET_VEHICLE_CABIN_HEIGHT_M=1.37;
+  const STREET_VEHICLE_WHEELBASE_M=2.70;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -1598,157 +1608,186 @@
     return [lng,lat];
   }
 
-  function drawStreetVehicleShadow(ctx){
-    ctx.fillStyle='rgba(15,23,42,0.20)';
-    ctx.beginPath();
-    ctx.roundRect(14,12,36,106,13);
-    ctx.fill();
-  }
+  function streetVehicleOffsetMeters(origin,bearing,forwardM,leftM){
+    const theta=bearing*Math.PI/180;
+    const east=
+      Math.sin(theta)*forwardM-
+      Math.cos(theta)*leftM;
+    const north=
+      Math.cos(theta)*forwardM+
+      Math.sin(theta)*leftM;
 
-  function drawStreetVehicleWheels(ctx){
-    ctx.fillStyle='#111827';
-    ctx.beginPath();
-    ctx.roundRect(8,24,9,24,4);
-    ctx.roundRect(47,24,9,24,4);
-    ctx.roundRect(8,80,9,24,4);
-    ctx.roundRect(47,80,9,24,4);
-    ctx.fill();
-
-    ctx.fillStyle='#475569';
-    ctx.fillRect(10,29,5,14);
-    ctx.fillRect(49,29,5,14);
-    ctx.fillRect(10,85,5,14);
-    ctx.fillRect(49,85,5,14);
-  }
-
-  function drawStreetVehicleBody(ctx){
-    const body=ctx.createLinearGradient(12,0,52,0);
-    body.addColorStop(0,'#1d4ed8');
-    body.addColorStop(0.48,'#3b82f6');
-    body.addColorStop(1,'#1e40af');
-
-    ctx.fillStyle=body;
-    ctx.beginPath();
-    ctx.roundRect(12,8,40,112,13);
-    ctx.fill();
-
-    ctx.fillStyle='#1e3a8a';
-    ctx.beginPath();
-    ctx.roundRect(16,6,32,7,3);
-    ctx.roundRect(16,115,32,7,3);
-    ctx.fill();
-  }
-
-  function drawStreetVehicleWindows(ctx){
-    ctx.fillStyle='#bfdbfe';
-    ctx.beginPath();
-    ctx.roundRect(18,26,28,23,6);
-    ctx.fill();
-
-    ctx.fillStyle='#60a5fa';
-    ctx.beginPath();
-    ctx.roundRect(17,48,30,35,7);
-    ctx.fill();
-
-    ctx.fillStyle='#dbeafe';
-    ctx.beginPath();
-    ctx.roundRect(18,82,28,20,6);
-    ctx.fill();
-
-    ctx.fillStyle='rgba(30,64,175,0.62)';
-    ctx.fillRect(30,26,4,76);
-
-    ctx.fillStyle='rgba(255,255,255,0.42)';
-    ctx.beginPath();
-    ctx.roundRect(20,29,5,17,2);
-    ctx.roundRect(20,85,5,14,2);
-    ctx.fill();
-  }
-
-  function drawStreetVehicleLights(ctx){
-    // The icon points north at bearing 0°.
-    ctx.fillStyle='#fef3c7';
-    ctx.beginPath();
-    ctx.roundRect(16,10,8,5,2);
-    ctx.roundRect(40,10,8,5,2);
-    ctx.fill();
-
-    ctx.fillStyle='#ef4444';
-    ctx.beginPath();
-    ctx.roundRect(16,113,8,5,2);
-    ctx.roundRect(40,113,8,5,2);
-    ctx.fill();
-  }
-
-  function drawStreetVehicleHighlights(ctx){
-    ctx.strokeStyle='rgba(255,255,255,0.55)';
-    ctx.lineWidth=1.8;
-    ctx.beginPath();
-    ctx.moveTo(18,19);
-    ctx.lineTo(18,106);
-    ctx.stroke();
-
-    ctx.strokeStyle='rgba(15,23,42,0.28)';
-    ctx.lineWidth=1.4;
-    ctx.beginPath();
-    ctx.roundRect(12.7,8.7,38.6,110.6,12);
-    ctx.stroke();
-  }
-
-  function makeStreetVehicleIcon(){
-    if(!osmMap||osmMap.hasImage(STREET_VEHICLE_ICON))return;
-
-    const canvas=document.createElement('canvas');
-    canvas.width=64;
-    canvas.height=128;
-    const ctx=canvas.getContext('2d');
-
-    ctx.clearRect(0,0,64,128);
-    drawStreetVehicleShadow(ctx);
-    drawStreetVehicleWheels(ctx);
-    drawStreetVehicleBody(ctx);
-    drawStreetVehicleWindows(ctx);
-    drawStreetVehicleLights(ctx);
-    drawStreetVehicleHighlights(ctx);
-
-    osmMap.addImage(
-      STREET_VEHICLE_ICON,
-      ctx.getImageData(0,0,64,128),
-      {pixelRatio:4}
+    const lat=origin[1]+north/111320;
+    const lng=origin[0]+east/(
+      111320*Math.max(0.2,Math.cos(origin[1]*Math.PI/180))
     );
+    return [lng,lat];
   }
 
-  function streetVehicleIconSizeExpression(){
-    return [
-      'interpolate',['linear'],['zoom'],
-      11,0.75,
-      12,0.90,
-      13,1.10,
-      14,1.30,
-      15,1.55,
-      16,1.85,
-      17,2.15,
-      18,2.45,
-      19,2.75,
-      20,3.00
-    ];
+  function streetVehiclePolygon(origin,bearing,points){
+    const ring=(points||[]).map(([forward,left])=>
+      streetVehicleOffsetMeters(origin,bearing,forward,left)
+    );
+    if(ring.length){
+      const first=ring[0];
+      ring.push([first[0],first[1]]);
+    }
+    return {
+      type:'Polygon',
+      coordinates:[ring]
+    };
   }
 
-  function streetVehicleOpacityExpression(){
-    return [
-      'interpolate',['linear'],['zoom'],
-      10,0.35,
-      11,0.52,
-      12,0.68,
-      13,0.82,
-      14,0.94,
-      15,1
-    ];
+  function streetVehicleRect(origin,bearing,lengthM,widthM,forwardOffsetM=0,leftOffsetM=0){
+    const halfL=lengthM/2;
+    const halfW=widthM/2;
+    return streetVehiclePolygon(origin,bearing,[
+      [forwardOffsetM+halfL,leftOffsetM+halfW],
+      [forwardOffsetM+halfL,leftOffsetM-halfW],
+      [forwardOffsetM-halfL,leftOffsetM-halfW],
+      [forwardOffsetM-halfL,leftOffsetM+halfW]
+    ]);
+  }
+
+  function streetVehicleBodyGeometry(origin,bearing){
+    // Slightly tapered/chamfered footprint so the extrusion reads as a car,
+    // not a generic rectangular box.
+    const halfL=STREET_VEHICLE_LENGTH_M/2;
+    const halfW=STREET_VEHICLE_WIDTH_M/2;
+    return streetVehiclePolygon(origin,bearing,[
+      [ halfL,           halfW*0.73],
+      [ halfL-0.38,      halfW],
+      [-halfL+0.42,      halfW],
+      [-halfL,           halfW*0.78],
+      [-halfL,          -halfW*0.78],
+      [-halfL+0.42,     -halfW],
+      [ halfL-0.38,     -halfW],
+      [ halfL,          -halfW*0.73]
+    ]);
+  }
+
+  function streetVehicleCabinGeometry(origin,bearing){
+    // Cabin is slightly forward-biased and narrower than the body.
+    return streetVehiclePolygon(origin,bearing,[
+      [ 1.13,  0.72],
+      [ 0.78,  0.78],
+      [-1.18,  0.73],
+      [-1.34,  0.60],
+      [-1.34, -0.60],
+      [-1.18, -0.73],
+      [ 0.78, -0.78],
+      [ 1.13, -0.72]
+    ]);
+  }
+
+  function streetVehicleMultiPolygon(geometries){
+    return {
+      type:'MultiPolygon',
+      coordinates:geometries
+        .filter(g=>g?.type==='Polygon')
+        .map(g=>g.coordinates)
+    };
+  }
+
+  function streetVehicleModelFeatures(vehicle,sample){
+    const origin=sample.point;
+    const bearing=sample.bearing;
+    const id=vehicle.id;
+
+    const body={
+      type:'Feature',
+      properties:{
+        vehicleId:id,
+        part:'body',
+        minHeight:0.16,
+        height:STREET_VEHICLE_BODY_HEIGHT_M,
+        color:'#2563eb'
+      },
+      geometry:streetVehicleBodyGeometry(origin,bearing)
+    };
+
+    const cabin={
+      type:'Feature',
+      properties:{
+        vehicleId:id,
+        part:'cabin',
+        minHeight:0.72,
+        height:STREET_VEHICLE_CABIN_HEIGHT_M,
+        color:'#60a5fa'
+      },
+      geometry:streetVehicleCabinGeometry(origin,bearing)
+    };
+
+    const roof={
+      type:'Feature',
+      properties:{
+        vehicleId:id,
+        part:'roof',
+        minHeight:STREET_VEHICLE_CABIN_HEIGHT_M-0.03,
+        height:STREET_VEHICLE_HEIGHT_M,
+        color:'#93c5fd'
+      },
+      geometry:streetVehicleRect(origin,bearing,1.78,1.34,-0.08,0)
+    };
+
+    const wheelForward=STREET_VEHICLE_WHEELBASE_M/2;
+    const wheelLeft=STREET_VEHICLE_WIDTH_M/2+0.02;
+    const wheelGeometries=[];
+    for(const forward of [wheelForward,-wheelForward]){
+      for(const left of [wheelLeft,-wheelLeft]){
+        wheelGeometries.push(
+          streetVehicleRect(origin,bearing,0.72,0.24,forward,left)
+        );
+      }
+    }
+
+    const wheels={
+      type:'Feature',
+      properties:{
+        vehicleId:id,
+        part:'wheels',
+        minHeight:0.04,
+        height:0.60,
+        color:'#111827'
+      },
+      geometry:streetVehicleMultiPolygon(wheelGeometries)
+    };
+
+    const headLights={
+      type:'Feature',
+      properties:{
+        vehicleId:id,
+        part:'headlights',
+        minHeight:0.52,
+        height:0.68,
+        color:'#fde68a'
+      },
+      geometry:streetVehicleMultiPolygon([
+        streetVehicleRect(origin,bearing,0.16,0.34,STREET_VEHICLE_LENGTH_M/2-0.05, 0.52),
+        streetVehicleRect(origin,bearing,0.16,0.34,STREET_VEHICLE_LENGTH_M/2-0.05,-0.52)
+      ])
+    };
+
+    const tailLights={
+      type:'Feature',
+      properties:{
+        vehicleId:id,
+        part:'taillights',
+        minHeight:0.50,
+        height:0.67,
+        color:'#ef4444'
+      },
+      geometry:streetVehicleMultiPolygon([
+        streetVehicleRect(origin,bearing,0.16,0.32,-STREET_VEHICLE_LENGTH_M/2+0.05, 0.53),
+        streetVehicleRect(origin,bearing,0.16,0.32,-STREET_VEHICLE_LENGTH_M/2+0.05,-0.53)
+      ])
+    };
+
+    return [body,cabin,roof,wheels,headLights,tailLights];
   }
 
   function ensureStreetVehicleLayer(){
     if(!osmMap||!osmStyleReady)return;
-    makeStreetVehicleIcon();
 
     if(!osmMap.getSource(STREET_VEHICLE_SOURCE)){
       osmMap.addSource(STREET_VEHICLE_SOURCE,{
@@ -1757,27 +1796,65 @@
       });
     }
 
+    // True metre-based 3D model.
     if(!osmMap.getLayer(STREET_VEHICLE_LAYER)){
       osmMap.addLayer({
         id:STREET_VEHICLE_LAYER,
-        type:'symbol',
+        type:'fill-extrusion',
         source:STREET_VEHICLE_SOURCE,
+        minzoom:14,
         layout:{
-          visibility:streetVehiclesEnabled?'visible':'none',
-          'icon-image':STREET_VEHICLE_ICON,
-          'icon-size':streetVehicleIconSizeExpression(),
-          'icon-rotate':['get','bearing'],
-          'icon-rotation-alignment':'map',
-          'icon-pitch-alignment':'map',
-          'icon-allow-overlap':true,
-          'icon-ignore-placement':true
+          visibility:streetVehiclesEnabled&&osmMap.getPitch()>.5?'visible':'none'
         },
         paint:{
-          'icon-opacity':streetVehicleOpacityExpression()
+          'fill-extrusion-color':['get','color'],
+          'fill-extrusion-base':['get','minHeight'],
+          'fill-extrusion-height':['get','height'],
+          'fill-extrusion-opacity':1,
+          'fill-extrusion-vertical-gradient':true
+        }
+      },getFirstSymbolLayerId());
+    }
+
+    // Plan-view footprint uses the exact same physical geometry.
+    if(!osmMap.getLayer(STREET_VEHICLE_2D_LAYER)){
+      osmMap.addLayer({
+        id:STREET_VEHICLE_2D_LAYER,
+        type:'fill',
+        source:STREET_VEHICLE_SOURCE,
+        minzoom:14,
+        layout:{
+          visibility:streetVehiclesEnabled&&osmMap.getPitch()<=.5?'visible':'none'
+        },
+        paint:{
+          'fill-color':['get','color'],
+          'fill-opacity':1
         }
       },getFirstSymbolLayerId());
     }
   }
+
+  function syncStreetVehicleView(){
+    if(!osmMap||!osmStyleReady)return;
+    const is3D=osmMap.getPitch()>.5;
+
+    if(osmMap.getLayer(STREET_VEHICLE_LAYER)){
+      osmMap.setLayoutProperty(
+        STREET_VEHICLE_LAYER,
+        'visibility',
+        streetVehiclesEnabled&&is3D?'visible':'none'
+      );
+    }
+
+    if(osmMap.getLayer(STREET_VEHICLE_2D_LAYER)){
+      osmMap.setLayoutProperty(
+        STREET_VEHICLE_2D_LAYER,
+        'visibility',
+        streetVehiclesEnabled&&!is3D?'visible':'none'
+      );
+    }
+  }
+
 
   function streetRoadLayerIds(){
     if(!osmMap||!osmStyleReady)return [];
@@ -1922,27 +1999,23 @@
     const source=osmMap.getSource(STREET_VEHICLE_SOURCE);
     if(!source)return;
 
-    const features=streetVehicles.map(vehicle=>{
+    const features=[];
+    for(const vehicle of streetVehicles){
       const sample=routePointAt(vehicle.route,vehicle.distanceM,vehicle.direction);
-      if(!sample)return null;
+      if(!sample)continue;
+
       vehicle.lng=sample.point[0];
       vehicle.lat=sample.point[1];
       vehicle.bearing=sample.bearing;
 
-      return {
-        type:'Feature',
-        properties:{
-          id:vehicle.id,
-          bearing:vehicle.bearing
-        },
-        geometry:{
-          type:'Point',
-          coordinates:[vehicle.lng,vehicle.lat]
-        }
-      };
-    }).filter(Boolean);
+      features.push(...streetVehicleModelFeatures(vehicle,sample));
+    }
 
-    source.setData({type:'FeatureCollection',features});
+    source.setData({
+      type:'FeatureCollection',
+      features
+    });
+    syncStreetVehicleView();
   }
 
   function assignStreetVehicleToVisibleRoute(vehicle,direction=null){
@@ -2251,7 +2324,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.25)
+     * DISPLAY STABILITY ONLY (v3.21.26)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -2351,6 +2424,7 @@
     }
 
     updateCityBuildingSelectionPaint();
+    syncStreetVehicleView();
   }
 
   function setCityView(is3D){
@@ -2739,13 +2813,8 @@
 
   $('streetVehicleToggle').addEventListener('change',event=>{
     streetVehiclesEnabled=Boolean(event.target.checked);
-    if(osmMap?.getLayer(STREET_VEHICLE_LAYER)){
-      osmMap.setLayoutProperty(
-        STREET_VEHICLE_LAYER,
-        'visibility',
-        streetVehiclesEnabled?'visible':'none'
-      );
-    }
+    syncStreetVehicleView();
+
     if(streetVehiclesEnabled){
       scheduleStreetVehicleRefresh(0);
     }else{
