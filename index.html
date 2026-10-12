@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.28</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.29</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.28';
+  const APP_VERSION='3.21.29';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -570,21 +570,20 @@
   const STREET_VEHICLE_SOURCE='osm-street-vehicles-source';
   const STREET_VEHICLE_LAYER='osm-street-vehicles-3d';
   const STREET_VEHICLE_2D_LAYER='osm-street-vehicles-2d';
-  const STREET_VEHICLE_COUNT=18;
+  const STREET_VEHICLE_COUNT=36;
 
   // Real-world reference dimensions for a typical passenger car.
   // Geometry is generated in metres, so vehicle scale stays physically consistent
   // with the OSM/OpenMapTiles buildings instead of changing with screen pixels.
-  const STREET_VEHICLE_LENGTH_M=4.55;
-  const STREET_VEHICLE_WIDTH_M=1.82;
-  const STREET_VEHICLE_HEIGHT_M=1.48;
-  const STREET_VEHICLE_BODY_HEIGHT_M=0.78;
-  const STREET_VEHICLE_CABIN_HEIGHT_M=1.37;
-  const STREET_VEHICLE_WHEELBASE_M=2.70;
-  const STREET_VEHICLE_MIN_SPAWN_GAP_M=8.0;
-  const STREET_VEHICLE_MIN_COLLISION_GAP_M=2.6;
-  const STREET_VEHICLE_SAME_LANE_HEADWAY_M=10.0;
-  const STREET_VEHICLE_MIN_VISIBLE=8;
+  const STREET_VEHICLE_LENGTH_M=4.35;
+  const STREET_VEHICLE_WIDTH_M=1.80;
+  const STREET_VEHICLE_HEIGHT_M=1.44;
+  const STREET_VEHICLE_BODY_HEIGHT_M=0.68;
+  const STREET_VEHICLE_CABIN_HEIGHT_M=1.30;
+  const STREET_VEHICLE_WHEELBASE_M=2.65;
+  const STREET_VEHICLE_MIN_SPAWN_GAP_M=11.0;
+  const STREET_VEHICLE_SAME_LANE_HEADWAY_M=12.0;
+  const STREET_VEHICLE_MIN_VISIBLE=14;
   const STREET_VEHICLE_COLOR_SCHEMES=[
     {body:'#2563eb',cabin:'#60a5fa',roof:'#bfdbfe'}, // blue
     {body:'#dc2626',cabin:'#f87171',roof:'#fecaca'}, // red
@@ -1684,14 +1683,14 @@
   function streetVehicleCabinGeometry(origin,bearing){
     // Cabin is slightly forward-biased and narrower than the body.
     return streetVehiclePolygon(origin,bearing,[
-      [ 1.13,  0.72],
-      [ 0.78,  0.78],
-      [-1.18,  0.73],
-      [-1.34,  0.60],
-      [-1.34, -0.60],
-      [-1.18, -0.73],
-      [ 0.78, -0.78],
-      [ 1.13, -0.72]
+      [ 1.05,  0.66],
+      [ 0.72,  0.72],
+      [-1.12,  0.68],
+      [-1.28,  0.56],
+      [-1.28, -0.56],
+      [-1.12, -0.68],
+      [ 0.72, -0.72],
+      [ 1.05, -0.66]
     ]);
   }
 
@@ -1743,7 +1742,7 @@
         height:STREET_VEHICLE_HEIGHT_M,
         color:scheme.roof
       },
-      geometry:streetVehicleRect(origin,bearing,1.78,1.34,-0.08,0)
+      geometry:streetVehicleRect(origin,bearing,1.72,1.24,-0.08,0)
     };
 
     const wheelForward=STREET_VEHICLE_WHEELBASE_M/2;
@@ -2181,6 +2180,74 @@
     return count;
   }
 
+  function streetVehicleTargetCount(){
+    if(!osmMap)return 24;
+    const pitch=osmMap.getPitch();
+    const zoom=osmMap.getZoom();
+
+    // Dense enough to read as traffic in street-level/pitched views, while avoiding
+    // an unrealistic swarm in wide-area views.
+    let target=pitch>=45?34:(pitch>=20?30:26);
+    if(zoom<13.5)target=Math.min(target,20);
+    if(zoom>=17.5)target=Math.min(STREET_VEHICLE_COUNT,target+2);
+    return Math.min(STREET_VEHICLE_COUNT,target);
+  }
+
+  function streetVehicleFootprintCorners(sample){
+    const halfL=STREET_VEHICLE_LENGTH_M/2;
+    const halfW=STREET_VEHICLE_WIDTH_M/2;
+    return [
+      streetVehicleOffsetMeters(sample.point,sample.bearing, halfL, halfW),
+      streetVehicleOffsetMeters(sample.point,sample.bearing, halfL,-halfW),
+      streetVehicleOffsetMeters(sample.point,sample.bearing,-halfL,-halfW),
+      streetVehicleOffsetMeters(sample.point,sample.bearing,-halfL, halfW)
+    ];
+  }
+
+  function streetVehicleLocalXY(point,origin){
+    const meanLat=(point[1]+origin[1])*0.5*Math.PI/180;
+    return [
+      (point[0]-origin[0])*111320*Math.cos(meanLat),
+      (point[1]-origin[1])*111320
+    ];
+  }
+
+  function streetVehiclePolygonsOverlap(aSample,bSample){
+    const origin=[
+      (aSample.point[0]+bSample.point[0])*0.5,
+      (aSample.point[1]+bSample.point[1])*0.5
+    ];
+    const a=streetVehicleFootprintCorners(aSample).map(p=>streetVehicleLocalXY(p,origin));
+    const b=streetVehicleFootprintCorners(bSample).map(p=>streetVehicleLocalXY(p,origin));
+
+    const axes=[];
+    for(const poly of [a,b]){
+      for(let i=0;i<poly.length;i++){
+        const p=poly[i],q=poly[(i+1)%poly.length];
+        const ex=q[0]-p[0],ey=q[1]-p[1];
+        const len=Math.hypot(ex,ey)||1;
+        axes.push([-ey/len,ex/len]);
+      }
+    }
+
+    for(const axis of axes){
+      const project=poly=>{
+        let min=Infinity,max=-Infinity;
+        for(const p of poly){
+          const d=p[0]*axis[0]+p[1]*axis[1];
+          min=Math.min(min,d);max=Math.max(max,d);
+        }
+        return [min,max];
+      };
+      const [aMin,aMax]=project(a);
+      const [bMin,bMax]=project(b);
+      // 0.35 m safety margin keeps side-by-side cars visually separated.
+      if(aMax+0.35<bMin||bMax+0.35<aMin)return false;
+    }
+
+    return true;
+  }
+
   function streetVehicleConflicts(sample,route,direction,ignoreVehicle=null,spawn=false){
     if(!sample)return true;
 
@@ -2189,18 +2256,16 @@
       const otherSample=streetVehicleSample(other);
       if(!otherSample)continue;
 
-      const distance=streetVehicleDistanceM(sample.point,otherSample.point);
+      // Exact oriented footprint test: cars on opposite lanes may pass side-by-side,
+      // but no two vehicle rectangles are allowed to intersect.
+      if(streetVehiclePolygonsOverlap(sample,otherSample))return true;
 
-      // Never let physical vehicle footprints occupy the same place.
-      if(distance<STREET_VEHICLE_MIN_COLLISION_GAP_M)return true;
-
-      // Vehicles in the same lane need a longer longitudinal headway.
-      if(
-        route===other.route&&
-        direction===other.direction&&
-        distance<(spawn?STREET_VEHICLE_MIN_SPAWN_GAP_M:STREET_VEHICLE_SAME_LANE_HEADWAY_M)
-      ){
-        return true;
+      if(route===other.route&&direction===other.direction){
+        const distance=streetVehicleDistanceM(sample.point,otherSample.point);
+        const headway=spawn
+          ?STREET_VEHICLE_MIN_SPAWN_GAP_M
+          :STREET_VEHICLE_SAME_LANE_HEADWAY_M;
+        if(distance<headway)return true;
       }
     }
 
@@ -2261,12 +2326,13 @@
     streetVehicleRoutes=nextRoutes;
     streetVehicles=[];
 
+    const targetCount=streetVehicleTargetCount();
     let attempts=0;
-    const maxAttempts=STREET_VEHICLE_COUNT*24;
+    const maxAttempts=targetCount*30;
 
     // Alternate direction while placing, but reject any overlapping footprint/headway.
     while(
-      streetVehicles.length<STREET_VEHICLE_COUNT&&
+      streetVehicles.length<targetCount&&
       attempts<maxAttempts
     ){
       attempts++;
@@ -2370,8 +2436,8 @@
         }
       }
 
-      // ~15 fps is visually smooth for map-scale cars and avoids excessive GeoJSON churn.
-      if(time-streetVehicleLastPaint>=66){
+      // ~18 fps keeps the denser vehicle field smooth without excessive GeoJSON churn.
+      if(time-streetVehicleLastPaint>=55){
         streetVehicleLastPaint=time;
         publishStreetVehicles();
       }
@@ -2560,7 +2626,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.28)
+     * DISPLAY STABILITY ONLY (v3.21.29)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
