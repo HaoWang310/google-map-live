@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.24</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.25</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.24';
+  const APP_VERSION='3.21.25';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1598,29 +1598,152 @@
     return [lng,lat];
   }
 
+  function drawStreetVehicleShadow(ctx){
+    ctx.fillStyle='rgba(15,23,42,0.20)';
+    ctx.beginPath();
+    ctx.roundRect(14,12,36,106,13);
+    ctx.fill();
+  }
+
+  function drawStreetVehicleWheels(ctx){
+    ctx.fillStyle='#111827';
+    ctx.beginPath();
+    ctx.roundRect(8,24,9,24,4);
+    ctx.roundRect(47,24,9,24,4);
+    ctx.roundRect(8,80,9,24,4);
+    ctx.roundRect(47,80,9,24,4);
+    ctx.fill();
+
+    ctx.fillStyle='#475569';
+    ctx.fillRect(10,29,5,14);
+    ctx.fillRect(49,29,5,14);
+    ctx.fillRect(10,85,5,14);
+    ctx.fillRect(49,85,5,14);
+  }
+
+  function drawStreetVehicleBody(ctx){
+    const body=ctx.createLinearGradient(12,0,52,0);
+    body.addColorStop(0,'#1d4ed8');
+    body.addColorStop(0.48,'#3b82f6');
+    body.addColorStop(1,'#1e40af');
+
+    ctx.fillStyle=body;
+    ctx.beginPath();
+    ctx.roundRect(12,8,40,112,13);
+    ctx.fill();
+
+    ctx.fillStyle='#1e3a8a';
+    ctx.beginPath();
+    ctx.roundRect(16,6,32,7,3);
+    ctx.roundRect(16,115,32,7,3);
+    ctx.fill();
+  }
+
+  function drawStreetVehicleWindows(ctx){
+    ctx.fillStyle='#bfdbfe';
+    ctx.beginPath();
+    ctx.roundRect(18,26,28,23,6);
+    ctx.fill();
+
+    ctx.fillStyle='#60a5fa';
+    ctx.beginPath();
+    ctx.roundRect(17,48,30,35,7);
+    ctx.fill();
+
+    ctx.fillStyle='#dbeafe';
+    ctx.beginPath();
+    ctx.roundRect(18,82,28,20,6);
+    ctx.fill();
+
+    ctx.fillStyle='rgba(30,64,175,0.62)';
+    ctx.fillRect(30,26,4,76);
+
+    ctx.fillStyle='rgba(255,255,255,0.42)';
+    ctx.beginPath();
+    ctx.roundRect(20,29,5,17,2);
+    ctx.roundRect(20,85,5,14,2);
+    ctx.fill();
+  }
+
+  function drawStreetVehicleLights(ctx){
+    // The icon points north at bearing 0°.
+    ctx.fillStyle='#fef3c7';
+    ctx.beginPath();
+    ctx.roundRect(16,10,8,5,2);
+    ctx.roundRect(40,10,8,5,2);
+    ctx.fill();
+
+    ctx.fillStyle='#ef4444';
+    ctx.beginPath();
+    ctx.roundRect(16,113,8,5,2);
+    ctx.roundRect(40,113,8,5,2);
+    ctx.fill();
+  }
+
+  function drawStreetVehicleHighlights(ctx){
+    ctx.strokeStyle='rgba(255,255,255,0.55)';
+    ctx.lineWidth=1.8;
+    ctx.beginPath();
+    ctx.moveTo(18,19);
+    ctx.lineTo(18,106);
+    ctx.stroke();
+
+    ctx.strokeStyle='rgba(15,23,42,0.28)';
+    ctx.lineWidth=1.4;
+    ctx.beginPath();
+    ctx.roundRect(12.7,8.7,38.6,110.6,12);
+    ctx.stroke();
+  }
+
   function makeStreetVehicleIcon(){
     if(!osmMap||osmMap.hasImage(STREET_VEHICLE_ICON))return;
+
     const canvas=document.createElement('canvas');
-    canvas.width=28;canvas.height=14;
+    canvas.width=64;
+    canvas.height=128;
     const ctx=canvas.getContext('2d');
 
-    // Small map-aligned car silhouette. Kept visually simple so dozens remain legible.
-    ctx.clearRect(0,0,28,14);
-    ctx.fillStyle='#2563eb';
-    ctx.beginPath();
-    ctx.roundRect(2,3,24,8,2.5);
-    ctx.fill();
-    ctx.fillStyle='#dbeafe';
-    ctx.fillRect(8,4,8,6);
-    ctx.fillStyle='#111827';
-    ctx.fillRect(4,1,5,3);
-    ctx.fillRect(19,1,5,3);
-    ctx.fillRect(4,10,5,3);
-    ctx.fillRect(19,10,5,3);
+    ctx.clearRect(0,0,64,128);
+    drawStreetVehicleShadow(ctx);
+    drawStreetVehicleWheels(ctx);
+    drawStreetVehicleBody(ctx);
+    drawStreetVehicleWindows(ctx);
+    drawStreetVehicleLights(ctx);
+    drawStreetVehicleHighlights(ctx);
 
-    osmMap.addImage(STREET_VEHICLE_ICON,ctx.getImageData(0,0,28,14),{
-      pixelRatio:2
-    });
+    osmMap.addImage(
+      STREET_VEHICLE_ICON,
+      ctx.getImageData(0,0,64,128),
+      {pixelRatio:4}
+    );
+  }
+
+  function streetVehicleIconSizeExpression(){
+    return [
+      'interpolate',['linear'],['zoom'],
+      11,0.75,
+      12,0.90,
+      13,1.10,
+      14,1.30,
+      15,1.55,
+      16,1.85,
+      17,2.15,
+      18,2.45,
+      19,2.75,
+      20,3.00
+    ];
+  }
+
+  function streetVehicleOpacityExpression(){
+    return [
+      'interpolate',['linear'],['zoom'],
+      10,0.35,
+      11,0.52,
+      12,0.68,
+      13,0.82,
+      14,0.94,
+      15,1
+    ];
   }
 
   function ensureStreetVehicleLayer(){
@@ -1642,12 +1765,15 @@
         layout:{
           visibility:streetVehiclesEnabled?'visible':'none',
           'icon-image':STREET_VEHICLE_ICON,
-          'icon-size':0.72,
+          'icon-size':streetVehicleIconSizeExpression(),
           'icon-rotate':['get','bearing'],
           'icon-rotation-alignment':'map',
           'icon-pitch-alignment':'map',
           'icon-allow-overlap':true,
           'icon-ignore-placement':true
+        },
+        paint:{
+          'icon-opacity':streetVehicleOpacityExpression()
         }
       },getFirstSymbolLayerId());
     }
@@ -1708,7 +1834,7 @@
       :(streetVehicleBearing(a,b)+180)%360;
 
     return {
-      point:offsetStreetVehiclePoint(point,bearing,1.9),
+      point:offsetStreetVehiclePoint(point,bearing,2.2),
       bearing
     };
   }
@@ -2125,7 +2251,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.24)
+     * DISPLAY STABILITY ONLY (v3.21.25)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
