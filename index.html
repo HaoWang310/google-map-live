@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.0.3</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.0</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.0.3';
+  const APP_VERSION='3.22.0';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -641,10 +641,10 @@
     }
   };
 
-  const STREET_VEHICLE_COUNT=26;
+  const STREET_VEHICLE_COUNT=42;
   const STREET_VEHICLE_MIN_SPAWN_GAP_M=14.0;
   const STREET_VEHICLE_SAME_LANE_HEADWAY_M=12.0;
-  const STREET_VEHICLE_MIN_VISIBLE=10;
+  const STREET_VEHICLE_MIN_VISIBLE=14;
   const STREET_VEHICLE_CONTINUATION_TOLERANCE_M=9.0;
   const STREET_VEHICLE_CONTINUATION_ANGLE_DEG=52;
   const STREET_VEHICLE_RESPAWN_DELAY_MIN_MS=350;
@@ -659,10 +659,10 @@
   const STREET_LANE_WIDTH_MAJOR_M=3.25;
   const STREET_LANE_WIDTH_LOCAL_M=2.85;
   const STREET_LANE_WIDTH_SERVICE_M=2.60;
-  const STREET_VEHICLE_AI_INTERVAL_MS=220;
-  const STREET_VEHICLE_RENDER_INTERVAL_MS=100;
-  const STREET_VEHICLE_RENDER_MOVING_MS=140;
-  const STREET_SIGNAL_RENDER_INTERVAL_MS=800;
+  const STREET_VEHICLE_AI_INTERVAL_MS=105;
+  const STREET_VEHICLE_RENDER_INTERVAL_MS=40;
+  const STREET_VEHICLE_RENDER_MOVING_MS=60;
+  const STREET_SIGNAL_RENDER_INTERVAL_MS=420;
   const STREET_VEHICLE_PLAN_LOOKAHEAD_M=34;
   const STREET_VEHICLE_LANE_CHANGE_DURATION_MS=950;
   const STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS=2600;
@@ -686,10 +686,7 @@
   const STREET_GRAPH_JOIN_M=4.0;
   const STREET_GRAPH_SAME_CORRIDOR_JOIN_M=7.0;
   const STREET_ROUTE_PLAN_MAX_HOPS=12;
-  const STREET_ROUTE_PLAN_BEAM=5;
-  const STREET_VEHICLE_SIM_INTERVAL_MS=66;
-  const STREET_VEHICLE_DETAILED_BUDGET=6;
-  const STREET_VEHICLE_ROUTE_LIMIT=220;
+  const STREET_ROUTE_PLAN_BEAM=10;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -868,9 +865,6 @@
   let streetBuildingObstacles=[];
   let streetSignalLastPaint=0;
   let streetVehicleLastFlowRebalance=0;
-  let streetRouteAdjacency=new Map();
-  let citySourceSettleTimer=null;
-  const STREET_TRAFFIC_MIN_ZOOM=14.5;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -2445,19 +2439,12 @@
     return features;
   }
 
-  function streetVehicleFeaturesForCurrentZoom(
-    vehicle,
-    sample,
-    allowDetailed=false
-  ){
+  function streetVehicleFeaturesForCurrentZoom(vehicle,sample){
     const zoom=osmMap?.getZoom?.()??16;
-
-    // Full multi-part 3D models are expensive because every GeoJSON setData
-    // retriangulates their polygons. Keep detail only for a few nearest vehicles.
-    if(allowDetailed&&zoom>=17.7){
+    if(zoom>=17.15){
       return streetVehicleModelFeatures(vehicle,sample);
     }
-    if(zoom>=15.8){
+    if(zoom>=15.25){
       return streetVehicleCompactFeatures(vehicle,sample,true);
     }
     return streetVehicleCompactFeatures(vehicle,sample,false);
@@ -2551,26 +2538,6 @@
         }
       },getFirstSymbolLayerId());
     }
-  }
-
-  function setStreetTrafficCameraVisibility(visible){
-    if(!osmMap||!osmStyleReady)return;
-
-    if(!visible){
-      for(const id of [
-        STREET_VEHICLE_LAYER,
-        STREET_VEHICLE_2D_LAYER,
-        STREET_SIGNAL_LAYER,
-        STREET_SIGNAL_2D_LAYER
-      ]){
-        if(osmMap.getLayer(id)){
-          osmMap.setLayoutProperty(id,'visibility','none');
-        }
-      }
-      return;
-    }
-
-    syncStreetVehicleView();
   }
 
   function syncStreetVehicleView(){
@@ -3015,7 +2982,7 @@
     const seen=new Set();
 
     const routeHasVisibleSample=route=>{
-      const samples=[0.08,0.20,0.35,0.50,0.65,0.80,0.92];
+      const samples=[0.06,0.12,0.20,0.32,0.44,0.56,0.68,0.80,0.88,0.94];
       return samples.some(f=>{
         const dir=streetVehicleDirectionAllowed(route,1)?1:-1;
         const sample=routePointAt(route,route.lengthM*f,dir,0);
@@ -3030,7 +2997,6 @@
     };
 
     const addCoords=(coords,feature=null)=>{
-      if(routes.length>=STREET_VEHICLE_ROUTE_LIMIT)return;
       const route=makeStreetVehicleRoute(coords,feature);
       if(!route||!routeHasVisibleSample(route))return;
 
@@ -3046,6 +3012,8 @@
       ].join('|');
       const key=forwardKey<reverseKey?forwardKey:reverseKey;
 
+      // The same OSM road often arrives once from rendered layers and once from
+      // querySourceFeatures, sometimes reversed. Treat it as ONE route.
       if(seen.has(key))return;
       seen.add(key);
       route.routeKey=key;
@@ -3053,7 +3021,6 @@
     };
 
     const addFeature=(feature,trustedRenderedRoad=false)=>{
-      if(routes.length>=STREET_VEHICLE_ROUTE_LIMIT)return;
       if(
         !feature?.geometry||
         !isDrivableStreetFeature(feature,trustedRenderedRoad)
@@ -3061,14 +3028,11 @@
       const g=feature.geometry;
       if(g.type==='LineString')addCoords(g.coordinates,feature);
       else if(g.type==='MultiLineString'){
-        for(const coords of g.coordinates||[]){
-          addCoords(coords,feature);
-          if(routes.length>=STREET_VEHICLE_ROUTE_LIMIT)break;
-        }
+        for(const coords of g.coordinates||[])addCoords(coords,feature);
       }
     };
 
-    // Fast path: only query actual road layers rendered in the current camera.
+    // Pass 1: road layers that are actually rendered in the current camera.
     const layerIds=streetRoadLayerIds();
     if(layerIds.length){
       try{
@@ -3076,39 +3040,58 @@
           [[0,0],[canvas.clientWidth,canvas.clientHeight]],
           {layers:layerIds}
         )||[];
-        for(const feature of rendered){
-          addFeature(feature,true);
-          if(routes.length>=STREET_VEHICLE_ROUTE_LIMIT)break;
-        }
+        for(const feature of rendered)addFeature(feature,true);
       }catch(error){
         console.warn('Unable to query rendered street routes',error);
       }
     }
 
-    // Source fallback is expensive. Use it only when the rendered road graph is too
-    // sparse for traffic, not on every camera refresh.
-    if(
-      routes.length<70&&
-      osmMap.getZoom()>=15
-    ){
-      for(const descriptor of streetRoadSourceDescriptors()){
-        try{
-          const sourceFeatures=osmMap.querySourceFeatures(
-            descriptor.source,
-            {sourceLayer:descriptor.sourceLayer}
-          )||[];
-          for(const feature of sourceFeatures){
-            addFeature(feature,false);
-            if(routes.length>=STREET_VEHICLE_ROUTE_LIMIT)break;
-          }
-        }catch(error){}
-        if(routes.length>=STREET_VEHICLE_ROUTE_LIMIT)break;
+    // Pass 2: all currently rendered vector features. This catches style variants
+    // whose road layer id is not matched by the naming heuristic above.
+    try{
+      const allRendered=osmMap.queryRenderedFeatures(
+        [[0,0],[canvas.clientWidth,canvas.clientHeight]]
+      )||[];
+      for(const feature of allRendered){
+        const sourceLayer=String(feature?.sourceLayer||feature?.layer?.['source-layer']||'');
+        const renderedLayerId=String(feature?.layer?.id||'');
+        if(
+          feature?.geometry?.type?.includes('LineString')&&
+          (
+            sourceLayer.includes('transportation')||
+            /road|street|highway/i.test(renderedLayerId)
+          )
+        ){
+          addFeature(
+            feature,
+            /road|street|highway|motorway|trunk|primary|secondary|tertiary/i.test(
+              renderedLayerId
+            )
+          );
+        }
+      }
+    }catch(error){
+      console.warn('Unable to query all rendered road geometry',error);
+    }
+
+    // Pass 3: query the vector sources used by the ACTUAL road style layers.
+    // This is the important high-pitch fallback: it is independent of occlusion,
+    // road-label visibility, and whether the line is currently painted on screen.
+    for(const descriptor of streetRoadSourceDescriptors()){
+      try{
+        const sourceFeatures=osmMap.querySourceFeatures(
+          descriptor.source,
+          {sourceLayer:descriptor.sourceLayer}
+        )||[];
+        for(const feature of sourceFeatures)addFeature(feature,false);
+      }catch(error){
+        // Some style sources do not support querySourceFeatures; just skip them.
       }
     }
 
     return routes
       .sort((a,b)=>b.lengthM-a.lengthM)
-      .slice(0,STREET_VEHICLE_ROUTE_LIMIT);
+      .slice(0,420);
   }
 
   function randomVisibleStreetDistance(
@@ -3178,11 +3161,7 @@
     const source=osmMap.getSource(STREET_VEHICLE_SOURCE);
     if(!source)return;
 
-    const canvas=osmMap.getCanvas();
-    const cx=canvas.clientWidth*0.5;
-    const cy=canvas.clientHeight*0.5;
-    const entries=[];
-
+    const features=[];
     for(const vehicle of streetVehicles){
       if(vehicle.active===false)continue;
       const sample=streetVehicleSample(vehicle);
@@ -3191,33 +3170,8 @@
       vehicle.lng=sample.point[0];
       vehicle.lat=sample.point[1];
       vehicle.bearing=sample.bearing;
-
-      const p=osmMap.project(sample.point);
-      entries.push({
-        vehicle,
-        sample,
-        screenDist2:
-          (p.x-cx)*(p.x-cx)+
-          (p.y-cy)*(p.y-cy)
-      });
-    }
-
-    entries.sort((a,b)=>a.screenDist2-b.screenDist2);
-
-    const detailedBudget=
-      (osmMap.getPitch()>.5&&osmMap.getZoom()>=17.7)
-        ?STREET_VEHICLE_DETAILED_BUDGET
-        :0;
-
-    const features=[];
-    for(let i=0;i<entries.length;i++){
-      const {vehicle,sample}=entries[i];
       features.push(
-        ...streetVehicleFeaturesForCurrentZoom(
-          vehicle,
-          sample,
-          i<detailedBudget
-        )
+        ...streetVehicleFeaturesForCurrentZoom(vehicle,sample)
       );
     }
 
@@ -3225,6 +3179,9 @@
       type:'FeatureCollection',
       features
     });
+
+    // Do NOT call syncStreetVehicleView() here. Layer reordering/layout writes on
+    // every animation paint were a major source of stutter.
   }
 
   function streetVehicleSample(vehicle,distanceM=vehicle?.distanceM){
@@ -3259,17 +3216,17 @@
   }
 
   function streetVehicleTargetCount(){
-    if(!osmMap)return 0;
+    if(!osmMap)return 28;
     const pitch=osmMap.getPitch();
     const zoom=osmMap.getZoom();
 
-    if(zoom<STREET_TRAFFIC_MIN_ZOOM)return 0;
-
+    // Keep enough traffic for visual continuity without filling every road segment.
     let target=
-      zoom<15.25?20:
-      zoom<16.25?28:
-      zoom<17.25?34:
-      32;
+      zoom<13.0?34:
+      zoom<14.5?40:
+      zoom<16.0?38:
+      zoom<17.5?34:
+      28;
 
     if(pitch>=45)target+=2;
     return Math.min(STREET_VEHICLE_COUNT,target);
@@ -3900,113 +3857,6 @@
     return ((toBearing-fromBearing+540)%360)-180;
   }
 
-  function streetRouteStateKey(route,direction){
-    return streetVehicleRouteKey(route)+'|'+direction;
-  }
-
-  function streetRouteEndpointBucket(point){
-    const scale=9000;
-    return [
-      Math.floor(point[0]*scale),
-      Math.floor(point[1]*scale)
-    ];
-  }
-
-  function rebuildStreetRouteAdjacency(){
-    streetRouteAdjacency=new Map();
-    if(!streetVehicleRoutes.length)return;
-
-    const bucketMap=new Map();
-    const addBucket=(point,item)=>{
-      const [bx,by]=streetRouteEndpointBucket(point);
-      const key=bx+':'+by;
-      if(!bucketMap.has(key))bucketMap.set(key,[]);
-      bucketMap.get(key).push(item);
-    };
-
-    // Index only legal route ENTRY points.
-    for(const route of streetVehicleRoutes){
-      if(streetVehicleDirectionAllowed(route,1)){
-        addBucket(route.coords[0],{
-          route,
-          direction:1,
-          point:route.coords[0],
-          distanceM:Math.min(0.35,route.lengthM),
-          bearing:streetVehicleRouteTravelBearing(route,1,false)
-        });
-      }
-      if(streetVehicleDirectionAllowed(route,-1)){
-        addBucket(route.coords.at(-1),{
-          route,
-          direction:-1,
-          point:route.coords.at(-1),
-          distanceM:Math.max(0,route.lengthM-0.35),
-          bearing:streetVehicleRouteTravelBearing(route,-1,false)
-        });
-      }
-    }
-
-    for(const currentRoute of streetVehicleRoutes){
-      for(const direction of [1,-1]){
-        if(!streetVehicleDirectionAllowed(currentRoute,direction))continue;
-
-        const currentEndpoint=direction>=0
-          ?currentRoute.coords.at(-1)
-          :currentRoute.coords[0];
-        const currentBearing=streetVehicleRouteTravelBearing(
-          currentRoute,direction,true
-        );
-        const [bx,by]=streetRouteEndpointBucket(currentEndpoint);
-        const candidates=[];
-
-        for(let dx=-1;dx<=1;dx++){
-          for(let dy=-1;dy<=1;dy++){
-            const items=bucketMap.get((bx+dx)+':'+(by+dy))||[];
-            for(const option of items){
-              const candidate=option.route;
-              if(candidate===currentRoute||candidate.coords.length<2)continue;
-
-              const gap=streetVehicleDistanceM(
-                currentEndpoint,
-                option.point
-              );
-              const sameCorridor=
-                streetVehicleCorridorKey(candidate)===
-                streetVehicleCorridorKey(currentRoute);
-              const maxGap=sameCorridor
-                ?STREET_GRAPH_SAME_CORRIDOR_JOIN_M
-                :STREET_GRAPH_JOIN_M;
-
-              if(gap>maxGap)continue;
-
-              const signedAngle=streetVehicleSignedAngle(
-                currentBearing,
-                option.bearing
-              );
-              const angle=Math.abs(signedAngle);
-              if(angle>118)continue;
-              if(!sameCorridor&&gap>2.8&&angle<18)continue;
-              if(sameCorridor&&gap>4.5&&angle>28)continue;
-
-              candidates.push({
-                ...option,
-                gap,
-                angle,
-                signedAngle,
-                sameCorridor
-              });
-            }
-          }
-        }
-
-        streetRouteAdjacency.set(
-          streetRouteStateKey(currentRoute,direction),
-          candidates
-        );
-      }
-    }
-  }
-
   function streetVehicleConnectionCandidatesForState(
     currentRoute,
     direction,
@@ -4014,18 +3864,74 @@
   ){
     if(!currentRoute||!streetVehicleRoutes.length)return [];
 
-    const base=streetRouteAdjacency.get(
-      streetRouteStateKey(currentRoute,direction)
-    )||[];
-
-    if(!vehicleType)return base;
-
-    return base.filter(candidate=>
-      streetVehicleTypeAllowedOnRoute(
-        vehicleType,
-        candidate.route
-      )
+    const currentEndpoint=direction>=0
+      ?currentRoute.coords.at(-1)
+      :currentRoute.coords[0];
+    const currentBearing=streetVehicleRouteTravelBearing(
+      currentRoute,direction,true
     );
+
+    const candidates=[];
+
+    for(const candidate of streetVehicleRoutes){
+      if(candidate===currentRoute||candidate.coords.length<2)continue;
+      if(
+        vehicleType&&
+        !streetVehicleTypeAllowedOnRoute(vehicleType,candidate)
+      )continue;
+
+      const options=[];
+      if(streetVehicleDirectionAllowed(candidate,1)){
+        options.push({
+          point:candidate.coords[0],
+          direction:1,
+          distanceM:Math.min(0.35,candidate.lengthM),
+          bearing:streetVehicleRouteTravelBearing(candidate,1,false)
+        });
+      }
+      if(streetVehicleDirectionAllowed(candidate,-1)){
+        options.push({
+          point:candidate.coords.at(-1),
+          direction:-1,
+          distanceM:Math.max(0,candidate.lengthM-0.35),
+          bearing:streetVehicleRouteTravelBearing(candidate,-1,false)
+        });
+      }
+
+      for(const option of options){
+        const gap=streetVehicleDistanceM(currentEndpoint,option.point);
+        const sameCorridor=
+          streetVehicleCorridorKey(candidate)===
+          streetVehicleCorridorKey(currentRoute);
+        const maxGap=sameCorridor
+          ?STREET_GRAPH_SAME_CORRIDOR_JOIN_M
+          :STREET_GRAPH_JOIN_M;
+
+        if(gap>maxGap)continue;
+
+        const signedAngle=streetVehicleSignedAngle(
+          currentBearing,option.bearing
+        );
+        const angle=Math.abs(signedAngle);
+        if(angle>118)continue;
+
+        // Cross-road joins must be essentially a shared intersection node.
+        // Same-road tile seams get a slightly wider snap, but remain heading-safe.
+        if(!sameCorridor&&gap>2.8&&angle<18)continue;
+        if(sameCorridor&&gap>4.5&&angle>28)continue;
+
+        candidates.push({
+          ...option,
+          route:candidate,
+          gap,
+          angle,
+          signedAngle,
+          sameCorridor
+        });
+      }
+    }
+
+    return candidates;
   }
 
   function streetVehicleConnectionCandidates(vehicle){
@@ -4071,7 +3977,7 @@
     }];
 
     let expansions=0;
-    const maxExpansions=70;
+    const maxExpansions=150;
 
     while(queue.length&&expansions<maxExpansions){
       queue.sort((a,b)=>a.score-b.score);
@@ -4156,9 +4062,9 @@
         });
       }
 
-      if(queue.length>30){
+      if(queue.length>60){
         queue.sort((a,b)=>a.score-b.score);
-        queue.length=30;
+        queue.length=60;
       }
     }
 
@@ -5702,18 +5608,6 @@
     clearTimeout(streetVehicleRefreshTimer);
     streetVehicleRefreshTimer=null;
 
-    if(
-      osmMap&&
-      (
-        osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM||
-        osmMap.isMoving?.()||
-        osmMap.isZooming?.()||
-        osmMap.isRotating?.()
-      )
-    ){
-      return;
-    }
-
     if(!osmMap||!osmStyleReady||!streetVehiclesEnabled||currentProvider!=='osm'){
       streetVehicles=[];
       if(osmMap?.getSource(STREET_VEHICLE_SOURCE))publishStreetVehicles();
@@ -5736,7 +5630,6 @@
     streetVehicleRoutes=nextRoutes.filter(
       route=>streetVehicleAmbientRouteAllowed(route)
     );
-    rebuildStreetRouteAdjacency();
     refreshStreetBuildingObstacles();
     rebuildStreetTrafficSignals();
 
@@ -5760,7 +5653,7 @@
 
     let visibleCount=streetVehicleVisibleCount();
     let attempts=0;
-    const maxAttempts=targetCount*12;
+    const maxAttempts=targetCount*38;
 
     while(
       visibleCount<targetCount&&
@@ -5842,34 +5735,13 @@
     }
 
     publishStreetVehicles();
-    setStreetTrafficCameraVisibility(true);
     startStreetVehicleAnimation();
   }
 
   function scheduleStreetVehicleRefresh(delay=120){
-    if(!streetVehiclesEnabled||!osmMap)return;
+    if(!streetVehiclesEnabled)return;
     clearTimeout(streetVehicleRefreshTimer);
-
-    if(
-      osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM||
-      osmMap.isMoving?.()||
-      osmMap.isZooming?.()||
-      osmMap.isRotating?.()
-    ){
-      streetVehicleRefreshTimer=null;
-      return;
-    }
-
-    streetVehicleRefreshTimer=setTimeout(()=>{
-      if(
-        !osmMap||
-        osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM||
-        osmMap.isMoving?.()||
-        osmMap.isZooming?.()||
-        osmMap.isRotating?.()
-      )return;
-      refreshStreetVehicles();
-    },delay);
+    streetVehicleRefreshTimer=setTimeout(refreshStreetVehicles,delay);
   }
 
   function startStreetVehicleAnimation(){
@@ -5890,32 +5762,13 @@
         return;
       }
 
-      if(osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM){
-        cancelAnimationFrame(streetVehicleAnimationFrame);
-        streetVehicleAnimationFrame=null;
-        streetVehicleLastFrame=0;
-        return;
-      }
-
-      if(
-        osmMap.isMoving?.()||
-        osmMap.isZooming?.()||
-        osmMap.isRotating?.()
-      ){
-        streetVehicleLastFrame=time;
-        return;
-      }
-
       if(!streetVehicleLastFrame){
         streetVehicleLastFrame=time;
         streetVehicleLastPaint=time;
         return;
       }
 
-      const elapsed=time-streetVehicleLastFrame;
-      if(elapsed<STREET_VEHICLE_SIM_INTERVAL_MS)return;
-
-      const dt=Math.min(0.12,elapsed/1000);
+      const dt=Math.min(0.12,(time-streetVehicleLastFrame)/1000);
       streetVehicleLastFrame=time;
       const canvas=osmMap.getCanvas();
 
@@ -6247,16 +6100,27 @@
   function tuneCityBuildingFarField(){
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
-    // Known-smooth v3.21.21 values. v3.21.22 changed this to 1/48,
-    // which greatly increased the high-pitch building tile workload.
+    /*
+     * DISPLAY STABILITY ONLY (v3.22.0)
+     *
+     * The building source contains reliable detailed geometry at z13/z14. At high pitch
+     * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
+     * changes that tile cover and can make some buildings appear/disappear even though the
+     * selection geometry itself is unchanged.
+     *
+     * Keep ONE tile zoom level on screen for this source and allow a large high-pitch
+     * tile budget. At the working zoom this keeps the city source on the detailed z14
+     * coverage while bearing/pitch changes, instead of swapping to coarser building tiles.
+     */
     if(typeof osmMap.setSourceTileLodParams==='function'){
       try{
-        osmMap.setSourceTileLodParams(2,10,CITY_BUILDINGS_SOURCE);
+        osmMap.setSourceTileLodParams(1,48,CITY_BUILDINGS_SOURCE);
       }catch(error){
         console.warn('Unable to tune building tile LOD',error);
       }
     }
   }
+
 
   function isCompetingOsmBuildingExtrusionLayer(layer){
     if(!layer||layer.type!=='fill-extrusion')return false;
@@ -6475,20 +6339,15 @@
       pitch:0,
       bearing:0,
       maxPitch:70,
-      interactive:true,
-      dragPan:true,
-      scrollZoom:true,
-      doubleClickZoom:true,
-      boxZoom:true,
-      keyboard:true,
       dragRotate:true,
-      touchZoomRotate:true,
       pitchWithRotate:true,
       touchPitch:true,
 
-      // Restore the last known-smooth v3.21.21 cache behavior.
-      maxTileCacheSize:700,
-      maxTileCacheZoomLevels:8,
+      // High-pitch 3D city stability:
+      // retain substantially more vector tiles and do not cancel pending tiles while
+      // zooming/rotating, so distant buildings stay available instead of blinking out.
+      maxTileCacheSize:1400,
+      maxTileCacheZoomLevels:12,
       cancelPendingTileRequestsWhileZooming:false,
 
       canvasContextAttributes:{antialias:true},
@@ -6502,39 +6361,24 @@
       if(e.sourceId===TERRAIN_TILE_SOURCE)syncTerrainView();
       if(e.sourceId===NETWORK_SOURCE)syncNetworkStatus();
       if(e.sourceId===CITY_BUILDINGS_SOURCE){
-        // sourcedata fires once per tile/resource. Never rebuild buildings + traffic
-        // for every arriving tile while the user is dragging or zooming.
+        tuneCityBuildingFarField();
+        syncCityView();
+        if(e.isSourceLoaded){
+          refreshStreetBuildingObstacles();
+        }
+
+        // If a high-pitch/close view initially had no transportation tile geometry,
+        // populate vehicles as soon as the shared vector source finishes loading it.
         if(
-          !e.isSourceLoaded||
-          osmMap.isMoving?.()||
-          osmMap.isZooming?.()||
-          osmMap.isRotating?.()
-        )return;
+          streetVehiclesEnabled&&
+          currentProvider==='osm'&&
+          streetVehicles.length===0&&
+          e.isSourceLoaded
+        ){
+          scheduleStreetVehicleRefresh(40);
+        }
 
-        clearTimeout(citySourceSettleTimer);
-        citySourceSettleTimer=setTimeout(()=>{
-          if(
-            !osmMap||
-            osmMap.isMoving?.()||
-            osmMap.isZooming?.()||
-            osmMap.isRotating?.()
-          )return;
-
-          tuneCityBuildingFarField();
-          syncCityView();
-
-          if(osmMap.getZoom()>=STREET_TRAFFIC_MIN_ZOOM){
-            refreshStreetBuildingObstacles();
-
-            if(
-              streetVehiclesEnabled&&
-              currentProvider==='osm'&&
-              streetVehicles.length===0
-            ){
-              scheduleStreetVehicleRefresh(180);
-            }
-          }
-        },140);
+        osmMap.triggerRepaint();
       }
       if(osmStructuresHidden)syncOsmStructureVisibility();
     });
@@ -6580,60 +6424,71 @@
       if(currentProvider==='osm'){
         updateTerrainLayers();
         say('地图已连接。可切换 3D 城市或搜索地点；分析图层勾选后加载。');
-        if(osmMap.getZoom()>=STREET_TRAFFIC_MIN_ZOOM){
-          osmMap.once('idle',()=>scheduleStreetVehicleRefresh(120));
-        }
+        osmMap.once('idle',()=>scheduleStreetVehicleRefresh(0));
       }
     });
-    let coordsRaf=null;
-    let pendingCoords=null;
     osmMap.on('mousemove',e=>{
       if(currentProvider!=='osm')return;
-      pendingCoords=e.lngLat;
-      if(coordsRaf!==null)return;
-      coordsRaf=requestAnimationFrame(()=>{
-        coordsRaf=null;
-        const p=pendingCoords;
-        if(!p||!osmMap)return;
-        $('coords').textContent='Lat '+p.lat.toFixed(5)+
-          ' / Lng '+p.lng.toFixed(5)+' / Zoom '+osmMap.getZoom().toFixed(1);
-      });
+      $('coords').textContent='Lat '+e.lngLat.lat.toFixed(5)+
+        ' / Lng '+e.lngLat.lng.toFixed(5)+' / Zoom '+osmMap.getZoom().toFixed(1);
     });
 
     osmMap.on('movestart',()=>{
-      setStreetTrafficCameraVisibility(false);
-      clearTimeout(streetVehicleRefreshTimer);
-      streetVehicleRefreshTimer=null;
-      clearTimeout(citySourceSettleTimer);
-      citySourceSettleTimer=null;
-
-      if(streetVehicleAnimationFrame!==null){
-        cancelAnimationFrame(streetVehicleAnimationFrame);
-        streetVehicleAnimationFrame=null;
-      }
-      streetVehicleLastFrame=0;
+      if(currentProvider==='osm')terrainCameraStarted();
     });
 
     osmMap.on('zoom',()=>{
-      // Pure camera frame: no layer mutation, source query or route planning.
-    });
+      syncCityView();
+      if(currentProvider==='osm')terrainCameraChanged();
+      syncFloodView();
 
-    osmMap.on('sourcedata',e=>{
-      if(e.sourceId===FLOOD_DETAIL_SOURCE&&!osmMap.isMoving?.()){
-        syncFloodView();
+      if(streetVehiclesEnabled&&currentProvider==='osm'){
+        const now=performance.now();
+        if(now-streetVehicleViewRefreshAt>180){
+          streetVehicleViewRefreshAt=now;
+          scheduleStreetVehicleRefresh(55);
+        }
       }
     });
 
+    osmMap.on('sourcedata',e=>{
+      if(e.sourceId===FLOOD_DETAIL_SOURCE)syncFloodView();
+    });
+
     osmMap.on('move',()=>{
-      // Pure camera frame.
+      if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
+
+      if(streetVehiclesEnabled&&currentProvider==='osm'){
+        const now=performance.now();
+        if(now-streetVehicleViewRefreshAt>260){
+          streetVehicleViewRefreshAt=now;
+
+          // Refill an expanded/panned viewport whenever visible traffic drops
+          // below the adaptive target. Do not wait for route count to collapse.
+          if(
+            streetVehicleVisibleCount()<
+            Math.max(
+              STREET_VEHICLE_MIN_VISIBLE,
+              Math.floor(streetVehicleTargetCount()*0.72)
+            )
+          ){
+            scheduleStreetVehicleRefresh(45);
+          }
+        }
+      }
     });
 
     osmMap.on('pitch',()=>{
-      // Deferred to moveend.
+      tuneCityBuildingFarField();
+      syncCityView();
+      if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
     });
 
     osmMap.on('rotate',()=>{
-      // Deferred to moveend.
+      tuneCityBuildingFarField();
+      syncCityView();
+      osmMap.triggerRepaint();
+      if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
     });
 
     osmMap.on('moveend',()=>{
@@ -6641,41 +6496,8 @@
       tuneCityBuildingFarField();
       syncCityView();
       syncFloodView();
-
-      clearTimeout(streetVehicleRefreshTimer);
-
-      if(
-        streetVehiclesEnabled&&
-        currentProvider==='osm'&&
-        osmMap.getZoom()>=STREET_TRAFFIC_MIN_ZOOM
-      ){
-        streetVehicleRefreshTimer=setTimeout(()=>{
-          if(
-            !osmMap.isMoving?.()&&
-            !osmMap.isZooming?.()&&
-            !osmMap.isRotating?.()
-          ){
-            refreshStreetVehicles();
-            startStreetVehicleAnimation();
-          }
-        },520);
-      }else if(osmMap.getZoom()<STREET_TRAFFIC_MIN_ZOOM){
-        streetVehicles=[];
-        streetVehicleRoutes=[];
-        streetTrafficSignals=[];
-        streetBuildingObstacles=[];
-
-        const vehicleSource=osmMap.getSource(STREET_VEHICLE_SOURCE);
-        if(vehicleSource){
-          vehicleSource.setData({type:'FeatureCollection',features:[]});
-        }
-        const signalSource=osmMap.getSource(STREET_SIGNAL_SOURCE);
-        if(signalSource){
-          signalSource.setData({type:'FeatureCollection',features:[]});
-        }
-        setStreetTrafficCameraVisibility(false);
-      }
-
+      scheduleStreetVehicleRefresh(40);
+      osmMap.triggerRepaint();
     });
     osmMap.on('error',e=>{
       if(e.sourceId===FLOOD_DETAIL_SOURCE){handleFloodDetailError(e.error);return;}
