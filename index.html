@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.48</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.49</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -298,10 +298,10 @@
         <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D 平面</button>
         <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D 城市</button>
       </div>
-      <label class="layerRow" title="在当前可见街道范围内自动生成双向行驶的小车；平移、缩放或旋转地图后会按新的浏览窗口自动刷新">
+      <label class="layerRow" title="独立控制街道车辆显示；不再受“隐藏 OSM 名称 / POI 标注”开关影响">
         <span class="layerName">
-          <strong>街道小车</strong>
-          <small>视图自适应 · 分区生成 · 车道防拥堵</small>
+          <strong>显示街道小车</strong>
+          <small>独立开关 · 不受 OSM 标注显示状态影响</small>
         </span>
         <input id="streetVehicleToggle" type="checkbox" autocomplete="off" checked disabled>
       </label>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.48';
+  const APP_VERSION='3.21.49';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1689,12 +1689,10 @@
       );
     }
 
-    // The switch hides OSM labels/POIs/transit annotations and street vehicles.
+    // This switch controls only OSM labels / POIs / transit annotations.
+    // Vehicle visibility is independent and controlled by streetVehicleToggle.
     // Road/building geometry, grey 3D buildings and all analysis layers remain visible.
-    // The separate street-vehicle toggle state is preserved, so cars restore
-    // automatically when this OSM annotation switch is unchecked again.
     syncCityView();
-    syncStreetVehicleView();
   }
 
   function streetVehicleDistanceM(a,b){
@@ -2577,7 +2575,10 @@
   function syncStreetVehicleView(){
     if(!osmMap||!osmStyleReady)return;
     const is3D=osmMap.getPitch()>.5;
-    const showVehicles=streetVehiclesEnabled&&!osmStructuresHidden;
+
+    // Vehicle visibility is controlled ONLY by the dedicated streetVehicleToggle.
+    // Hiding OSM labels/POIs must never hide or restore traffic.
+    const showVehicles=streetVehiclesEnabled;
     const firstSymbol=getFirstSymbolLayerId();
 
     // Keep vehicles above roads/analysis geometry in layer order, while normal
@@ -5997,7 +5998,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.48)
+     * DISPLAY STABILITY ONLY (v3.21.49)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
