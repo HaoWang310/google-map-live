@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.9';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.10';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -504,11 +504,7 @@ export function createLocalFloodUI({
         layout:{visibility:map.getPitch()>.5?'visible':'none'},
         paint:{
           'fill-extrusion-color':buildingColourExpression(),
-          'fill-extrusion-height':[
-            '+',
-            ['get','simHeight'],
-            ['case',['boolean',['get','selected'],false],0.18,0]
-          ],
+          'fill-extrusion-height':['get','simHeight'],
           'fill-extrusion-base':['get','simBase'],
           'fill-extrusion-opacity':1,
           'fill-extrusion-vertical-gradient':false
@@ -914,7 +910,7 @@ export function createLocalFloodUI({
           {localFloodSelected:true}
         );
       }catch(error){
-        console.warn('Unable to hide native selected building',sourceFeatureId,error);
+        console.warn('Unable to collapse native selected building',sourceFeatureId,error);
       }
     }
     map.triggerRepaint();
