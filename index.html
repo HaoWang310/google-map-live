@@ -555,7 +555,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.18';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.15';
+  const APP_VERSION='3.21.18';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1870,7 +1870,7 @@
       cityBuildingsShown=false;
     }
 
-    // Legacy selected layers stay disabled; local_flood_ui.js owns orange/red rendering.
+    // Legacy selected layers stay disabled. CITY_BUILDINGS_LAYER owns normal/selected/impacted states; only boundary fragments use local_flood_ui.js.
     for(const id of [CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_SELECTED_FILL]){
       if(osmMap.getLayer(id))osmMap.setLayoutProperty(id,'visibility','none');
     }
