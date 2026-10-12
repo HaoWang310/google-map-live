@@ -1286,8 +1286,9 @@ export function createLocalFloodUI({
 
     hideAreaPopup();
 
-    // Double-click inside a prepared, unchanged selection (away from anchors/edges)
-    // enters a site-only focus view. Existing anchor/edge editing keeps priority.
+    // Prepared selection: double-click anywhere INSIDE the red polygon enters
+    // isolated-site view immediately. This takes priority over edge/anchor editing,
+    // because the primary post-generation interaction is "enter this site".
     const clickedLngLat=[event.lngLat.lng,event.lngLat.lat];
     const clickedInside=Boolean(
       prepared&&
@@ -1296,7 +1297,13 @@ export function createLocalFloodUI({
       pointInRingLngLat(clickedLngLat,polygon[0])
     );
 
-    // 1) Double-click an existing anchor -> delete it.
+    if(clickedInside){
+      enterSelectionIsolate();
+      return;
+    }
+
+    // Only when not entering the prepared site do we interpret double-click as
+    // anchor/edge editing.
     const anchorIndex=findAnchorAtPoint(event.point);
     if(anchorIndex!==null){
       if(vertices.length<=3){
@@ -1319,10 +1326,7 @@ export function createLocalFloodUI({
 
     // 2) Double-click close to an existing red edge -> insert a new anchor on that edge.
     const edge=nearestEdgeAtPoint(event.point);
-    if(!edge){
-      if(clickedInside)enterSelectionIsolate();
-      return;
-    }
+    if(!edge)return;
 
     const lngLat=map.unproject([edge.x,edge.y]);
     vertices.splice(edge.insertIndex,0,[lngLat.lng,lngLat.lat]);
