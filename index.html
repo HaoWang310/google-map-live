@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.42</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.43</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.42';
+  const APP_VERSION='3.21.43';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -675,6 +675,11 @@
   const STREET_SIGNAL_JUNCTION_BOX_RADIUS_M=10.5;
   const STREET_SIGNAL_SPAWN_CLEARANCE_M=24;
   const STREET_SIGNAL_EXIT_CLEARANCE_M=16;
+  const STREET_VEHICLE_FLOW_REBALANCE_MS=2500;
+  const STREET_VEHICLE_QUEUE_REPLAN_MS=9000;
+  const STREET_VEHICLE_QUEUE_RECOVERY_MS=16000;
+  const STREET_VEHICLE_RETIRE_INTENT_MS=65000;
+  const STREET_VEHICLE_EDGE_RETIRE_PX=72;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -852,6 +857,7 @@
   let streetTrafficSignals=[];
   let streetBuildingObstacles=[];
   let streetSignalLastPaint=0;
+  let streetVehicleLastFlowRebalance=0;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -4008,11 +4014,9 @@
         otherSample.bearing
       );
 
-      // Opposing same-axis traffic may clear together. Cross traffic blocks entry.
+      // Only true cross-traffic blocks the junction box. Same-axis traffic is
+      // allowed to clear as a platoon during the same green phase, like game traffic.
       if(bearingDiff>35&&bearingDiff<145)return true;
-
-      // Even same-axis movement blocks if physically too close to the centre.
-      if(d<4.8)return true;
     }
     return false;
   }
@@ -4039,8 +4043,16 @@
     );
     if(!probe)return true;
 
+    const targetCorridor=streetVehicleCorridorKey(resolved.route);
     for(const other of streetVehicles){
       if(other===vehicle||other.active===false)continue;
+      if(other.direction!==resolved.direction)continue;
+      if((other.laneIndex||0)!==(resolved.laneIndex||0))continue;
+      if(
+        streetVehicleCorridorKey(other.route)!==targetCorridor&&
+        other.route!==resolved.route
+      )continue;
+
       const otherSample=streetVehicleSample(other);
       if(!otherSample)continue;
 
@@ -4137,6 +4149,130 @@
     return upcoming.state==='green';
   }
 
+  function streetVehicleRouteEdgeScore(route,direction){
+    if(!osmMap||!route)return 0;
+    const distanceM=direction>=0?route.lengthM:0;
+    const sample=routePointAt(route,distanceM,direction,0);
+    if(!sample)return 0;
+
+    const canvas=osmMap.getCanvas();
+    const p=osmMap.project(sample.point);
+    const edgeDistance=Math.max(
+      0,
+      Math.min(
+        p.x,
+        p.y,
+        canvas.clientWidth-p.x,
+        canvas.clientHeight-p.y
+      )
+    );
+
+    return Math.max(0,Math.min(1,1-edgeDistance/260));
+  }
+
+  function streetVehicleNearViewportEdge(vehicle,marginPx=STREET_VEHICLE_EDGE_RETIRE_PX){
+    if(!osmMap||!vehicle)return false;
+    const sample=streetVehicleSample(vehicle);
+    if(!sample)return false;
+    const canvas=osmMap.getCanvas();
+    const p=osmMap.project(sample.point);
+    return (
+      p.x<=marginPx||
+      p.y<=marginPx||
+      p.x>=canvas.clientWidth-marginPx||
+      p.y>=canvas.clientHeight-marginPx
+    );
+  }
+
+  function streetVehicleMaintainFlow(time){
+    if(
+      time-streetVehicleLastFlowRebalance<
+      STREET_VEHICLE_FLOW_REBALANCE_MS
+    )return;
+    streetVehicleLastFlowRebalance=time;
+
+    const groups=new Map();
+    for(const vehicle of streetVehicles){
+      if(vehicle.active===false||!vehicle.route)continue;
+      const key=streetVehicleCorridorKey(vehicle.route);
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(vehicle);
+
+      if(!Number.isFinite(vehicle.bornAt)){
+        vehicle.bornAt=time;
+      }
+
+      const age=time-vehicle.bornAt;
+      if(age>STREET_VEHICLE_RETIRE_INTENT_MS){
+        vehicle.retireIntent=true;
+      }
+
+      const queued=
+        vehicle.speedMps<0.45&&
+        (
+          vehicle.state==='follow'||
+          vehicle.state==='yield_exit_blocked'||
+          vehicle.state==='yield_junction_box'
+        );
+
+      if(queued){
+        if(!vehicle.queueSince)vehicle.queueSince=time;
+      }else{
+        vehicle.queueSince=0;
+        if(!vehicle.retireIntent){
+          vehicle.decongestIntent=false;
+        }
+      }
+
+      const queueAge=vehicle.queueSince
+        ?time-vehicle.queueSince
+        :0;
+
+      if(queueAge>STREET_VEHICLE_QUEUE_REPLAN_MS){
+        vehicle.decongestIntent=true;
+        vehicle.plannedConnection=null;
+        streetVehiclePlanNextConnection(vehicle,time,true);
+      }
+
+      if(
+        queueAge>STREET_VEHICLE_QUEUE_RECOVERY_MS&&
+        vehicle.state!=='stop_red'&&
+        vehicle.state!=='brake_amber'
+      ){
+        if(!streetVehicleTryLaneChange(vehicle,time,'queue_escape')){
+          streetVehicleTryRecoveryUTurn(vehicle,time);
+        }
+        vehicle.queueSince=time-4500;
+      }
+
+      // Old traffic is recycled only at the browser edge, never in the middle.
+      if(vehicle.retireIntent&&streetVehicleNearViewportEdge(vehicle)){
+        retireStreetVehicle(vehicle,time);
+      }
+    }
+
+    // If a corridor has been over capacity for a long fixed-camera view, mark
+    // only the oldest excess vehicles to take alternate branches toward the edge.
+    for(const vehicles of groups.values()){
+      if(!vehicles.length)continue;
+      const capacity=streetVehicleCorridorCapacity(vehicles[0].route);
+      if(vehicles.length<=capacity)continue;
+
+      vehicles.sort((a,b)=>
+        Number(a.bornAt||time)-Number(b.bornAt||time)
+      );
+
+      const excess=vehicles.length-capacity;
+      for(let i=0;i<excess;i++){
+        const vehicle=vehicles[i];
+        if(vehicle.active===false)continue;
+        vehicle.decongestIntent=true;
+        vehicle.plannedConnection=null;
+        streetVehiclePlanNextConnection(vehicle,time,true);
+      }
+    }
+  }
+
   function streetVehicleWeightedConnection(vehicle){
     const candidates=streetVehicleConnectionCandidates(vehicle);
     if(!candidates.length)return null;
@@ -4190,12 +4326,28 @@
       const corridorLoad=streetVehicleCorridorLoad(candidate.route);
       const corridorCapacity=streetVehicleCorridorCapacity(candidate.route);
       const corridorPressure=corridorLoad/Math.max(1,corridorCapacity);
+      const sameCorridor=
+        streetVehicleCorridorKey(candidate.route)===
+        streetVehicleCorridorKey(vehicle.route);
 
       weight*=1/(1+load*0.22);
       weight*=1/(1+Math.pow(corridorPressure,2)*1.8);
 
       if(corridorPressure>=1.0){
-        weight*=0.22;
+        weight*=sameCorridor?0.55:0.10;
+      }
+
+      if(vehicle.decongestIntent&&sameCorridor){
+        weight*=0.16;
+      }
+
+      if(vehicle.retireIntent){
+        const edgeScore=streetVehicleRouteEdgeScore(
+          candidate.route,
+          candidate.direction
+        );
+        weight*=0.55+edgeScore*3.4;
+        if(sameCorridor)weight*=0.45;
       }
 
       weighted.push({
@@ -4744,8 +4896,16 @@
     }
 
     const oldKey=streetVehicleRouteKey(vehicle.route);
+    const oldCorridor=streetVehicleCorridorKey(vehicle.route);
     vehicle.previousRouteKey=oldKey;
     vehicle.route=chosen.route;
+    if(
+      streetVehicleCorridorKey(chosen.route)!==oldCorridor&&
+      !vehicle.retireIntent
+    ){
+      vehicle.decongestIntent=false;
+      vehicle.queueSince=0;
+    }
     vehicle.direction=chosen.direction;
     vehicle.laneIndex=chosen.laneIndex||0;
     vehicle.lanePosition=vehicle.laneIndex;
@@ -4811,6 +4971,10 @@
     for(let i=0;i<streetVehicleRoutes.length;i++){
       const route=streetVehicleRoutes[(start+i)%streetVehicleRoutes.length];
       if(
+        streetVehicleCorridorLoad(route)>=
+        streetVehicleCorridorCapacity(route)
+      )continue;
+      if(
         vehicle?.vehicleType&&
         !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,route)
       )continue;
@@ -4859,6 +5023,10 @@
       vehicle.recoveryLaneTried=false;
       vehicle.lastProgressPoint=null;
       vehicle.lastProgressAt=performance.now();
+      vehicle.bornAt=performance.now();
+      vehicle.queueSince=0;
+      vehicle.decongestIntent=false;
+      vehicle.retireIntent=false;
       return true;
     }
 
@@ -4944,6 +5112,9 @@
   function retireStreetVehicle(vehicle,time){
     vehicle.active=false;
     vehicle.state='retired';
+    vehicle.queueSince=0;
+    vehicle.decongestIntent=false;
+    vehicle.retireIntent=false;
     vehicle.respawnAt=
       time+
       STREET_VEHICLE_RESPAWN_DELAY_MIN_MS+
@@ -5057,6 +5228,10 @@
       vehicle.recoveryLaneTried=false;
       vehicle.lastProgressPoint=null;
       vehicle.lastProgressAt=performance.now();
+      vehicle.bornAt=performance.now();
+      vehicle.queueSince=0;
+      vehicle.decongestIntent=false;
+      vehicle.retireIntent=false;
       return true;
     }
 
@@ -5154,7 +5329,11 @@
         stuckSince:0,
         recoveryLaneTried:false,
         lastProgressPoint:null,
-        lastProgressAt:0
+        lastProgressAt:0,
+        bornAt:performance.now(),
+        queueSince:0,
+        decongestIntent:false,
+        retireIntent:false
       };
 
       if(
@@ -5214,6 +5393,8 @@
       const dt=Math.min(0.12,(time-streetVehicleLastFrame)/1000);
       streetVehicleLastFrame=time;
       const canvas=osmMap.getCanvas();
+
+      streetVehicleMaintainFlow(time);
 
       for(const vehicle of streetVehicles){
         streetVehicleUpdateLanePosition(vehicle,time);
@@ -5542,7 +5723,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.42)
+     * DISPLAY STABILITY ONLY (v3.21.43)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
