@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.21</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.22</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -552,10 +552,10 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.21';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.22';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.21';
+  const APP_VERSION='3.21.22';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1786,17 +1786,20 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * High-pitch views normally reduce tile LOD very aggressively toward the horizon.
-     * That is efficient for a flat basemap, but it creates the empty far-city band for
-     * fill-extrusion buildings. Keep the building source within a narrow LOD range and
-     * allow substantially more high-pitch tiles so the visible window remains populated.
+     * DISPLAY STABILITY ONLY (v3.21.22)
      *
-     * 2 zoom levels on screen: prevents the far field from decaying several zoom levels.
-     * 10x tile ratio: allows a much larger high-pitch tile cover before global LOD drops.
+     * The building source contains reliable detailed geometry at z13/z14. At high pitch
+     * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
+     * changes that tile cover and can make some buildings appear/disappear even though the
+     * selection geometry itself is unchanged.
+     *
+     * Keep ONE tile zoom level on screen for this source and allow a large high-pitch
+     * tile budget. At the working zoom this keeps the city source on the detailed z14
+     * coverage while bearing/pitch changes, instead of swapping to coarser building tiles.
      */
     if(typeof osmMap.setSourceTileLodParams==='function'){
       try{
-        osmMap.setSourceTileLodParams(2,10,CITY_BUILDINGS_SOURCE);
+        osmMap.setSourceTileLodParams(1,48,CITY_BUILDINGS_SOURCE);
       }catch(error){
         console.warn('Unable to tune building tile LOD',error);
       }
@@ -2080,8 +2083,8 @@
       // High-pitch 3D city stability:
       // retain substantially more vector tiles and do not cancel pending tiles while
       // zooming/rotating, so distant buildings stay available instead of blinking out.
-      maxTileCacheSize:700,
-      maxTileCacheZoomLevels:8,
+      maxTileCacheSize:1400,
+      maxTileCacheZoomLevels:12,
       cancelPendingTileRequestsWhileZooming:false,
 
       canvasContextAttributes:{antialias:true},
@@ -2176,6 +2179,8 @@
 
     osmMap.on('rotate',()=>{
       tuneCityBuildingFarField();
+      syncCityView();
+      osmMap.triggerRepaint();
       if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
     });
 
