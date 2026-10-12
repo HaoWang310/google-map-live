@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.1';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.2';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -113,6 +113,74 @@ function geometryWithinSelection(geometry,selectionRing){
   return true;
 }
 
+function ringCentroid(ring){
+  if(!ring?.length)return null;
+  const pts=ring.length>1&&
+    ring[0][0]===ring[ring.length-1][0]&&ring[0][1]===ring[ring.length-1][1]
+    ?ring.slice(0,-1):ring;
+  if(!pts.length)return null;
+
+  let twiceArea=0,cx=0,cy=0;
+  for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+    const cross=pts[j][0]*pts[i][1]-pts[i][0]*pts[j][1];
+    twiceArea+=cross;
+    cx+=(pts[j][0]+pts[i][0])*cross;
+    cy+=(pts[j][1]+pts[i][1])*cross;
+  }
+
+  if(Math.abs(twiceArea)>1e-14){
+    return [cx/(3*twiceArea),cy/(3*twiceArea)];
+  }
+
+  let sx=0,sy=0;
+  for(const [x,y] of pts){sx+=x;sy+=y;}
+  return [sx/pts.length,sy/pts.length];
+}
+
+function buildingRepresentativePoint(geometry){
+  const polygons=geometry?.type==='Polygon'
+    ?[geometry.coordinates]
+    :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
+  if(!polygons.length)return null;
+
+  let bestRing=null,bestScore=-Infinity;
+  for(const polygon of polygons){
+    const ring=polygon?.[0];
+    if(!ring?.length)continue;
+    const box=geometryBBox({type:'Polygon',coordinates:[ring]});
+    const score=(box.east-box.west)*(box.north-box.south);
+    if(score>bestScore){bestScore=score;bestRing=ring;}
+  }
+  if(!bestRing)return null;
+
+  const centroid=ringCentroid(bestRing);
+  if(centroid)return centroid;
+
+  const box=geometryBBox(geometry);
+  return [(box.west+box.east)/2,(box.south+box.north)/2];
+}
+
+function buildingBelongsToSelection(geometry,selectionRing){
+  const point=buildingRepresentativePoint(geometry);
+  if(point&&pointInRingLngLat(point,selectionRing))return true;
+
+  // Fallback for tile-clipped footprints: if most vertices are inside, treat the
+  // building as belonging to the selected parcel.
+  const polygons=geometry?.type==='Polygon'
+    ?[geometry.coordinates]
+    :geometry?.type==='MultiPolygon'?geometry.coordinates:[];
+  let inside=0,total=0;
+  for(const polygon of polygons){
+    const ring=polygon?.[0]||[];
+    const pts=ring.length>1?ring.slice(0,-1):ring;
+    for(const p of pts){
+      total++;
+      if(pointInRingLngLat(p,selectionRing))inside++;
+    }
+  }
+  return total>0&&inside/total>=0.5;
+}
+
 function featureKey(feature){
   const b=geometryBBox(feature.geometry);
   const h=Number(feature.properties?.render_height)||Number(feature.properties?.height)||0;
@@ -208,21 +276,21 @@ export function createLocalFloodUI({
       map.addLayer({
         id:SEL_FILL,type:'fill',source:SEL_SOURCE,
         filter:['==',['geometry-type'],'Polygon'],
-        paint:{'fill-color':'#60a5fa','fill-opacity':0.08}
+        paint:{'fill-color':'#ef4444','fill-opacity':0.035}
       });
     }
     if(!map.getLayer(SEL_LINE)){
       map.addLayer({
         id:SEL_LINE,type:'line',source:SEL_SOURCE,
         filter:['in',['geometry-type'],['literal',['LineString','Polygon']]],
-        paint:{'line-color':'#60a5fa','line-width':2.2,'line-dasharray':[2,1]}
+        paint:{'line-color':'#ef4444','line-width':2.6,'line-dasharray':[2,1]}
       });
     }
     if(!map.getLayer(SEL_POINTS)){
       map.addLayer({
         id:SEL_POINTS,type:'circle',source:SEL_SOURCE,
         filter:['==',['geometry-type'],'Point'],
-        paint:{'circle-radius':4,'circle-color':'#ffffff','circle-stroke-color':'#2563eb','circle-stroke-width':2}
+        paint:{'circle-radius':4,'circle-color':'#ffffff','circle-stroke-color':'#ef4444','circle-stroke-width':2}
       });
     }
   }
@@ -386,8 +454,9 @@ export function createLocalFloodUI({
       raw.push({feature,key});
     };
 
-    // Capture what is actually visible first. This avoids depending on OSM feature IDs,
-    // which are absent for some OpenFreeMap building tiles.
+    // Capture what is actually visible first. Selection is decided from each
+    // building footprint's representative point, not strict full containment,
+    // so tile clipping and tiny boundary crossings do not drop valid buildings.
     try{
       for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[]){
         addFeature(feature);
@@ -416,7 +485,7 @@ export function createLocalFloodUI({
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
       const isInside=boxesIntersect(bounds,geometryBBox(feature.geometry))&&
-        geometryWithinSelection(feature.geometry,selectionRing);
+        buildingBelongsToSelection(feature.geometry,selectionRing);
 
       const scene={
         type:'Feature',
