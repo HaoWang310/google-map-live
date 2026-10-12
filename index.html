@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.33</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.34</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.33';
+  const APP_VERSION='3.21.34';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -645,6 +645,10 @@
   const STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS=14000;
   const STREET_VEHICLE_JUNCTION_LOOKAHEAD_M=18;
   const STREET_VEHICLE_STOP_LINE_M=3.8;
+  const STREET_SIGNAL_CLUSTER_M=8.0;
+  const STREET_SIGNAL_ROUTE_RADIUS_M=12.0;
+  const STREET_SIGNAL_CYCLE_MS=16000;
+  const STREET_VEHICLE_EXIT_MARGIN_PX=110;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -819,6 +823,7 @@
   let streetVehicleLastPaint=0;
   let streetVehicleRefreshTimer=null;
   let streetVehicleViewRefreshAt=0;
+  let streetTrafficSignals=[];
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -1921,7 +1926,93 @@
       ])
     };
 
-    return [body,cabin,roof,wheels,headLights,tailLights];
+    const bonnet={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'bonnet',
+        minHeight:spec.bodyHeight*0.78,
+        height:spec.bodyHeight+0.10,
+        color:scheme.body
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,
+        spec.length*(spec.id==='van'?0.18:0.23),
+        spec.width*0.76,
+        spec.length*(spec.id==='van'?0.34:0.29),
+        0
+      )
+    };
+
+    const rearDeck={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'rearDeck',
+        minHeight:spec.bodyHeight*0.76,
+        height:spec.bodyHeight+0.07,
+        color:scheme.body
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,
+        spec.length*(spec.id==='blackCab'?0.18:0.20),
+        spec.width*0.74,
+        -spec.length*0.31,
+        0
+      )
+    };
+
+    const frontGlass={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'frontGlass',
+        minHeight:spec.bodyHeight+0.11,
+        height:Math.max(spec.bodyHeight+0.22,spec.cabinHeight-0.08),
+        color:'#172554'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,
+        Math.max(0.14,spec.length*0.075),
+        spec.width*0.58,
+        spec.length*0.105,
+        0
+      )
+    };
+
+    const rearGlass={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'rearGlass',
+        minHeight:spec.bodyHeight+0.10,
+        height:Math.max(spec.bodyHeight+0.20,spec.cabinHeight-0.12),
+        color:'#1e3a8a'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,
+        Math.max(0.14,spec.length*0.065),
+        spec.width*0.56,
+        -spec.length*0.12,
+        0
+      )
+    };
+
+    const mirrors={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'mirrors',
+        minHeight:spec.bodyHeight*0.92,
+        height:spec.bodyHeight+0.16,
+        color:scheme.body
+      },
+      geometry:streetVehicleMultiPolygon([
+        streetVehicleRect(origin,bearing,0.18,0.15,spec.length*0.08, spec.width*0.54),
+        streetVehicleRect(origin,bearing,0.18,0.15,spec.length*0.08,-spec.width*0.54)
+      ])
+    };
+
+    return [
+      body,bonnet,rearDeck,cabin,roof,
+      frontGlass,rearGlass,mirrors,
+      wheels,headLights,tailLights
+    ];
   }
 
   function streetVehicleBusFeatures(vehicle,sample,spec){
@@ -1987,7 +2078,73 @@
       geometry:streetVehicleMultiPolygon(windows)
     };
 
-    const features=[lowerBody,upperBody,roof,lowerWindows];
+    const axlePositions=spec.id==='doubleBus'
+      ?[spec.length*0.31,-spec.length*0.08,-spec.length*0.34]
+      :[spec.length*0.31,-spec.length*0.31];
+    const busWheelGeometries=[];
+    for(const axle of axlePositions){
+      for(const left of [spec.width/2+0.035,-spec.width/2-0.035]){
+        busWheelGeometries.push(
+          streetVehicleRect(origin,bearing,0.98,0.30,axle,left)
+        );
+      }
+    }
+
+    const wheels={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'wheels',
+        minHeight:0.04,height:0.92,color:'#111827'
+      },
+      geometry:streetVehicleMultiPolygon(busWheelGeometries)
+    };
+
+    const headlights={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'headlights',
+        minHeight:0.58,height:0.84,color:'#fde68a'
+      },
+      geometry:streetVehicleMultiPolygon([
+        streetVehicleRect(origin,bearing,0.17,0.34,spec.length/2-0.05, spec.width*0.31),
+        streetVehicleRect(origin,bearing,0.17,0.34,spec.length/2-0.05,-spec.width*0.31)
+      ])
+    };
+
+    const frontDestination={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'destinationDisplay',
+        minHeight:spec.id==='doubleBus'?3.62:2.12,
+        height:spec.id==='doubleBus'?4.02:2.58,
+        color:'#111827'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,0.18,spec.width*0.58,spec.length/2-0.10,0
+      )
+    };
+
+    const doorPanel={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'door',
+        minHeight:0.20,
+        height:spec.id==='doubleBus'?1.65:2.18,
+        color:'#9f1239'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,
+        spec.id==='doubleBus'?1.60:1.42,
+        0.10,
+        spec.length*0.17,
+        -spec.width/2+0.04
+      )
+    };
+
+    const features=[
+      lowerBody,upperBody,roof,lowerWindows,
+      wheels,headlights,frontDestination,doorPanel
+    ];
 
     if(spec.id==='doubleBus'){
       features.push({
@@ -2425,7 +2582,7 @@
     const features=[];
     for(const vehicle of streetVehicles){
       if(vehicle.active===false)continue;
-      const sample=routePointAt(vehicle.route,vehicle.distanceM,vehicle.direction);
+      const sample=streetVehicleSample(vehicle);
       if(!sample)continue;
 
       vehicle.lng=sample.point[0];
@@ -2434,6 +2591,10 @@
 
       features.push(...streetVehicleModelFeatures(vehicle,sample));
     }
+
+    // Traffic signals share the same 3D/2D geometry source so they remain aligned
+    // with the exact road/vehicle coordinate system.
+    features.push(...streetTrafficSignalFeatures(performance.now()));
 
     source.setData({
       type:'FeatureCollection',
@@ -2444,6 +2605,20 @@
 
   function streetVehicleSample(vehicle,distanceM=vehicle?.distanceM){
     if(!vehicle?.route||vehicle.active===false)return null;
+
+    if(vehicle.exitMode){
+      const point=streetVehicleOffsetMeters(
+        vehicle.exitOrigin,
+        vehicle.exitBearing,
+        vehicle.exitDistance||0,
+        0
+      );
+      return {
+        point,
+        bearing:vehicle.exitBearing
+      };
+    }
+
     return routePointAt(vehicle.route,distanceM,vehicle.direction);
   }
 
@@ -2718,38 +2893,187 @@
     return candidates;
   }
 
-  function streetVehicleVirtualSignalAllows(vehicle,time){
-    if(streetVehicleDistanceToRouteEnd(vehicle)>STREET_VEHICLE_JUNCTION_LOOKAHEAD_M){
-      return true;
+  function rebuildStreetTrafficSignals(){
+    const clusters=[];
+
+    const addApproach=(point,bearing,route)=>{
+      let cluster=clusters.find(item=>
+        streetVehicleDistanceM(item.point,point)<=STREET_SIGNAL_CLUSTER_M
+      );
+      if(!cluster){
+        cluster={
+          point:[point[0],point[1]],
+          approaches:[],
+          routes:[]
+        };
+        clusters.push(cluster);
+      }
+      cluster.routes.push(route);
+      if(
+        !cluster.approaches.some(existing=>
+          streetVehicleAngleDifference(existing,bearing)<24
+        )
+      ){
+        cluster.approaches.push(bearing);
+      }
+    };
+
+    for(const route of streetVehicleRoutes){
+      if(!route?.coords||route.coords.length<2)continue;
+      addApproach(
+        route.coords[0],
+        streetVehicleBearing(route.coords[1],route.coords[0]),
+        route
+      );
+      addApproach(
+        route.coords.at(-1),
+        streetVehicleBearing(route.coords.at(-2),route.coords.at(-1)),
+        route
+      );
     }
 
-    const candidates=streetVehicleConnectionCandidates(vehicle);
-    if(candidates.length<3)return true;
+    streetTrafficSignals=clusters
+      .filter(cluster=>cluster.approaches.length>=3)
+      .filter(cluster=>streetVehiclePointInsideViewport(cluster.point,-160))
+      .slice(0,48)
+      .map((cluster,index)=>{
+        const hash=Math.abs(
+          Math.round(cluster.point[0]*100000)*31+
+          Math.round(cluster.point[1]*100000)*17
+        );
+        return {
+          id:'traffic-signal-'+index+'-'+hash,
+          point:cluster.point,
+          approaches:cluster.approaches,
+          routes:cluster.routes,
+          primaryBearing:cluster.approaches[0]??0,
+          phaseOffset:hash%STREET_SIGNAL_CYCLE_MS
+        };
+      });
+  }
+
+  function streetTrafficSignalState(signal,approachBearing,time){
+    if(!signal)return 'green';
+
+    const phase=
+      (time+signal.phaseOffset)%STREET_SIGNAL_CYCLE_MS;
+    const primaryDiff=Math.min(
+      streetVehicleAngleDifference(
+        approachBearing,
+        signal.primaryBearing
+      ),
+      streetVehicleAngleDifference(
+        approachBearing,
+        (signal.primaryBearing+180)%360
+      )
+    );
+    const primaryGroup=primaryDiff<45;
+
+    // 0–6 green A, 6–7 amber A, 7–8 all red,
+    // 8–14 green B, 14–15 amber B, 15–16 all red.
+    if(primaryGroup){
+      if(phase<6000)return 'green';
+      if(phase<7000)return 'amber';
+      return 'red';
+    }
+
+    if(phase>=8000&&phase<14000)return 'green';
+    if(phase>=14000&&phase<15000)return 'amber';
+    return 'red';
+  }
+
+  function streetVehicleUpcomingSignal(vehicle,time){
+    if(!vehicle?.route||vehicle.exitMode)return null;
+    const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
+    if(distanceToEnd>STREET_VEHICLE_JUNCTION_LOOKAHEAD_M)return null;
 
     const endpoint=vehicle.direction>=0
       ?vehicle.route.coords.at(-1)
       :vehicle.route.coords[0];
-    const hash=Math.abs(
-      Math.round(endpoint[0]*100000)*31+
-      Math.round(endpoint[1]*100000)*17
-    );
-    const phase=(time+(hash%STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS))%
-      STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS;
-
     const sample=streetVehicleSample(vehicle);
     const bearing=sample?.bearing??0;
-    const northSouth=
-      bearing<45||bearing>=315||
-      (bearing>=135&&bearing<225);
 
-    // 0–6 s NS green, 6–7 s all-red, 7–13 s EW green, 13–14 s all-red.
-    if(northSouth)return phase<6000;
-    return phase>=7000&&phase<13000;
+    let nearest=null;
+    for(const signal of streetTrafficSignals){
+      const d=streetVehicleDistanceM(endpoint,signal.point);
+      if(d>STREET_SIGNAL_ROUTE_RADIUS_M)continue;
+      if(!nearest||d<nearest.distanceToSignal){
+        nearest={
+          signal,
+          state:streetTrafficSignalState(signal,bearing,time),
+          distanceToSignal:d,
+          distanceToStop:distanceToEnd
+        };
+      }
+    }
+    return nearest;
+  }
+
+  function streetTrafficSignalFeatures(time){
+    const features=[];
+    for(const signal of streetTrafficSignals){
+      const baseBearing=signal.primaryBearing??0;
+      const approaches=[baseBearing,(baseBearing+90)%360];
+
+      for(let i=0;i<approaches.length;i++){
+        const approach=approaches[i];
+        const state=streetTrafficSignalState(signal,approach,time);
+        const postPoint=streetVehicleOffsetMeters(
+          signal.point,approach,-1.6,3.1
+        );
+        const headColor=
+          state==='green'?'#22c55e':
+          state==='amber'?'#f59e0b':
+          '#ef4444';
+
+        features.push({
+          type:'Feature',
+          properties:{
+            vehicleType:'trafficSignal',part:'signalPost',
+            minHeight:0,height:2.85,color:'#334155'
+          },
+          geometry:streetVehicleRect(postPoint,approach,0.18,0.18,0,0)
+        });
+
+        features.push({
+          type:'Feature',
+          properties:{
+            vehicleType:'trafficSignal',part:'signalHead',
+            minHeight:2.55,height:3.20,color:'#111827'
+          },
+          geometry:streetVehicleRect(postPoint,approach,0.42,0.28,0,0)
+        });
+
+        const lightPoint=streetVehicleOffsetMeters(
+          postPoint,approach,0.13,0
+        );
+        features.push({
+          type:'Feature',
+          properties:{
+            vehicleType:'trafficSignal',part:'signalLight',
+            minHeight:2.72,height:3.05,color:headColor
+          },
+          geometry:streetVehicleRect(lightPoint,approach,0.12,0.18,0,0)
+        });
+      }
+    }
+    return features;
+  }
+
+  function streetVehicleVirtualSignalAllows(vehicle,time){
+    const upcoming=streetVehicleUpcomingSignal(vehicle,time);
+    if(!upcoming)return true;
+
+    vehicle.lastSignalId=upcoming.signal.id;
+    vehicle.signalState=upcoming.state;
+    return upcoming.state==='green';
   }
 
   function streetVehicleDesiredSpeed(vehicle,time){
     const driver=ensureStreetVehicleDriver(vehicle);
     const spec=streetVehicleSpec(vehicle);
+    vehicle.state='cruise';
+
     let desired=(vehicle.route?.speedLimitMps??8.9)*
       driver.speedFactor*
       (spec.speedFactor??1)*
@@ -2758,23 +3082,34 @@
     const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
     if(distanceToEnd<STREET_VEHICLE_JUNCTION_LOOKAHEAD_M){
       const connections=streetVehicleConnectionCandidates(vehicle);
-
-      // Slow naturally when approaching a junction, even on green.
       if(connections.length>=2){
         desired*=0.72;
+        vehicle.state='junction_approach';
       }
 
-      if(!streetVehicleVirtualSignalAllows(vehicle,time)){
-        const stoppingDistance=Math.max(
-          0,
-          distanceToEnd-STREET_VEHICLE_STOP_LINE_M
-        );
-        desired=Math.min(
-          desired,
-          Math.sqrt(
-            2*driver.comfortableBrake*stoppingDistance
-          )
-        );
+      const signal=streetVehicleUpcomingSignal(vehicle,time);
+      if(signal){
+        vehicle.lastSignalId=signal.signal.id;
+        vehicle.signalState=signal.state;
+
+        if(signal.state==='red'){
+          vehicle.state='stop_red';
+          const stoppingDistance=Math.max(
+            0,
+            signal.distanceToStop-STREET_VEHICLE_STOP_LINE_M
+          );
+          desired=Math.min(
+            desired,
+            Math.sqrt(
+              2*driver.comfortableBrake*stoppingDistance
+            )
+          );
+        }else if(signal.state==='amber'){
+          vehicle.state='brake_amber';
+          desired*=0.38;
+        }else{
+          vehicle.state='signal_green';
+        }
       }
     }
 
@@ -2791,6 +3126,9 @@
       driver.maxAccel*(1-Math.pow(v/desired,4));
 
     if(lead){
+      if(vehicle.state==='cruise'||vehicle.state==='signal_green'){
+        vehicle.state='follow';
+      }
       const leadSpeed=Math.max(0,Number(lead.vehicle.speedMps)||0);
       const deltaV=v-leadSpeed;
       const dynamicGap=
@@ -2981,6 +3319,7 @@
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
+      clearStreetVehicleExit(vehicle);
       ensureStreetVehicleDriver(vehicle);
       const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
@@ -2995,8 +3334,33 @@
     return false;
   }
 
+  function beginStreetVehicleExit(vehicle){
+    const atForwardEnd=vehicle.direction>=0;
+    vehicle.exitOrigin=atForwardEnd
+      ?vehicle.route.coords.at(-1)
+      :vehicle.route.coords[0];
+    vehicle.exitBearing=streetVehicleRouteTravelBearing(
+      vehicle.route,
+      vehicle.direction,
+      true
+    );
+    vehicle.exitDistance=0;
+    vehicle.exitMode=true;
+    vehicle.state='exit_view';
+    vehicle.speedMps=Math.max(2.5,vehicle.speedMps);
+  }
+
+  function clearStreetVehicleExit(vehicle){
+    vehicle.exitMode=false;
+    vehicle.exitOrigin=null;
+    vehicle.exitBearing=0;
+    vehicle.exitDistance=0;
+  }
+
   function retireStreetVehicle(vehicle,time){
     vehicle.active=false;
+    clearStreetVehicleExit(vehicle);
+    vehicle.state='retired';
     vehicle.respawnAt=
       time+
       STREET_VEHICLE_RESPAWN_DELAY_MIN_MS+
@@ -3030,6 +3394,7 @@
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
+      clearStreetVehicleExit(vehicle);
       ensureStreetVehicleDriver(vehicle);
       const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
@@ -3069,6 +3434,7 @@
     }
 
     streetVehicleRoutes=nextRoutes;
+    rebuildStreetTrafficSignals();
 
     // Camera refreshes update the available road network but do not teleport cars.
     // Keep the current population and only supplement a shortage.
@@ -3096,7 +3462,14 @@
         driver:createStreetVehicleDriverProfile(index),
         lng:0,lat:0,bearing:0,
         active:true,
-        respawnAt:0
+        respawnAt:0,
+        state:'cruise',
+        lastSignalId:null,
+        signalState:'green',
+        exitMode:false,
+        exitOrigin:null,
+        exitBearing:0,
+        exitDistance:0
       };
 
       // On first load put vehicles into view immediately. Later lifecycle respawns
@@ -3156,8 +3529,27 @@
           continue;
         }
 
+        if(vehicle.exitMode){
+          vehicle.exitDistance+=Math.max(2.5,vehicle.speedMps)*dt;
+          const exitSample=streetVehicleSample(vehicle);
+          if(!exitSample)continue;
+          const exitPoint=osmMap.project(exitSample.point);
+
+          // A vehicle is retired ONLY after its whole movement has carried it beyond
+          // the browser edge. It is never removed at an interior vector-tile endpoint.
+          if(
+            exitPoint.x<-STREET_VEHICLE_EXIT_MARGIN_PX||
+            exitPoint.y<-STREET_VEHICLE_EXIT_MARGIN_PX||
+            exitPoint.x>canvas.clientWidth+STREET_VEHICLE_EXIT_MARGIN_PX||
+            exitPoint.y>canvas.clientHeight+STREET_VEHICLE_EXIT_MARGIN_PX
+          ){
+            retireStreetVehicle(vehicle,time);
+          }
+          continue;
+        }
+
         // NPC traffic controller: each driver accelerates/brakes independently
-        // according to road class, curve severity, lead-car headway and junction state.
+        // according to road class, curve severity, lead-car headway and traffic lights.
         updateStreetVehicleSpeed(vehicle,time,dt);
 
         const nextDistance=
@@ -3172,12 +3564,14 @@
             continue;
           }
 
-          // No continuation: the car reaches THIS road segment's endpoint and only
-          // then disappears. It is not teleported to another visible location.
+          // No continuation in the currently loaded vector graph.
+          // NEVER delete the vehicle here: the endpoint may simply be a tile split.
+          // Continue along the final road tangent until the vehicle physically leaves
+          // the browser view, then retire it off-screen.
           vehicle.distanceM=vehicle.direction>=0
             ?vehicle.route.lengthM
             :0;
-          retireStreetVehicle(vehicle,time);
+          beginStreetVehicleExit(vehicle);
           continue;
         }
 
@@ -3212,9 +3606,10 @@
         // Only retire it once it has crossed beyond the browser frame; do not
         // relocate it while it is still visible.
         if(
-          p.x<-70||p.y<-70||
-          p.x>canvas.clientWidth+70||
-          p.y>canvas.clientHeight+70
+          p.x<-STREET_VEHICLE_EXIT_MARGIN_PX||
+          p.y<-STREET_VEHICLE_EXIT_MARGIN_PX||
+          p.x>canvas.clientWidth+STREET_VEHICLE_EXIT_MARGIN_PX||
+          p.y>canvas.clientHeight+STREET_VEHICLE_EXIT_MARGIN_PX
         ){
           retireStreetVehicle(vehicle,time);
         }
@@ -3410,7 +3805,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.33)
+     * DISPLAY STABILITY ONLY (v3.21.34)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
