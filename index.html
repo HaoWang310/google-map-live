@@ -277,7 +277,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.66</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.67</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -608,10 +608,10 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.32';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.33';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.66';
+  const APP_VERSION='3.21.67';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -963,6 +963,10 @@
   let localFloodBuildingOverride=false;
   let localFloodSelectionRing=[];
   let localFloodIsolateMode=false;
+  let citySelectionPaintAppliedRing=null;
+  let citySelectionPaintAppliedOverride=null;
+  let lastCityVehicleView3D=null;
+  let lastCityBuildingLodSource=null;
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
   let osmStructuresHidden=false;
@@ -7080,6 +7084,8 @@
 
 
     cityBuildingsShown=false;
+    // New/rebuilt layers need their paint expressions applied exactly once.
+    citySelectionPaintAppliedRing=null;
     updateCityBuildingSelectionPaint();
     tuneCityBuildingFarField();
   }
@@ -7101,6 +7107,14 @@
 
   function updateCityBuildingSelectionPaint(){
     if(!osmMap||!osmStyleReady)return;
+
+    // Camera movement cannot change a geographic selection. Rebuilding the
+    // complex distance-to-polygon paint expression every zoom/rotation frame
+    // needlessly forces MapLibre to revalidate and repaint 3D buildings.
+    if(
+      citySelectionPaintAppliedRing===localFloodSelectionRing&&
+      citySelectionPaintAppliedOverride===localFloodBuildingOverride
+    )return;
 
     const height=['max',0,['to-number',['get','render_height'],5]];
     const base=['max',0,['to-number',['get','render_min_height'],0]];
@@ -7152,11 +7166,14 @@
       osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-opacity',fillOpacity);
     }
 
-    osmMap.triggerRepaint();
+    citySelectionPaintAppliedRing=localFloodSelectionRing;
+    citySelectionPaintAppliedOverride=localFloodBuildingOverride;
   }
 
   function tuneCityBuildingFarField(){
-    if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
+    if(!osmMap)return;
+    const source=osmMap.getSource(CITY_BUILDINGS_SOURCE);
+    if(!source||source===lastCityBuildingLodSource)return;
 
     /*
      * DISPLAY STABILITY ONLY (v3.21.57)
@@ -7173,6 +7190,7 @@
     if(typeof osmMap.setSourceTileLodParams==='function'){
       try{
         osmMap.setSourceTileLodParams(1,48,CITY_BUILDINGS_SOURCE);
+        lastCityBuildingLodSource=source;
       }catch(error){
         console.warn('Unable to tune building tile LOD',error);
       }
@@ -7235,7 +7253,9 @@
   }
 
   function setCityIsolateMode(active){
-    localFloodIsolateMode=Boolean(active);
+    const next=Boolean(active);
+    if(localFloodIsolateMode===next)return;
+    localFloodIsolateMode=next;
     syncCityView();
   }
 
@@ -7246,27 +7266,31 @@
     $('view2D').setAttribute('aria-pressed',String(!is3D));
     $('view3D').setAttribute('aria-pressed',String(is3D));
 
-    if(osmMap.getLayer(CITY_BUILDINGS_DRIVER_LAYER)){
-      osmMap.setLayoutProperty(CITY_BUILDINGS_DRIVER_LAYER,'visibility','visible');
-    }
+    const setVisibility=(id,visibility)=>{
+      if(!osmMap.getLayer(id))return;
+      if(osmMap.getLayoutProperty(id,'visibility')!==visibility){
+        osmMap.setLayoutProperty(id,'visibility',visibility);
+      }
+    };
 
-    if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
-      const visible3D=is3D&&!localFloodIsolateMode;
-      osmMap.setLayoutProperty(CITY_BUILDINGS_LAYER,'visibility',visible3D?'visible':'none');
-      cityBuildingsShown=visible3D;
-    }else{
-      cityBuildingsShown=false;
-    }
+    setVisibility(CITY_BUILDINGS_DRIVER_LAYER,'visible');
 
-    // During isolated-site view, native/background city buildings must remain hidden
-    // even when pitch/zoom/move events call syncCityView again.
-    if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL)){
-      const visible2D=!is3D&&!localFloodIsolateMode;
-      osmMap.setLayoutProperty(CITY_BUILDINGS_BACKGROUND_FILL,'visibility',visible2D?'visible':'none');
-    }
+    const visible3D=is3D&&!localFloodIsolateMode;
+    setVisibility(CITY_BUILDINGS_LAYER,visible3D?'visible':'none');
+    cityBuildingsShown=Boolean(osmMap.getLayer(CITY_BUILDINGS_LAYER))&&visible3D;
+
+    // During isolated-site view, native/background city buildings remain hidden.
+    const visible2D=!is3D&&!localFloodIsolateMode;
+    setVisibility(CITY_BUILDINGS_BACKGROUND_FILL,visible2D?'visible':'none');
 
     updateCityBuildingSelectionPaint();
-    syncStreetVehicleView();
+
+    // Vehicle layer order and 2D/3D visibility only depend on crossing pitch 0,
+    // not on continuously changing bearing, zoom or map centre.
+    if(lastCityVehicleView3D!==is3D){
+      lastCityVehicleView3D=is3D;
+      syncStreetVehicleView();
+    }
   }
 
   function setCityView(is3D){
@@ -7553,7 +7577,6 @@
     osmMap.on('rotate',()=>{
       tuneCityBuildingFarField();
       syncCityView();
-      osmMap.triggerRepaint();
       if(currentProvider==='osm'&&terrainEnabled)terrainCameraChanged();
     });
 
@@ -7564,7 +7587,6 @@
       syncFloodView();
       if(contourEnabled)refreshContourLayer(120);
       scheduleStreetVehicleRefresh(40);
-      osmMap.triggerRepaint();
     });
     osmMap.on('error',e=>{
       if(e.sourceId===FLOOD_DETAIL_SOURCE){handleFloodDetailError(e.error);return;}
