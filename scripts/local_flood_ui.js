@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.8';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.9';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -470,7 +470,7 @@ export function createLocalFloodUI({
         layout:{visibility:map.getPitch()>.5?'visible':'none'},
         paint:{
           'fill-extrusion-color':buildingColourExpression(),
-          'fill-extrusion-height':['get','simHeight'],
+          'fill-extrusion-height':['+',['get','simHeight'],0.35],
           'fill-extrusion-base':['get','simBase'],
           'fill-extrusion-opacity':1,
           'fill-extrusion-vertical-gradient':false
@@ -617,7 +617,7 @@ export function createLocalFloodUI({
     const cityLayer=map.getLayer(cityBuildingsLayerId);
     const source=cityLayer?.source;
     const sourceLayer=cityLayer?.['source-layer']||'building';
-    if(!source)return {selected:[],sceneCount:0,source:null,sourceLayer};
+    if(!source)return {selected:[],sceneCount:0,visibleCount:0,source:null,sourceLayer};
 
     const raw=[];
     const seen=new Set();
@@ -656,42 +656,33 @@ export function createLocalFloodUI({
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
 
-      const mayIntersect=boxesIntersect(bounds,geometryBBox(feature.geometry));
-      const split=mayIntersect
-        ?splitBuildingBySelection(feature.geometry,selectionRing)
-        :{inside:null,outside:feature.geometry};
+      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
 
-      if(split.outside){
-        sceneFeatures.set(key+'|outside',{
-          type:'Feature',
-          properties:{
-            simHeight:height,
-            simBase:base,
-            selected:false,
-            impacted:false
-          },
-          geometry:split.outside
-        });
-      }
+      const split=splitBuildingBySelection(feature.geometry,selectionRing);
+      if(!split.inside)continue;
 
-      if(split.inside){
-        const insideKey=key+'|inside';
-        const insideScene={
-          type:'Feature',
-          properties:{
-            simHeight:height,
-            simBase:base,
-            selected:true,
-            impacted:false
-          },
-          geometry:split.inside
-        };
-        sceneFeatures.set(insideKey,insideScene);
-        selected.push({feature:insideScene,key:insideKey});
-      }
+      const insideKey=key+'|inside';
+      const insideScene={
+        type:'Feature',
+        properties:{
+          simHeight:height,
+          simBase:base,
+          selected:true,
+          impacted:false
+        },
+        geometry:split.inside
+      };
+      sceneFeatures.set(insideKey,insideScene);
+      selected.push({feature:insideScene,key:insideKey});
     }
 
-    return {selected,sceneCount:sceneFeatures.size,source,sourceLayer};
+    return {
+      selected,
+      sceneCount:sceneFeatures.size,
+      visibleCount:raw.length,
+      source,
+      sourceLayer
+    };
   }
 
   function ensureSimulator(){
@@ -763,7 +754,7 @@ export function createLocalFloodUI({
       return {id,geometry:entry.geometry};
     });
 
-    if(!queried.sceneCount){
+    if(!queried.visibleCount){
       status('没有读取到 OSM 建筑。请等待地图瓦片加载完成后重新圈选。',true);
       return false;
     }
