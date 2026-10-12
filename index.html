@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.49</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.50</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.49';
+  const APP_VERSION='3.21.50';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -668,8 +668,8 @@
   const STREET_VEHICLE_DETAIL_REFRESH_MS=420;
   const STREET_VEHICLE_SAFETY_INTERVAL_MS=120;
   const STREET_VEHICLE_PLAN_LOOKAHEAD_M=34;
-  const STREET_VEHICLE_LANE_CHANGE_DURATION_MS=950;
-  const STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS=2600;
+  const STREET_VEHICLE_LANE_CHANGE_DURATION_MS=1650;
+  const STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS=8000;
   const STREET_VEHICLE_STUCK_LANE_CHANGE_MS=2600;
   const STREET_VEHICLE_STUCK_RECOVERY_MS=6200;
   const STREET_VEHICLE_PROGRESS_EPS_M=1.2;
@@ -2746,20 +2746,41 @@
 
     const type=vehicle?.vehicleType||'sedan';
 
-    // London buses normally favour the left/curb lane; vans also bias outward.
+    // Buses stay in the left/curb lane unless recovery explicitly moves them.
     if(type==='doubleBus'||type==='singleBus')return laneCount-1;
-    if(type==='van'&&Math.random()<0.72)return laneCount-1;
 
-    // Approach lane selection: left turn -> outer/left lane, right turn -> inner lane.
-    if(Number.isFinite(turnAngle)){
-      if(turnAngle<-24)return laneCount-1;
-      if(turnAngle>24)return 0;
+    // Preserve the current lane proportion when OSM splits the same road into
+    // another segment. This prevents lateral snapping at segment boundaries.
+    if(vehicle?.route){
+      const oldCount=Math.max(
+        1,
+        streetVehicleLaneCount(vehicle.route,vehicle.direction)
+      );
+      const oldLane=Math.max(
+        0,
+        Math.min(
+          oldCount-1,
+          Math.round(
+            Number.isFinite(vehicle.lanePosition)
+              ?vehicle.lanePosition
+              :(vehicle.laneIndex||0)
+          )
+        )
+      );
+      const normalized=oldCount<=1?0:oldLane/(oldCount-1);
+      return Math.max(
+        0,
+        Math.min(
+          laneCount-1,
+          Math.round(normalized*(laneCount-1))
+        )
+      );
     }
 
-    // Cars/cabs distribute across available lanes rather than stacking on one centreline.
+    // Initial lane is stable/deterministic rather than random every planning call.
     const aggression=vehicle?.driver?.aggression??0.5;
-    if(aggression>0.68&&Math.random()<0.58)return 0;
-    return Math.floor(Math.random()*laneCount);
+    if(type==='van')return laneCount-1;
+    return aggression>0.66?0:laneCount-1;
   }
 
   function streetVehicleParseMaxSpeedMps(value){
@@ -2877,11 +2898,10 @@
     };
   }
 
-  function routePointAt(route,distanceM,direction=1,laneIndex=0){
+  function streetVehicleRouteCentrePointAt(route,distanceM){
     if(!route||route.coords.length<2)return null;
-    if(!streetVehicleDirectionAllowed(route,direction))return null;
-
     const d=Math.max(0,Math.min(route.lengthM,distanceM));
+
     let i=1;
     while(i<route.cumulative.length&&route.cumulative[i]<d)i++;
     i=Math.min(i,route.coords.length-1);
@@ -2889,14 +2909,46 @@
     const a=route.coords[i-1],b=route.coords[i];
     const start=route.cumulative[i-1],end=route.cumulative[i];
     const ratio=(d-start)/Math.max(1e-9,end-start);
-    const centrePoint=[
+
+    return [
       a[0]+(b[0]-a[0])*ratio,
       a[1]+(b[1]-a[1])*ratio
     ];
+  }
 
-    const bearing=direction>=0
+  function streetVehicleRouteSmoothedBearing(route,distanceM,direction=1){
+    const d=Math.max(0,Math.min(route.lengthM,distanceM));
+    const windowM=Math.min(4.5,Math.max(2.2,route.lengthM*0.018));
+    const d0=Math.max(0,d-windowM);
+    const d1=Math.min(route.lengthM,d+windowM);
+
+    let a=streetVehicleRouteCentrePointAt(route,d0);
+    let b=streetVehicleRouteCentrePointAt(route,d1);
+
+    if(!a||!b||streetVehicleDistanceM(a,b)<0.2){
+      a=streetVehicleRouteCentrePointAt(route,Math.max(0,d-0.8));
+      b=streetVehicleRouteCentrePointAt(route,Math.min(route.lengthM,d+0.8));
+    }
+
+    if(!a||!b)return 0;
+    return direction>=0
       ?streetVehicleBearing(a,b)
-      :(streetVehicleBearing(a,b)+180)%360;
+      :streetVehicleBearing(b,a);
+  }
+
+  function routePointAt(route,distanceM,direction=1,laneIndex=0){
+    if(!route||route.coords.length<2)return null;
+    if(!streetVehicleDirectionAllowed(route,direction))return null;
+
+    const d=Math.max(0,Math.min(route.lengthM,distanceM));
+    const centrePoint=streetVehicleRouteCentrePointAt(route,d);
+    if(!centrePoint)return null;
+
+    // Several-metre tangent suppresses tiny polyline kinks that made cars wag
+    // left/right even on visually straight roads.
+    const bearing=streetVehicleRouteSmoothedBearing(
+      route,d,direction
+    );
     const laneOffset=streetVehicleLaneOffsetM(
       route,direction,laneIndex
     );
@@ -3230,7 +3282,33 @@
 
       vehicle.lng=sample.point[0];
       vehicle.lat=sample.point[1];
-      vehicle.bearing=sample.bearing;
+
+      if(!Number.isFinite(vehicle.visualBearing)){
+        vehicle.visualBearing=sample.bearing;
+      }else{
+        const delta=streetVehicleSignedAngle(
+          vehicle.visualBearing,
+          sample.bearing
+        );
+        const absDelta=Math.abs(delta);
+
+        if(absDelta>0.65){
+          const factor=absDelta>38?0.42:absDelta>16?0.30:0.20;
+          const maxStep=absDelta>38?15:8;
+          const step=Math.max(
+            -maxStep,
+            Math.min(maxStep,delta*factor)
+          );
+          vehicle.visualBearing=
+            (vehicle.visualBearing+step+360)%360;
+        }
+      }
+
+      vehicle.bearing=vehicle.visualBearing;
+      const visualSample={
+        ...sample,
+        bearing:vehicle.visualBearing
+      };
 
       // Do not send far-offscreen vehicle geometry through GeoJSON triangulation.
       // These vehicles continue simulating, but render only when they approach the view.
@@ -3244,7 +3322,7 @@
       features.push(
         ...streetVehicleFeaturesForCurrentZoom(
           vehicle,
-          sample,
+          visualSample,
           streetVehicleDetailIds.has(vehicle.id)
         )
       );
@@ -3992,6 +4070,18 @@
 
         if(angle>118)continue;
 
+        const deltaXY=streetVehicleLocalXY(
+          option.point,
+          currentEndpoint
+        );
+        const theta=currentBearing*Math.PI/180;
+        const lateralGap=Math.abs(
+          deltaXY[0]*Math.cos(theta)-
+          deltaXY[1]*Math.sin(theta)
+        );
+
+        if(sameCorridor&&angle<40&&lateralGap>1.8)continue;
+
         candidates.push({
           ...option,
           route:candidate,
@@ -4669,6 +4759,12 @@
     if(!vehicle?.route||vehicle.routeEndWait)return false;
     if(time<Number(vehicle.laneChangeCooldownUntil||0))return false;
 
+    const type=vehicle?.vehicleType||'sedan';
+    if(
+      (type==='doubleBus'||type==='singleBus')&&
+      reason==='overtake'
+    )return false;
+
     const count=streetVehicleLaneCount(
       vehicle.route,vehicle.direction
     );
@@ -4791,6 +4887,7 @@
       vehicle.plannedConnection=null;
       vehicle.speedMps=Math.max(1.8,vehicle.speedMps);
       vehicle.state='recovery_u_turn';
+      vehicle.visualBearing=NaN;
       vehicle.stuckSince=0;
       vehicle.unexplainedStopSince=0;
       vehicle.lastProgressAt=time;
@@ -5009,12 +5106,27 @@
     }
 
     const lead=streetVehicleLeadInfo(vehicle);
-    if(
+    const type=vehicle?.vehicleType||'sedan';
+    const leadSpeed=lead?Math.max(0,Number(lead.vehicle.speedMps)||0):0;
+    const genuinelySlowLead=
       lead&&
-      lead.gap<Math.max(11,vehicle.speedMps*1.65)&&
-      vehicle.speedMps>1.0
+      lead.gap<Math.max(10,vehicle.speedMps*1.45)&&
+      leadSpeed<desired*0.62&&
+      vehicle.speedMps>2.0;
+
+    if(
+      genuinelySlowLead&&
+      type!=='doubleBus'&&
+      type!=='singleBus'
     ){
-      streetVehicleTryLaneChange(vehicle,time,'overtake');
+      if(!vehicle.slowLeadSince)vehicle.slowLeadSince=time;
+      if(time-vehicle.slowLeadSince>1800){
+        if(streetVehicleTryLaneChange(vehicle,time,'overtake')){
+          vehicle.slowLeadSince=0;
+        }
+      }
+    }else{
+      vehicle.slowLeadSince=0;
     }
 
     return Math.max(0,desired);
@@ -5145,10 +5257,29 @@
       vehicle.decongestIntent=false;
       vehicle.queueSince=0;
     }
+    const previousLanePosition=Number.isFinite(vehicle.lanePosition)
+      ?vehicle.lanePosition
+      :(vehicle.laneIndex||0);
+
     vehicle.direction=chosen.direction;
     vehicle.laneIndex=chosen.laneIndex||0;
-    vehicle.lanePosition=vehicle.laneIndex;
-    vehicle.laneTarget=vehicle.laneIndex;
+
+    const targetLane=vehicle.laneIndex;
+    if(Math.abs(previousLanePosition-targetLane)>0.01){
+      vehicle.laneFrom=previousLanePosition;
+      vehicle.laneTarget=targetLane;
+      vehicle.lanePosition=previousLanePosition;
+      vehicle.laneChangeStartedAt=performance.now();
+      vehicle.laneChangeUntil=
+        vehicle.laneChangeStartedAt+
+        STREET_VEHICLE_LANE_CHANGE_DURATION_MS;
+    }else{
+      vehicle.lanePosition=targetLane;
+      vehicle.laneTarget=targetLane;
+      vehicle.laneFrom=targetLane;
+      vehicle.laneChangeUntil=0;
+    }
+
     vehicle.distanceM=chosen.distanceM;
     vehicle.nextSafetyAt=0;
     vehicle.safetyBlocked=false;
@@ -5269,6 +5400,8 @@
       vehicle.queueSince=0;
       vehicle.decongestIntent=false;
       vehicle.retireIntent=false;
+      vehicle.visualBearing=NaN;
+      vehicle.slowLeadSince=0;
       return true;
     }
 
@@ -5480,6 +5613,8 @@
       vehicle.queueSince=0;
       vehicle.decongestIntent=false;
       vehicle.retireIntent=false;
+      vehicle.visualBearing=NaN;
+      vehicle.slowLeadSince=0;
       return true;
     }
 
@@ -5582,7 +5717,9 @@
         bornAt:performance.now(),
         queueSince:0,
         decongestIntent:false,
-        retireIntent:false
+        retireIntent:false,
+        visualBearing:NaN,
+        slowLeadSince:0
       };
 
       if(
@@ -5998,7 +6135,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.49)
+     * DISPLAY STABILITY ONLY (v3.21.50)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
