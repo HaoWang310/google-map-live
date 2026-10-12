@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.19</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.20</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -552,10 +552,10 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.18';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.20';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.19';
+  const APP_VERSION='3.21.20';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1733,59 +1733,49 @@
     const base=['max',0,['to-number',['get','render_min_height'],0]];
     const ring=normaliseFloodSelectionRing(localFloodSelectionRing);
 
-    let colour='#c6ced5';
     let visibleHeight=height;
     let visibleBase=base;
-    let fillColour='#c6ced5';
     let fillOpacity=0.96;
 
     if(localFloodBuildingOverride&&ring.length>=4){
       const selectionGeometry={type:'Polygon',coordinates:[ring]};
 
       /*
-       * Spatial selection is the critical fix:
-       * - "within" marks only buildings actually contained by the current red polygon.
-       * - "distance <= 0.05 m" detects buildings touching/crossing the boundary.
+       * IMPORTANT ARCHITECTURE:
        *
-       * No selection colour or visibility is driven by feature id, so a repeated
-       * vector-tile id elsewhere in London cannot turn another building orange.
+       * The streamed CITY_BUILDINGS_SOURCE is now background geometry only.
+       * Every native feature that spatially TOUCHES the red polygon is suppressed
+       * from this background layer, independent of vector-tile feature ids.
+       *
+       * local_flood_ui.js then rebuilds ALL site buildings from the same source:
+       *   - fully inside -> orange/red clipped building
+       *   - boundary crossing -> grey outside + orange/red inside
+       *
+       * This solves both failure modes caused by OSM/OpenMapTiles grouping:
+       * 1) one source feature can contain multiple/large building parts;
+       * 2) feature ids can repeat between vector tiles.
+       *
+       * Geometry clipping, not feature id or "within", decides what belongs to site.
        */
-      const inside=['within',selectionGeometry];
-      const intersects=['<=',['distance',selectionGeometry],0.05];
-      const boundary=['all',intersects,['!',inside]];
-      const hidden=localFloodHideSelectedBuildings
-        ?['any',boundary,inside]
-        :boundary;
-      const impactedInside=[
-        'all',
-        inside,
-        ['boolean',['feature-state','localFloodImpacted'],false]
+      const intersectsSelection=[
+        '<=',
+        ['distance',selectionGeometry],
+        0.05
       ];
 
-      colour=[
-        'case',
-        impactedInside,'#ff3b30',
-        inside,'#ff9f1a',
-        '#c6ced5'
-      ];
-      visibleHeight=['case',hidden,0,height];
-      visibleBase=['case',hidden,0,base];
-
-      // Same authoritative source in plan view. Boundary fragments are supplied by
-      // local_flood_ui.js; therefore the native full footprint becomes transparent
-      // only for boundary-crossing buildings (and for all selected buildings when hidden).
-      fillColour=colour;
-      fillOpacity=['case',hidden,0,0.96];
+      visibleHeight=['case',intersectsSelection,0,height];
+      visibleBase=['case',intersectsSelection,0,base];
+      fillOpacity=['case',intersectsSelection,0,0.96];
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
-      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',colour);
+      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color','#c6ced5');
       osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-height',visibleHeight);
       osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-base',visibleBase);
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL)){
-      osmMap.setPaintProperty(CITY_BUILDINGS_SELECTED_FILL,'fill-color',fillColour);
+      osmMap.setPaintProperty(CITY_BUILDINGS_SELECTED_FILL,'fill-color','#c6ced5');
       osmMap.setPaintProperty(CITY_BUILDINGS_SELECTED_FILL,'fill-opacity',fillOpacity);
     }
 
@@ -1898,15 +1888,18 @@
   function setCityBuildingFloodSelection(selection=null){
     const active=Boolean(selection?.active);
     localFloodBuildingOverride=active;
+
+    // IDs are retained only for diagnostics/backward compatibility.
+    // They are NOT used to recolour or hide geometry.
     localFloodSelectedBuildingIds=active
       ?[...new Set((selection?.sourceFeatureIds||[]).filter(id=>id!==null&&id!==undefined))]
       :[];
+
     localFloodSelectionRing=active
       ?normaliseFloodSelectionRing(selection?.selectionRing||[])
       :[];
     localFloodHideSelectedBuildings=active&&Boolean(selection?.hideSelectedBuildings);
 
-    // Keep one 3D source, then recolour/hide it strictly by polygon geometry.
     setBaseOsmBuildingGeometryHidden(false);
     enforceSingleCityBuildingSource();
     updateCityBuildingSelectionPaint();
