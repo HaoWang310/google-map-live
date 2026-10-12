@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.30</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.31</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.30';
+  const APP_VERSION='3.21.31';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -588,6 +588,9 @@
   const STREET_VEHICLE_CONTINUATION_ANGLE_DEG=52;
   const STREET_VEHICLE_RESPAWN_DELAY_MIN_MS=350;
   const STREET_VEHICLE_RESPAWN_DELAY_MAX_MS=1100;
+  const STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS=14000;
+  const STREET_VEHICLE_JUNCTION_LOOKAHEAD_M=18;
+  const STREET_VEHICLE_STOP_LINE_M=3.8;
   const STREET_VEHICLE_COLOR_SCHEMES=[
     {body:'#2563eb',cabin:'#60a5fa',roof:'#bfdbfe'}, // blue
     {body:'#dc2626',cabin:'#f87171',roof:'#fecaca'}, // red
@@ -1905,7 +1908,39 @@
       .map(layer=>layer.id);
   }
 
-  function makeStreetVehicleRoute(coords){
+  function streetVehicleRoadClass(feature){
+    const p=feature?.properties||{};
+    return String(
+      p.class??p.transportation_class??p.highway??p.subclass??'road'
+    ).toLowerCase();
+  }
+
+  function streetVehicleParseMaxSpeedMps(value){
+    if(value===null||value===undefined)return null;
+    const text=String(value).trim().toLowerCase();
+    const match=text.match(/([0-9]+(?:\.[0-9]+)?)/);
+    if(!match)return null;
+    const number=Number(match[1]);
+    if(!Number.isFinite(number)||number<=0)return null;
+    if(text.includes('mph'))return number*0.44704;
+    return number/3.6;
+  }
+
+  function streetVehicleClassSpeedMps(roadClass){
+    const c=String(roadClass||'').toLowerCase();
+    if(c.includes('motorway'))return 16.7;
+    if(c.includes('trunk'))return 15.0;
+    if(c.includes('primary'))return 13.3;
+    if(c.includes('secondary'))return 11.1;
+    if(c.includes('tertiary'))return 9.7;
+    if(c.includes('living_street'))return 5.0;
+    if(c.includes('service'))return 5.6;
+    if(c.includes('residential'))return 8.3;
+    if(c.includes('track'))return 5.0;
+    return 8.9;
+  }
+
+  function makeStreetVehicleRoute(coords,feature=null){
     if(!Array.isArray(coords)||coords.length<2)return null;
     const clean=coords.filter(p=>
       Array.isArray(p)&&p.length>=2&&
@@ -1919,7 +1954,22 @@
     }
     const lengthM=cumulative.at(-1);
     if(!(lengthM>=55))return null;
-    return {coords:clean,cumulative,lengthM};
+
+    const roadClass=streetVehicleRoadClass(feature);
+    const taggedMaxSpeed=streetVehicleParseMaxSpeedMps(
+      feature?.properties?.maxspeed
+    );
+
+    return {
+      coords:clean,
+      cumulative,
+      lengthM,
+      roadClass,
+      speedLimitMps:Math.max(
+        4.0,
+        Math.min(18.0,taggedMaxSpeed??streetVehicleClassSpeedMps(roadClass))
+      )
+    };
   }
 
   function routePointAt(route,distanceM,direction=1){
@@ -2027,8 +2077,8 @@
       });
     };
 
-    const addCoords=coords=>{
-      const route=makeStreetVehicleRoute(coords);
+    const addCoords=(coords,feature=null)=>{
+      const route=makeStreetVehicleRoute(coords,feature);
       if(!route||!routeHasVisibleSample(route))return;
 
       const first=route.coords[0];
@@ -2047,9 +2097,9 @@
     const addFeature=feature=>{
       if(!feature?.geometry||!isDrivableStreetFeature(feature))return;
       const g=feature.geometry;
-      if(g.type==='LineString')addCoords(g.coordinates);
+      if(g.type==='LineString')addCoords(g.coordinates,feature);
       else if(g.type==='MultiLineString'){
-        for(const coords of g.coordinates||[])addCoords(coords);
+        for(const coords of g.coordinates||[])addCoords(coords,feature);
       }
     };
 
@@ -2277,36 +2327,105 @@
     return false;
   }
 
-  function streetVehicleAngleDifference(a,b){
-    const d=Math.abs(((a-b+540)%360)-180);
-    return d;
+  function createStreetVehicleDriverProfile(index=0){
+    const aggression=0.22+Math.random()*0.68;
+    return {
+      aggression,
+      speedFactor:0.86+aggression*0.24,
+      maxAccel:1.25+aggression*1.15,
+      comfortableBrake:2.0+aggression*1.55,
+      emergencyBrake:4.6+aggression*1.5,
+      timeHeadway:2.05-aggression*0.78,
+      minGap:5.8-aggression*1.7,
+      junctionPatience:0.75+Math.random()*0.5,
+      turnRandom:Math.random()
+    };
   }
 
-  function streetVehicleRouteTravelBearing(route,direction,atEnd=false){
-    if(!route?.coords||route.coords.length<2)return 0;
-    if(direction>=0){
-      const a=atEnd?route.coords.at(-2):route.coords[0];
-      const b=atEnd?route.coords.at(-1):route.coords[1];
-      return streetVehicleBearing(a,b);
+  function ensureStreetVehicleDriver(vehicle,index=0){
+    if(!vehicle.driver)vehicle.driver=createStreetVehicleDriverProfile(index);
+    return vehicle.driver;
+  }
+
+  function streetVehicleDistanceToRouteEnd(vehicle){
+    if(!vehicle?.route)return Infinity;
+    return vehicle.direction>=0
+      ?Math.max(0,vehicle.route.lengthM-vehicle.distanceM)
+      :Math.max(0,vehicle.distanceM);
+  }
+
+  function streetVehicleLeadInfo(vehicle){
+    if(!vehicle?.route||vehicle.active===false)return null;
+
+    let best=null;
+    for(const other of streetVehicles){
+      if(
+        other===vehicle||
+        other.active===false||
+        other.route!==vehicle.route||
+        other.direction!==vehicle.direction
+      )continue;
+
+      const delta=vehicle.direction>=0
+        ?other.distanceM-vehicle.distanceM
+        :vehicle.distanceM-other.distanceM;
+
+      if(delta<=0)continue;
+      const gap=Math.max(0.15,delta-STREET_VEHICLE_LENGTH_M);
+
+      if(!best||gap<best.gap){
+        best={vehicle:other,gap};
+      }
     }
-    const a=atEnd?route.coords[1]:route.coords.at(-1);
-    const b=atEnd?route.coords[0]:route.coords.at(-2);
-    return streetVehicleBearing(a,b);
+    return best;
   }
 
-  function continueStreetVehicleOntoConnectedRoute(vehicle){
-    if(!vehicle?.route||!streetVehicleRoutes.length)return false;
+  function streetVehicleCurveSpeedFactor(vehicle){
+    if(!vehicle?.route)return 1;
+    const route=vehicle.route;
+    const look=10;
+    const d0=Math.max(0,Math.min(route.lengthM,vehicle.distanceM));
+    const d1=Math.max(0,Math.min(
+      route.lengthM,
+      d0+(vehicle.direction>=0?look:-look)
+    ));
+    const d2=Math.max(0,Math.min(
+      route.lengthM,
+      d0+(vehicle.direction>=0?look*2:-look*2)
+    ));
+
+    const a=routePointAt(route,d0,vehicle.direction);
+    const b=routePointAt(route,d1,vehicle.direction);
+    const c=routePointAt(route,d2,vehicle.direction);
+    if(!a||!b||!c)return 1;
+
+    const turn=
+      streetVehicleAngleDifference(a.bearing,b.bearing)+
+      streetVehicleAngleDifference(b.bearing,c.bearing);
+
+    if(turn>=70)return 0.42;
+    if(turn>=45)return 0.56;
+    if(turn>=28)return 0.70;
+    if(turn>=14)return 0.84;
+    return 1;
+  }
+
+  function streetVehicleSignedAngle(fromBearing,toBearing){
+    return ((toBearing-fromBearing+540)%360)-180;
+  }
+
+  function streetVehicleConnectionCandidates(vehicle){
+    if(!vehicle?.route||!streetVehicleRoutes.length)return [];
 
     const currentRoute=vehicle.route;
-    const currentAtForwardEnd=vehicle.direction>=0;
-    const currentEndpoint=currentAtForwardEnd
+    const currentEndpoint=vehicle.direction>=0
       ?currentRoute.coords.at(-1)
       :currentRoute.coords[0];
     const currentBearing=streetVehicleRouteTravelBearing(
       currentRoute,vehicle.direction,true
     );
 
-    let best=null;
+    const candidates=[];
 
     for(const candidate of streetVehicleRoutes){
       if(candidate===currentRoute||candidate.coords.length<2)continue;
@@ -2330,25 +2449,227 @@
         const gap=streetVehicleDistanceM(currentEndpoint,option.point);
         if(gap>STREET_VEHICLE_CONTINUATION_TOLERANCE_M)continue;
 
-        const angle=streetVehicleAngleDifference(currentBearing,option.bearing);
-        if(angle>STREET_VEHICLE_CONTINUATION_ANGLE_DEG)continue;
+        const signedAngle=streetVehicleSignedAngle(
+          currentBearing,option.bearing
+        );
+        const angle=Math.abs(signedAngle);
 
-        const sample=routePointAt(candidate,option.distanceM,option.direction);
-        if(!sample)continue;
-        if(streetVehicleConflicts(sample,candidate,option.direction,vehicle,false))continue;
+        // Game-like NPC drivers avoid U-turns unless no road exists; here we simply
+        // reject them so movement stays believable and easy to read.
+        if(angle>118)continue;
 
-        const score=gap+angle*0.12;
-        if(!best||score<best.score){
-          best={...option,route:candidate,score};
-        }
+        candidates.push({
+          ...option,
+          route:candidate,
+          gap,
+          angle,
+          signedAngle
+        });
       }
     }
 
-    if(!best)return false;
+    return candidates;
+  }
 
-    vehicle.route=best.route;
-    vehicle.direction=best.direction;
-    vehicle.distanceM=best.distanceM;
+  function streetVehicleVirtualSignalAllows(vehicle,time){
+    if(streetVehicleDistanceToRouteEnd(vehicle)>STREET_VEHICLE_JUNCTION_LOOKAHEAD_M){
+      return true;
+    }
+
+    const candidates=streetVehicleConnectionCandidates(vehicle);
+    if(candidates.length<3)return true;
+
+    const endpoint=vehicle.direction>=0
+      ?vehicle.route.coords.at(-1)
+      :vehicle.route.coords[0];
+    const hash=Math.abs(
+      Math.round(endpoint[0]*100000)*31+
+      Math.round(endpoint[1]*100000)*17
+    );
+    const phase=(time+(hash%STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS))%
+      STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS;
+
+    const sample=streetVehicleSample(vehicle);
+    const bearing=sample?.bearing??0;
+    const northSouth=
+      bearing<45||bearing>=315||
+      (bearing>=135&&bearing<225);
+
+    // 0–6 s NS green, 6–7 s all-red, 7–13 s EW green, 13–14 s all-red.
+    if(northSouth)return phase<6000;
+    return phase>=7000&&phase<13000;
+  }
+
+  function streetVehicleDesiredSpeed(vehicle,time){
+    const driver=ensureStreetVehicleDriver(vehicle);
+    let desired=(vehicle.route?.speedLimitMps??8.9)*
+      driver.speedFactor*
+      streetVehicleCurveSpeedFactor(vehicle);
+
+    const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
+    if(distanceToEnd<STREET_VEHICLE_JUNCTION_LOOKAHEAD_M){
+      const connections=streetVehicleConnectionCandidates(vehicle);
+
+      // Slow naturally when approaching a junction, even on green.
+      if(connections.length>=2){
+        desired*=0.72;
+      }
+
+      if(!streetVehicleVirtualSignalAllows(vehicle,time)){
+        const stoppingDistance=Math.max(
+          0,
+          distanceToEnd-STREET_VEHICLE_STOP_LINE_M
+        );
+        desired=Math.min(
+          desired,
+          Math.sqrt(
+            2*driver.comfortableBrake*stoppingDistance
+          )
+        );
+      }
+    }
+
+    return Math.max(0,desired);
+  }
+
+  function updateStreetVehicleSpeed(vehicle,time,dt){
+    const driver=ensureStreetVehicleDriver(vehicle);
+    const v=Math.max(0,Number(vehicle.speedMps)||0);
+    const desired=Math.max(0.1,streetVehicleDesiredSpeed(vehicle,time));
+    const lead=streetVehicleLeadInfo(vehicle);
+
+    let acceleration=
+      driver.maxAccel*(1-Math.pow(v/desired,4));
+
+    if(lead){
+      const leadSpeed=Math.max(0,Number(lead.vehicle.speedMps)||0);
+      const deltaV=v-leadSpeed;
+      const dynamicGap=
+        driver.minGap+
+        Math.max(
+          0,
+          v*driver.timeHeadway+
+          (v*deltaV)/
+          (2*Math.sqrt(
+            Math.max(
+              0.1,
+              driver.maxAccel*driver.comfortableBrake
+            )
+          ))
+        );
+
+      acceleration-=
+        driver.maxAccel*
+        Math.pow(dynamicGap/Math.max(0.4,lead.gap),2);
+    }
+
+    if(desired<0.25){
+      acceleration=Math.min(
+        acceleration,
+        -driver.comfortableBrake
+      );
+    }
+
+    acceleration=Math.max(
+      -driver.emergencyBrake,
+      Math.min(driver.maxAccel,acceleration)
+    );
+
+    vehicle.speedMps=Math.max(
+      0,
+      Math.min(
+        (vehicle.route?.speedLimitMps??8.9)*1.18,
+        v+acceleration*dt
+      )
+    );
+  }
+
+  function streetVehicleAngleDifference(a,b){
+    const d=Math.abs(((a-b+540)%360)-180);
+    return d;
+  }
+
+  function streetVehicleRouteTravelBearing(route,direction,atEnd=false){
+    if(!route?.coords||route.coords.length<2)return 0;
+    if(direction>=0){
+      const a=atEnd?route.coords.at(-2):route.coords[0];
+      const b=atEnd?route.coords.at(-1):route.coords[1];
+      return streetVehicleBearing(a,b);
+    }
+    const a=atEnd?route.coords[1]:route.coords.at(-1);
+    const b=atEnd?route.coords[0]:route.coords.at(-2);
+    return streetVehicleBearing(a,b);
+  }
+
+  function continueStreetVehicleOntoConnectedRoute(vehicle){
+    if(!vehicle?.route||!streetVehicleRoutes.length)return false;
+
+    const candidates=streetVehicleConnectionCandidates(vehicle);
+    if(!candidates.length)return false;
+
+    const driver=ensureStreetVehicleDriver(vehicle);
+    const weighted=[];
+
+    for(const candidate of candidates){
+      const sample=routePointAt(
+        candidate.route,
+        candidate.distanceM,
+        candidate.direction
+      );
+      if(!sample)continue;
+      if(
+        streetVehicleConflicts(
+          sample,
+          candidate.route,
+          candidate.direction,
+          vehicle,
+          false
+        )
+      )continue;
+
+      // GTA-like but deterministic-enough road choice:
+      // prefer straight roads, still allow left/right turns, prefer roads with
+      // similar/higher class speed, and avoid abrupt branch changes.
+      let weight=
+        candidate.angle<16?7.0:
+        candidate.angle<38?4.0:
+        candidate.angle<72?2.2:
+        0.8;
+
+      const speedRatio=
+        (candidate.route.speedLimitMps??8.9)/
+        Math.max(4,vehicle.route.speedLimitMps??8.9);
+      weight*=Math.max(0.55,Math.min(1.45,speedRatio));
+
+      if(candidate.signedAngle<0){
+        weight*=0.90+driver.turnRandom*0.25;
+      }else if(candidate.signedAngle>0){
+        weight*=0.90+(1-driver.turnRandom)*0.25;
+      }
+
+      weighted.push({...candidate,weight});
+    }
+
+    if(!weighted.length)return false;
+
+    const total=weighted.reduce((sum,item)=>sum+item.weight,0);
+    let pick=Math.random()*total;
+    let chosen=weighted.at(-1);
+    for(const item of weighted){
+      pick-=item.weight;
+      if(pick<=0){
+        chosen=item;
+        break;
+      }
+    }
+
+    vehicle.route=chosen.route;
+    vehicle.direction=chosen.direction;
+    vehicle.distanceM=chosen.distanceM;
+    vehicle.speedMps=Math.min(
+      vehicle.speedMps,
+      (chosen.route.speedLimitMps??8.9)*0.72
+    );
     return true;
   }
 
@@ -2407,7 +2728,10 @@
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
-      vehicle.speedMps=4.5+Math.random()*5.5;
+      ensureStreetVehicleDriver(vehicle);
+      vehicle.speedMps=
+        (route.speedLimitMps??8.9)*
+        (0.48+Math.random()*0.30);
       vehicle.active=true;
       vehicle.respawnAt=0;
       return true;
@@ -2447,7 +2771,10 @@
       vehicle.route=route;
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
-      vehicle.speedMps=4.5+Math.random()*5.5;
+      ensureStreetVehicleDriver(vehicle);
+      vehicle.speedMps=
+        (route.speedLimitMps??8.9)*
+        (0.48+Math.random()*0.30);
       vehicle.active=true;
       vehicle.respawnAt=0;
       return true;
@@ -2505,6 +2832,7 @@
         colorScheme:STREET_VEHICLE_COLOR_SCHEMES[
           index%STREET_VEHICLE_COLOR_SCHEMES.length
         ],
+        driver:createStreetVehicleDriverProfile(index),
         lng:0,lat:0,bearing:0,
         active:true,
         respawnAt:0
@@ -2567,6 +2895,10 @@
           continue;
         }
 
+        // NPC traffic controller: each driver accelerates/brakes independently
+        // according to road class, curve severity, lead-car headway and junction state.
+        updateStreetVehicleSpeed(vehicle,time,dt);
+
         const nextDistance=
           vehicle.distanceM+
           vehicle.direction*vehicle.speedMps*dt;
@@ -2603,6 +2935,12 @@
           )
         ){
           vehicle.distanceM=nextDistance;
+        }else{
+          const driver=ensureStreetVehicleDriver(vehicle);
+          vehicle.speedMps=Math.max(
+            0,
+            vehicle.speedMps-driver.emergencyBrake*dt
+          );
         }
 
         const sample=streetVehicleSample(vehicle);
@@ -2811,7 +3149,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.30)
+     * DISPLAY STABILITY ONLY (v3.21.31)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
