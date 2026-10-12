@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.0';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.1';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -246,6 +246,9 @@ export function createLocalFloodUI({
   setCityBuildingFloodSelection
 }){
   let drawing=false;
+  let editingSelection=false;
+  let dragVertexIndex=-1;
+  let dragPanWasEnabled=true;
   let vertices=[];
   let polygon=null;
   let prepared=false;
@@ -301,9 +304,13 @@ export function createLocalFloodUI({
     }else if(vertices.length>=2){
       features.push({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:vertices}});
     }
-    for(const point of vertices){
-      features.push({type:'Feature',properties:{},geometry:{type:'Point',coordinates:point}});
-    }
+    vertices.forEach((point,index)=>{
+      features.push({
+        type:'Feature',
+        properties:{vertexIndex:index},
+        geometry:{type:'Point',coordinates:point}
+      });
+    });
     map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features});
   }
 
@@ -312,6 +319,16 @@ export function createLocalFloodUI({
     $('localFloodRun').disabled=!prepared;
     $('localFloodPause').disabled=!prepared;
     $('localFloodReset').disabled=!prepared;
+  }
+
+  function syncEditablePolygon(){
+    if(vertices.length<3){
+      polygon=null;
+      updateSelection();
+      return;
+    }
+    polygon=[[...vertices,vertices[0]]];
+    updateSelection();
   }
 
   function buildingColourExpression(){
@@ -397,7 +414,13 @@ export function createLocalFloodUI({
     clearSelectedBuildingStates();
     removeWaterLayers();
     if(!keepSelection){
-      drawing=false;vertices=[];polygon=null;
+      drawing=false;
+      editingSelection=false;
+      dragVertexIndex=-1;
+      vertices=[];
+      polygon=null;
+      map.getCanvas().style.cursor='';
+      if(!map.dragPan.isEnabled())map.dragPan.enable();
       map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features:[]});
     }
     $('localFloodStats').textContent='尚未运行';
@@ -407,21 +430,35 @@ export function createLocalFloodUI({
   function startDrawing(){
     clearSimulation(false);
     drawing=true;
+    editingSelection=false;
+    dragVertexIndex=-1;
     map.doubleClickZoom.disable();
     map.getCanvas().style.cursor='crosshair';
-    status('圈选模式：在地图上逐点点击边界；至少 3 个点后点击“完成范围”或按 Enter。');
+    status('圈选模式：逐点点击红色边界；至少 3 个点后点击“确定范围”或双击。');
     setButtons();
   }
 
-  async function finishDrawing(){
+  function finishDrawing(){
     if(!drawing||vertices.length<3)return;
     drawing=false;
+    editingSelection=true;
+    dragVertexIndex=-1;
     map.doubleClickZoom.enable();
     map.getCanvas().style.cursor='';
-    const ring=[...vertices,vertices[0]];
-    polygon=[ring];
-    updateSelection();
+    syncEditablePolygon();
     setButtons();
+    status('范围已确定：可继续拖动红色锚点修改边界；调整完成后按 Enter 生成范围内建筑。');
+  }
+
+  async function confirmEditedSelection(){
+    if(!editingSelection||vertices.length<3)return;
+    editingSelection=false;
+    dragVertexIndex=-1;
+    syncEditablePolygon();
+    map.getCanvas().style.cursor='';
+    if(!map.dragPan.isEnabled())map.dragPan.enable();
+    setButtons();
+    status('边界已确认，正在按最终红色框生成范围内建筑…');
     await prepareSimulation();
   }
 
@@ -669,7 +706,8 @@ export function createLocalFloodUI({
   map.on('click',event=>{
     if(!drawing)return;
     vertices.push([event.lngLat.lng,event.lngLat.lat]);
-    updateSelection();setButtons();
+    updateSelection();
+    setButtons();
   });
 
   map.on('dblclick',event=>{
@@ -678,18 +716,95 @@ export function createLocalFloodUI({
     if(vertices.length>=3)finishDrawing();
   });
 
+  const findAnchorAtPoint=point=>{
+    if(!editingSelection||!map.getLayer(SEL_POINTS))return null;
+    try{
+      const hit=(map.queryRenderedFeatures(point,{layers:[SEL_POINTS]})||[])[0];
+      const index=Number(hit?.properties?.vertexIndex);
+      return Number.isInteger(index)&&index>=0&&index<vertices.length?index:null;
+    }catch(error){
+      console.warn('Anchor hit test failed',error);
+      return null;
+    }
+  };
+
+  const onMouseDown=event=>{
+    if(!editingSelection)return;
+    const index=findAnchorAtPoint(event.point);
+    if(index===null)return;
+
+    event.preventDefault?.();
+    event.originalEvent?.preventDefault?.();
+    dragVertexIndex=index;
+    dragPanWasEnabled=map.dragPan.isEnabled();
+    if(dragPanWasEnabled)map.dragPan.disable();
+    map.getCanvas().style.cursor='grabbing';
+    status('正在调整锚点 '+(index+1)+'；松开鼠标后可继续调整，按 Enter 生成建筑。');
+  };
+
+  const onMouseMove=event=>{
+    if(dragVertexIndex>=0&&editingSelection){
+      vertices[dragVertexIndex]=[event.lngLat.lng,event.lngLat.lat];
+      syncEditablePolygon();
+      return;
+    }
+
+    if(editingSelection){
+      const index=findAnchorAtPoint(event.point);
+      map.getCanvas().style.cursor=index===null?'':'grab';
+    }
+  };
+
+  const onMouseUp=()=>{
+    if(dragVertexIndex<0)return;
+    dragVertexIndex=-1;
+    if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
+    map.getCanvas().style.cursor='';
+    status('边界已更新：可继续拖动任意红色锚点；按 Enter 生成最终范围内建筑。');
+  };
+
+  map.on('mousedown',onMouseDown);
+  map.on('mousemove',onMouseMove);
+  map.on('mouseup',onMouseUp);
+  map.on('mouseout',onMouseUp);
+
   const syncSceneOnPitch=()=>syncBuildingSceneView();
   map.on('pitch',syncSceneOnPitch);
+
+  const cancelSelectionEdit=()=>{
+    drawing=false;
+    editingSelection=false;
+    dragVertexIndex=-1;
+    vertices=[];
+    polygon=null;
+    updateSelection();
+    map.doubleClickZoom.enable();
+    if(!map.dragPan.isEnabled())map.dragPan.enable();
+    map.getCanvas().style.cursor='';
+    status('圈选已取消。');
+    setButtons();
+  };
 
   const keydown=event=>{
     const tag=event.target?.tagName;
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
-    if(!drawing)return;
-    if(event.key==='Enter'){event.preventDefault();finishDrawing();}
-    if(event.key==='Escape'){
-      event.preventDefault();drawing=false;vertices=[];polygon=null;updateSelection();
-      map.doubleClickZoom.enable();map.getCanvas().style.cursor='';
-      status('圈选已取消。');setButtons();
+
+    if(event.key==='Enter'){
+      if(drawing&&vertices.length>=3){
+        event.preventDefault();
+        finishDrawing();
+        return;
+      }
+      if(editingSelection){
+        event.preventDefault();
+        confirmEditedSelection();
+        return;
+      }
+    }
+
+    if(event.key==='Escape'&&(drawing||editingSelection)){
+      event.preventDefault();
+      cancelSelectionEdit();
     }
   };
   document.addEventListener('keydown',keydown);
@@ -725,13 +840,17 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('先点击“圈选区域”，在地图中画出局部模拟范围。');
+  status('先点击“圈选区域”画边界；确定范围后可拖动红色锚点，按 Enter 生成范围内建筑。');
 
   return {
     clear:()=>clearSimulation(false),
     destroy(){
       clearSimulation(false);
       simulator?.destroy();simulator=null;
+      map.off('mousedown',onMouseDown);
+      map.off('mousemove',onMouseMove);
+      map.off('mouseup',onMouseUp);
+      map.off('mouseout',onMouseUp);
       map.off('pitch',syncSceneOnPitch);
       document.removeEventListener('keydown',keydown);
     }
