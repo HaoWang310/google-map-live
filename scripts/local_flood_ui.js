@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.4';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.5';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -429,6 +429,7 @@ export function createLocalFloodUI({
       dragVertexIndex=-1;
       vertices=[];
       polygon=null;
+      map.doubleClickZoom.enable();
       map.getCanvas().style.cursor='';
       if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
       map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features:[]});
@@ -456,13 +457,13 @@ export function createLocalFloodUI({
     editingSelection=true;
     selectionDirty=true;
     dragVertexIndex=-1;
-    map.doubleClickZoom.enable();
+    map.doubleClickZoom.disable();
     dragPanWasEnabled=map.dragPan.isEnabled();
     map.getCanvas().style.cursor='';
 
     syncEditablePolygon();
     setButtons();
-    status('范围已确定：可继续拖动红色锚点修改边界；调整完成后按 Enter 生成范围内建筑。');
+    status('范围已确定：拖动锚点修改；双击边线增加点，双击现有点删除；按 Enter 生成范围内建筑。');
   }
 
   async function confirmEditedSelection(){
@@ -489,7 +490,7 @@ export function createLocalFloodUI({
       editingSelection=true;
       selectionDirty=false;
       status(
-        '范围已生成：红色锚点仍可拖动；拖动地图空白处可移动视窗。修改边界后按 Enter 重新生成范围内建筑。'
+        '范围已生成：可拖动锚点、双击边线加点、双击现有点删除；空白处可移动视窗，按 Enter 重新生成。'
       );
     }else{
       editingSelection=true;
@@ -751,9 +752,51 @@ export function createLocalFloodUI({
   });
 
   map.on('dblclick',event=>{
-    if(!drawing)return;
     event.originalEvent?.preventDefault?.();
-    if(vertices.length>=3)finishDrawing();
+
+    if(drawing){
+      if(vertices.length>=3)finishDrawing();
+      return;
+    }
+
+    if(!editingSelection||isPreparingSelection)return;
+
+    // 1) Double-click an existing anchor -> delete it.
+    const anchorIndex=findAnchorAtPoint(event.point);
+    if(anchorIndex!==null){
+      if(vertices.length<=3){
+        status('多边形至少需要 3 个锚点，当前锚点不能继续删除。',true);
+        return;
+      }
+
+      vertices.splice(anchorIndex,1);
+      simulator?.pause();
+      selectionDirty=true;
+      syncEditablePolygon();
+      setButtons();
+      status(
+        prepared
+          ?'已删除锚点 '+(anchorIndex+1)+'。可继续编辑，按 Enter 按新范围重新生成建筑。'
+          :'已删除锚点 '+(anchorIndex+1)+'。可继续编辑，按 Enter 生成建筑。'
+      );
+      return;
+    }
+
+    // 2) Double-click close to an existing red edge -> insert a new anchor on that edge.
+    const edge=nearestEdgeAtPoint(event.point);
+    if(!edge)return;
+
+    const lngLat=map.unproject([edge.x,edge.y]);
+    vertices.splice(edge.insertIndex,0,[lngLat.lng,lngLat.lat]);
+    simulator?.pause();
+    selectionDirty=true;
+    syncEditablePolygon();
+    setButtons();
+    status(
+      prepared
+        ?'已在红色边线上增加锚点。可拖动新锚点调整范围，按 Enter 重新生成建筑。'
+        :'已在红色边线上增加锚点。可拖动新锚点调整范围，按 Enter 生成建筑。'
+    );
   });
 
   const findAnchorAtPoint=point=>{
@@ -772,6 +815,40 @@ export function createLocalFloodUI({
       }
     }
     return bestIndex;
+  };
+
+  const nearestEdgeAtPoint=point=>{
+    if(!editingSelection||vertices.length<2)return null;
+
+    let best=null;
+    const maxDistance=16;
+
+    for(let i=0;i<vertices.length;i++){
+      const j=(i+1)%vertices.length;
+      const a=map.project(vertices[i]);
+      const b=map.project(vertices[j]);
+      const dx=b.x-a.x,dy=b.y-a.y;
+      const len2=dx*dx+dy*dy;
+      if(len2<1e-9)continue;
+
+      const t=clamp(
+        ((point.x-a.x)*dx+(point.y-a.y)*dy)/len2,
+        0,1
+      );
+      const x=a.x+t*dx;
+      const y=a.y+t*dy;
+      const distance=Math.hypot(point.x-x,point.y-y);
+
+      if(distance<=maxDistance&&(!best||distance<best.distance)){
+        best={
+          distance,
+          x,y,
+          segmentIndex:i,
+          insertIndex:i+1
+        };
+      }
+    }
+    return best;
   };
 
   const canvasContainer=map.getCanvasContainer();
@@ -839,7 +916,12 @@ export function createLocalFloodUI({
   const onMapMouseMove=event=>{
     if(!editingSelection||dragVertexIndex>=0)return;
     const index=findAnchorAtPoint(event.point);
-    map.getCanvas().style.cursor=index===null?'':'grab';
+    if(index!==null){
+      map.getCanvas().style.cursor='grab';
+      return;
+    }
+    const edge=nearestEdgeAtPoint(event.point);
+    map.getCanvas().style.cursor=edge?'crosshair':'';
   };
 
   canvasContainer.addEventListener('mousedown',onAnchorMouseDownCapture,true);
@@ -919,7 +1001,7 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('圈选后可拖动红色锚点修改范围，也可拖动地图空白处移动视窗；按 Enter 生成或重新生成。');
+  status('圈选后：拖动锚点修改；双击边线加点；双击现有点删除；空白处拖动视窗；Enter 生成或重新生成。');
 
   return {
     clear:()=>clearSimulation(false),
