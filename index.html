@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.51</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.52</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.51';
+  const APP_VERSION='3.21.52';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -685,9 +685,12 @@
   const STREET_VEHICLE_RETIRE_INTENT_MS=65000;
   const STREET_VEHICLE_EDGE_RETIRE_PX=72;
   const STREET_VEHICLE_UNEXPLAINED_STOP_MS=3200;
-  const STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS=2200;
+  const STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS=1400;
   const STREET_VEHICLE_DOWNSTREAM_CLEARANCE_M=24;
   const STREET_VEHICLE_QUEUE_SPEED_MPS=1.35;
+  const STREET_VEHICLE_JUNCTION_SPLIT_MIN_M=12;
+  const STREET_VEHICLE_TURN_STRAIGHT_SHARE=0.52;
+  const STREET_VEHICLE_TURN_LEFT_SHARE=0.24;
   const STREET_VEHICLE_FRAGMENT_LINK_M=28;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
@@ -3030,6 +3033,121 @@
     return [...descriptors.values()];
   }
 
+  function streetVehicleJunctionCoordKey(point){
+    if(!Array.isArray(point)||point.length<2)return '';
+    // ~1 m quantization in central London: tolerant enough for duplicate vector
+    // geometries while still keeping parallel carriageways separate.
+    return Number(point[0]).toFixed(5)+','+Number(point[1]).toFixed(5);
+  }
+
+  function streetVehicleSegmentRoute(route,coords,index){
+    if(!route||!Array.isArray(coords)||coords.length<2)return null;
+
+    const cumulative=[0];
+    for(let i=1;i<coords.length;i++){
+      cumulative.push(
+        cumulative[i-1]+streetVehicleDistanceM(coords[i-1],coords[i])
+      );
+    }
+    const lengthM=cumulative.at(-1);
+    if(lengthM<STREET_VEHICLE_JUNCTION_SPLIT_MIN_M)return null;
+
+    return {
+      ...route,
+      coords:coords.map(point=>[point[0],point[1]]),
+      cumulative,
+      lengthM,
+      routeKey:
+        streetVehicleRouteKey(route)+
+        '#j'+index+
+        ':'+streetVehicleJunctionCoordKey(coords[0])+
+        '>'+streetVehicleJunctionCoordKey(coords.at(-1))
+    };
+  }
+
+  function splitStreetVehicleRoutesAtJunctions(routes){
+    if(!Array.isArray(routes)||routes.length<2)return routes||[];
+
+    const pointCorridors=new Map();
+
+    for(const route of routes){
+      const corridor=streetVehicleCorridorKey(route);
+      for(const point of route.coords||[]){
+        const key=streetVehicleJunctionCoordKey(point);
+        if(!key)continue;
+        if(!pointCorridors.has(key))pointCorridors.set(key,new Set());
+        pointCorridors.get(key).add(corridor);
+      }
+    }
+
+    const result=[];
+
+    for(const route of routes){
+      const coords=route.coords||[];
+      if(coords.length<3){
+        result.push(route);
+        continue;
+      }
+
+      const splitIndices=[];
+      for(let i=1;i<coords.length-1;i++){
+        const corridors=pointCorridors.get(
+          streetVehicleJunctionCoordKey(coords[i])
+        );
+        if(corridors&&corridors.size>=2){
+          splitIndices.push(i);
+        }
+      }
+
+      if(!splitIndices.length){
+        result.push(route);
+        continue;
+      }
+
+      let start=0;
+      let segmentIndex=0;
+
+      for(const index of [...splitIndices,coords.length-1]){
+        if(index<=start)continue;
+
+        const piece=coords.slice(start,index+1);
+        const segment=streetVehicleSegmentRoute(
+          route,
+          piece,
+          segmentIndex++
+        );
+
+        if(segment){
+          result.push(segment);
+          start=index;
+        }
+      }
+
+      // If a tiny tail could not be emitted, keep it attached to the previous piece.
+      if(start<coords.length-1){
+        const tail=coords.slice(start);
+        if(result.length&&streetVehicleCorridorKey(result.at(-1))===streetVehicleCorridorKey(route)){
+          const previous=result.pop();
+          const mergedCoords=[
+            ...previous.coords.slice(0,-1),
+            ...tail
+          ];
+          result.push(
+            streetVehicleSegmentRoute(
+              route,
+              mergedCoords,
+              segmentIndex++
+            )||previous
+          );
+        }else{
+          result.push(route);
+        }
+      }
+    }
+
+    return result;
+  }
+
   function collectVisibleStreetRoutes(){
     if(!osmMap||!osmStyleReady)return [];
 
@@ -3145,7 +3263,14 @@
       }
     }
 
-    return routes
+    const baseRoutes=routes
+      .sort((a,b)=>b.lengthM-a.lengthM)
+      .slice(0,320);
+
+    // A long OSM LineString may pass through several real intersections. Previous
+    // AI could only turn at the END of that whole LineString, so most visible
+    // junctions were effectively "straight only". Split at shared road nodes first.
+    return splitStreetVehicleRoutesAtJunctions(baseRoutes)
       .sort((a,b)=>b.lengthM-a.lengthM)
       .slice(0,420);
   }
@@ -4543,6 +4668,8 @@
       if(queueAge>STREET_VEHICLE_QUEUE_REPLAN_MS){
         vehicle.decongestIntent=true;
         vehicle.plannedConnection=null;
+        vehicle.turnIntent='escape';
+        vehicle.turnIntentRouteKey=streetVehicleRouteKey(vehicle.route);
         streetVehiclePlanNextConnection(vehicle,time,true);
 
         // Give the queue head enough movement to break a stop-go deadlock when there
@@ -4600,6 +4727,33 @@
     }
   }
 
+  function streetVehicleTurnIntent(vehicle,forceNew=false){
+    const routeKey=streetVehicleRouteKey(vehicle?.route);
+    if(
+      !forceNew&&
+      vehicle?.turnIntent&&
+      vehicle.turnIntentRouteKey===routeKey
+    ){
+      return vehicle.turnIntent;
+    }
+
+    const r=Math.random();
+    const intent=
+      vehicle?.decongestIntent
+        ?'escape'
+        :r<STREET_VEHICLE_TURN_STRAIGHT_SHARE
+          ?'straight'
+          :r<
+            STREET_VEHICLE_TURN_STRAIGHT_SHARE+
+            STREET_VEHICLE_TURN_LEFT_SHARE
+              ?'left'
+              :'right';
+
+    vehicle.turnIntent=intent;
+    vehicle.turnIntentRouteKey=routeKey;
+    return intent;
+  }
+
   function streetVehicleWeightedConnection(vehicle){
     const candidates=streetVehicleConnectionCandidates(vehicle);
     if(!candidates.length)return null;
@@ -4624,11 +4778,29 @@
       );
       if(!safeLane)continue;
 
+      const intent=streetVehicleTurnIntent(vehicle,false);
+      const isStraight=candidate.angle<18;
+      const isLeft=candidate.signedAngle<-18;
+      const isRight=candidate.signedAngle>18;
+
+      // Junction behaviour is intentional, not "always go straight". Around half
+      // the cars continue straight; the rest are split across left/right turns.
       let weight=
-        candidate.angle<14?8.5:
-        candidate.angle<34?4.8:
-        candidate.angle<70?2.2:
-        0.55;
+        isStraight?4.4:
+        candidate.angle<58?4.0:
+        candidate.angle<92?2.8:
+        0.8;
+
+      if(intent==='straight'){
+        weight*=isStraight?2.2:0.72;
+      }else if(intent==='left'){
+        weight*=isLeft?2.7:(isStraight?0.85:0.42);
+      }else if(intent==='right'){
+        weight*=isRight?2.7:(isStraight?0.85:0.42);
+      }else if(intent==='escape'){
+        // When congested, prefer leaving the current corridor at the next junction.
+        weight*=isStraight?0.28:2.9;
+      }
 
       const speedRatio=
         (candidate.route.speedLimitMps??8.9)/
@@ -4676,7 +4848,10 @@
       }
 
       if(vehicle.decongestIntent&&sameCorridor){
-        weight*=0.16;
+        weight*=0.08;
+      }else if(!sameCorridor&&corridorPressure<0.85){
+        // Give real side-street turns enough probability to be visible and useful.
+        weight*=1.22;
       }
 
       if(vehicle.retireIntent){
@@ -5393,6 +5568,8 @@
     }
 
     vehicle.distanceM=chosen.distanceM;
+    vehicle.turnIntent=null;
+    vehicle.turnIntentRouteKey=null;
     vehicle.nextSafetyAt=0;
     vehicle.safetyBlocked=false;
     vehicle.plannedConnection=null;
@@ -5517,6 +5694,8 @@
       vehicle.retireIntent=false;
       vehicle.visualBearing=NaN;
       vehicle.slowLeadSince=0;
+      vehicle.turnIntent=null;
+      vehicle.turnIntentRouteKey=null;
       return true;
     }
 
@@ -5571,6 +5750,7 @@
     if(time<Number(vehicle.routeEndRetryAt||0))return true;
     vehicle.routeEndRetryAt=time+180;
 
+    streetVehicleTurnIntent(vehicle,true);
     streetVehiclePlanNextConnection(vehicle,time,true);
     if(continueStreetVehicleOntoConnectedRoute(vehicle)){
       clearStreetVehicleRouteEndWait(vehicle);
@@ -5730,6 +5910,8 @@
       vehicle.retireIntent=false;
       vehicle.visualBearing=NaN;
       vehicle.slowLeadSince=0;
+      vehicle.turnIntent=null;
+      vehicle.turnIntentRouteKey=null;
       return true;
     }
 
@@ -5834,7 +6016,9 @@
         decongestIntent:false,
         retireIntent:false,
         visualBearing:NaN,
-        slowLeadSince:0
+        slowLeadSince:0,
+        turnIntent:null,
+        turnIntentRouteKey:null
       };
 
       if(
@@ -6250,7 +6434,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.51)
+     * DISPLAY STABILITY ONLY (v3.21.52)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
