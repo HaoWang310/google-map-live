@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.43</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.44</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.43';
+  const APP_VERSION='3.21.44';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -680,6 +680,9 @@
   const STREET_VEHICLE_QUEUE_RECOVERY_MS=16000;
   const STREET_VEHICLE_RETIRE_INTENT_MS=65000;
   const STREET_VEHICLE_EDGE_RETIRE_PX=72;
+  const STREET_VEHICLE_UNEXPLAINED_STOP_MS=3200;
+  const STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS=2200;
+  const STREET_VEHICLE_FRAGMENT_LINK_M=28;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -3620,17 +3623,19 @@
             streetVehicleCorridorKey(other.route)
         );
 
-      if(sameLane){
+      if(sameLane&&spawn){
+        // Spawn-time spacing is strict in both directions. During runtime, normal
+        // following is handled by lead-car AI. A trailing car must never hard-block
+        // the leader or both vehicles can deadlock.
         const lengthAllowance=
           Math.max(selfSpec.length,otherSpec.length)*0.72;
         const headway=
-          (spawn
-            ?STREET_VEHICLE_MIN_SPAWN_GAP_M
-            :STREET_VEHICLE_SAME_LANE_HEADWAY_M)+
+          STREET_VEHICLE_MIN_SPAWN_GAP_M+
           lengthAllowance;
         if(distance<headway)return true;
       }
 
+      // Runtime movement is hard-blocked only by an actual physical overlap.
       // SAT polygon intersection is expensive. Only run it for vehicles whose
       // centre points are close enough for their physical rectangles to touch.
       const collisionRadius=
@@ -3835,7 +3840,7 @@
           streetVehicleCorridorKey(candidate)===
           streetVehicleCorridorKey(currentRoute);
         const maxGap=sameCorridor
-          ?STREET_VEHICLE_SAME_CORRIDOR_LINK_M
+          ?STREET_VEHICLE_FRAGMENT_LINK_M
           :STREET_VEHICLE_CONTINUATION_TOLERANCE_M;
         if(gap>maxGap)continue;
 
@@ -3844,8 +3849,12 @@
         );
         const angle=Math.abs(signedAngle);
 
-        // Game-like NPC drivers avoid U-turns unless no road exists; here we simply
-        // reject them so movement stays believable and easy to read.
+        if(
+          sameCorridor&&
+          gap>STREET_VEHICLE_SAME_CORRIDOR_LINK_M&&
+          angle>34
+        )continue;
+
         if(angle>118)continue;
 
         candidates.push({
@@ -3901,9 +3910,19 @@
     }
 
     streetTrafficSignals=clusters
-      // Do not turn every vector-tile split or T-junction into a red-light stop.
-      // A game traffic signal is created only for a robust 4-approach intersection.
-      .filter(cluster=>cluster.approaches.length>=4)
+      // A real signalized crossroad must join at least two distinct road corridors.
+      .filter(cluster=>{
+        if(cluster.approaches.length<4)return false;
+        const corridors=new Set(
+          cluster.routes.map(route=>streetVehicleCorridorKey(route))
+        );
+        if(corridors.size<2)return false;
+        const base=cluster.approaches[0]??0;
+        return cluster.approaches.some(bearing=>{
+          const d=streetVehicleAngleDifference(base,bearing);
+          return d>58&&d<122;
+        });
+      })
       .filter(cluster=>streetVehiclePointInsideViewport(cluster.point,-160))
       .slice(0,48)
       .map((cluster,index)=>{
@@ -3955,6 +3974,8 @@
 
   function streetVehicleUpcomingSignal(vehicle,time){
     if(!vehicle?.route)return null;
+    // Signal geometry is hidden below z15; NPCs must not stop for invisible lights.
+    if((osmMap?.getZoom?.()??15)<15)return null;
     const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
     if(distanceToEnd>STREET_VEHICLE_JUNCTION_LOOKAHEAD_M)return null;
 
@@ -4212,7 +4233,8 @@
         (
           vehicle.state==='follow'||
           vehicle.state==='yield_exit_blocked'||
-          vehicle.state==='yield_junction_box'
+          vehicle.state==='yield_junction_box'||
+          vehicle.routeEndWait
         );
 
       if(queued){
@@ -4585,45 +4607,64 @@
     const preferred=streetVehicleChooseLaneIndex(
       vehicle,vehicle.route,opposite
     );
-    const safe=streetVehicleSafeLaneSample(
-      vehicle,
-      vehicle.route,
-      opposite,
-      vehicle.distanceM,
-      preferred
-    );
-    if(!safe)return false;
 
-    const originalDirection=vehicle.direction;
-    const originalLane=vehicle.laneIndex;
-    vehicle.direction=opposite;
-    vehicle.laneIndex=safe.laneIndex;
-
-    if(
-      streetVehicleConflicts(
-        safe.sample,
+    const retreatOptions=[0,3.5,7,11];
+    for(const retreatM of retreatOptions){
+      const candidateDistance=Math.max(
+        0,
+        Math.min(
+          vehicle.route.lengthM,
+          vehicle.distanceM-vehicle.direction*retreatM
+        )
+      );
+      const safe=streetVehicleSafeLaneSample(
+        vehicle,
         vehicle.route,
         opposite,
-        vehicle,
-        false
-      )
-    ){
-      vehicle.direction=originalDirection;
-      vehicle.laneIndex=originalLane;
-      return false;
+        candidateDistance,
+        preferred,
+        true
+      );
+      if(!safe)continue;
+
+      const originalDirection=vehicle.direction;
+      const originalLane=vehicle.laneIndex;
+      const originalDistance=vehicle.distanceM;
+
+      vehicle.direction=opposite;
+      vehicle.laneIndex=safe.laneIndex;
+      vehicle.distanceM=candidateDistance;
+
+      if(
+        streetVehicleConflicts(
+          safe.sample,
+          vehicle.route,
+          opposite,
+          vehicle,
+          false
+        )
+      ){
+        vehicle.direction=originalDirection;
+        vehicle.laneIndex=originalLane;
+        vehicle.distanceM=originalDistance;
+        continue;
+      }
+
+      vehicle.previousRouteKey=streetVehicleRouteKey(vehicle.route);
+      vehicle.lanePosition=safe.laneIndex;
+      vehicle.laneTarget=safe.laneIndex;
+      vehicle.plannedConnection=null;
+      vehicle.speedMps=Math.max(1.8,vehicle.speedMps);
+      vehicle.state='recovery_u_turn';
+      vehicle.stuckSince=0;
+      vehicle.unexplainedStopSince=0;
+      vehicle.lastProgressAt=time;
+      vehicle.laneChangeCooldownUntil=
+        time+STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS;
+      return true;
     }
 
-    vehicle.previousRouteKey=streetVehicleRouteKey(vehicle.route);
-    vehicle.lanePosition=safe.laneIndex;
-    vehicle.laneTarget=safe.laneIndex;
-    vehicle.plannedConnection=null;
-    vehicle.speedMps=Math.max(1.5,vehicle.speedMps);
-    vehicle.state='recovery_u_turn';
-    vehicle.stuckSince=0;
-    vehicle.lastProgressAt=time;
-    vehicle.laneChangeCooldownUntil=
-      time+STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS;
-    return true;
+    return false;
   }
 
   function streetVehicleUpdateStuckRecovery(vehicle,time){
@@ -4635,6 +4676,7 @@
       vehicle.lastProgressPoint=[sample.point[0],sample.point[1]];
       vehicle.lastProgressAt=time;
       vehicle.stuckSince=0;
+      vehicle.unexplainedStopSince=0;
       return;
     }
 
@@ -4646,45 +4688,103 @@
       vehicle.lastProgressPoint=[sample.point[0],sample.point[1]];
       vehicle.lastProgressAt=time;
       vehicle.stuckSince=0;
+      vehicle.unexplainedStopSince=0;
       vehicle.recoveryLaneTried=false;
       return;
     }
 
+    const lead=streetVehicleLeadInfo(vehicle);
+    const signal=streetVehicleUpcomingSignal(vehicle,time);
+    const realRedStop=
+      signal&&
+      signal.state!=='green'&&
+      signal.distanceToStop<STREET_VEHICLE_JUNCTION_LOOKAHEAD_M;
+    const realLeadStop=
+      lead&&lead.gap<Math.max(7.5,streetVehicleSpec(vehicle).length*1.25);
+
     const legitimateStop=
-      vehicle.state==='stop_red'||
-      vehicle.state==='brake_amber'||
-      vehicle.state==='yield_junction'||
-      vehicle.state==='yield_junction_box'||
-      vehicle.state==='yield_exit_blocked'||
-      vehicle.routeEndWait;
+      realRedStop||
+      realLeadStop||
+      vehicle.state==='brake_amber';
 
-    if(vehicle.speedMps<0.45&&!legitimateStop){
-      if(!vehicle.stuckSince)vehicle.stuckSince=time;
-      const stuckFor=time-vehicle.stuckSince;
-
-      if(
-        stuckFor>STREET_VEHICLE_STUCK_LANE_CHANGE_MS&&
-        !vehicle.recoveryLaneTried
-      ){
-        vehicle.recoveryLaneTried=true;
-        if(streetVehicleTryLaneChange(vehicle,time,'recovery')){
-          vehicle.stuckSince=0;
-          return;
-        }
+    if(vehicle.speedMps<0.45){
+      if(!vehicle.unexplainedStopSince&&!legitimateStop){
+        vehicle.unexplainedStopSince=time;
       }
 
-      if(stuckFor>STREET_VEHICLE_STUCK_RECOVERY_MS){
-        if(streetVehicleTryRecoveryUTurn(vehicle,time)){
-          vehicle.recoveryLaneTried=false;
+      if(
+        !legitimateStop&&
+        vehicle.unexplainedStopSince&&
+        time-vehicle.unexplainedStopSince>
+          STREET_VEHICLE_UNEXPLAINED_STOP_MS
+      ){
+        vehicle.plannedConnection=null;
+        vehicle.decongestIntent=true;
+
+        if(streetVehicleTryLaneChange(vehicle,time,'watchdog')){
+          vehicle.speedMps=Math.max(1.25,vehicle.speedMps);
+          vehicle.unexplainedStopSince=0;
           return;
         }
 
         streetVehiclePlanNextConnection(vehicle,time,true);
-        scheduleStreetVehicleRefresh(30);
-        vehicle.stuckSince=time-1800;
+
+        if(
+          streetVehicleDistanceToRouteEnd(vehicle)<14&&
+          streetVehicleTryRecoveryUTurn(vehicle,time)
+        ){
+          vehicle.unexplainedStopSince=0;
+          return;
+        }
+
+        const currentLead=streetVehicleLeadInfo(vehicle);
+        const currentSignal=streetVehicleUpcomingSignal(vehicle,time);
+        const blockedBySignal=
+          currentSignal&&currentSignal.state!=='green';
+
+        if(!currentLead&&!blockedBySignal){
+          vehicle.state='watchdog_resume';
+          vehicle.speedMps=Math.max(
+            1.35,
+            Math.min(
+              3.2,
+              (vehicle.route?.speedLimitMps??8.9)*0.34
+            )
+          );
+        }
+
+        vehicle.unexplainedStopSince=time;
+        scheduleStreetVehicleRefresh(35);
+      }
+
+      if(!legitimateStop){
+        if(!vehicle.stuckSince)vehicle.stuckSince=time;
+        const stuckFor=time-vehicle.stuckSince;
+
+        if(
+          stuckFor>STREET_VEHICLE_STUCK_LANE_CHANGE_MS&&
+          !vehicle.recoveryLaneTried
+        ){
+          vehicle.recoveryLaneTried=true;
+          if(streetVehicleTryLaneChange(vehicle,time,'recovery')){
+            vehicle.stuckSince=0;
+            return;
+          }
+        }
+
+        if(stuckFor>STREET_VEHICLE_STUCK_RECOVERY_MS){
+          if(streetVehicleTryRecoveryUTurn(vehicle,time)){
+            vehicle.recoveryLaneTried=false;
+            return;
+          }
+          streetVehiclePlanNextConnection(vehicle,time,true);
+          scheduleStreetVehicleRefresh(30);
+          vehicle.stuckSince=time-1800;
+        }
       }
     }else{
       vehicle.stuckSince=0;
+      vehicle.unexplainedStopSince=0;
       vehicle.recoveryLaneTried=false;
     }
   }
@@ -4818,14 +4918,18 @@
         driver.maxAccel*
         Math.pow(dynamicGap/Math.max(0.8,lead.gap),2);
 
-      // Dampen stop-go oscillation: copy a fraction of the leader's speed when
-      // already inside the desired headway, instead of repeatedly braking to zero.
+      // Dampen stop-go oscillation without writing a speed that is immediately
+      // overwritten later in this function.
       if(lead.gap<dynamicGap*1.08&&leadSpeed>0.55){
-        const blended=Math.max(
-          0.45,
-          Math.min(v,leadSpeed*0.94)
-        );
-        vehicle.speedMps=Math.max(vehicle.speedMps,blended);
+        const targetFollow=Math.max(0.55,leadSpeed*0.92);
+        if(v<targetFollow){
+          acceleration=Math.max(acceleration,0.35);
+        }else{
+          acceleration=Math.max(
+            acceleration,
+            -Math.min(driver.comfortableBrake,1.35)
+          );
+        }
       }
     }
 
@@ -5023,6 +5127,7 @@
       vehicle.recoveryLaneTried=false;
       vehicle.lastProgressPoint=null;
       vehicle.lastProgressAt=performance.now();
+      vehicle.unexplainedStopSince=0;
       vehicle.bornAt=performance.now();
       vehicle.queueSince=0;
       vehicle.decongestIntent=false;
@@ -5079,31 +5184,36 @@
   function recoverStreetVehicleAtRouteEnd(vehicle,time){
     if(!vehicle?.routeEndWait)return false;
     if(time<Number(vehicle.routeEndRetryAt||0))return true;
-    vehicle.routeEndRetryAt=time+220;
+    vehicle.routeEndRetryAt=time+180;
 
     streetVehiclePlanNextConnection(vehicle,time,true);
     if(continueStreetVehicleOntoConnectedRoute(vehicle)){
       clearStreetVehicleRouteEndWait(vehicle);
       vehicle.state='cruise';
-      vehicle.speedMps=Math.max(1.8,vehicle.speedMps);
+      vehicle.speedMps=Math.max(2.0,vehicle.speedMps);
+      vehicle.unexplainedStopSince=0;
       return true;
     }
 
-    const endpointSample=streetVehicleRouteEndpointSample(vehicle);
-    const endpointBlocked=
-      endpointSample&&streetVehicleIntersectsBuilding(endpointSample,vehicle);
+    const waited=time-Number(vehicle.routeEndWaitSince||time);
 
     if(
-      !endpointBlocked&&
-      time-Number(vehicle.routeEndWaitSince||time)>1250&&
+      waited>900&&
       streetVehicleTryRecoveryUTurn(vehicle,time)
     ){
       clearStreetVehicleRouteEndWait(vehicle);
       return true;
     }
 
-    if(time-Number(vehicle.routeEndWaitSince||time)>800){
-      scheduleStreetVehicleRefresh(30);
+    if(waited>650){
+      scheduleStreetVehicleRefresh(25);
+    }
+
+    if(waited>STREET_VEHICLE_ROUTE_END_MAX_WAIT_MS){
+      vehicle.decongestIntent=true;
+      vehicle.plannedConnection=null;
+      streetVehiclePlanNextConnection(vehicle,time,true);
+      vehicle.routeEndRetryAt=time+120;
     }
 
     return true;
@@ -5228,6 +5338,7 @@
       vehicle.recoveryLaneTried=false;
       vehicle.lastProgressPoint=null;
       vehicle.lastProgressAt=performance.now();
+      vehicle.unexplainedStopSince=0;
       vehicle.bornAt=performance.now();
       vehicle.queueSince=0;
       vehicle.decongestIntent=false;
@@ -5330,6 +5441,7 @@
         recoveryLaneTried:false,
         lastProgressPoint:null,
         lastProgressAt:0,
+        unexplainedStopSince:0,
         bornAt:performance.now(),
         queueSince:0,
         decongestIntent:false,
@@ -5723,7 +5835,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.43)
+     * DISPLAY STABILITY ONLY (v3.21.44)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
