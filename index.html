@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.56</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.57</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -342,6 +342,25 @@
             官方地形已缓存到本站并按缩放分级生成瓦片 · 不再实时请求 WMS/WMTS · DTM 1 m 来源 · Open Government Licence
           </div>
           <div id="terrainStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
+        </div>
+
+        <div class="layerItem" id="contourItem">
+          <label class="layerRow">
+            <span class="layerName">
+              <strong>等高线 · OS Terrain 50</strong>
+              <small>真实高程数据 · 10 m 等高距 · Ordnance Survey OpenData</small>
+            </span>
+            <input id="contourToggle" type="checkbox" autocomplete="off" disabled>
+          </label>
+          <div class="rangeRow">
+            <span>透明度</span>
+            <input id="contourOpacity" aria-label="等高线透明度" type="range" min="0" max="1" step="0.05" value="0.72">
+            <span id="contourOpacityValue">72%</span>
+          </div>
+          <div class="layerMeta">
+            从本站保存的 OS Terrain 50 · 50 m 数值高程网格实时生成 10 m 等高线；每 50 m 为主等高线。真实 DEM 派生，不是手绘示意。
+          </div>
+          <div id="contourStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem" id="floodItem">
@@ -493,6 +512,10 @@
         <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.21.16 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
           <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
+        <p>等高线：基于本站已有的 OS Terrain 50 · 2026-07 版 50 m 数值高程网格，在浏览器 Worker 中使用 marching-squares 按 10 m 间隔实时提取；每 50 m 为主等高线。它是官方高程网格的派生等值线显示，不是直接加载 Ordnance Survey 发布的 contour 矢量文件，但采用 OS Terrain 50 contour 产品的标准 10 m 垂直间隔。
+          <a href="https://www.ordnancesurvey.co.uk/products/os-terrain-50" target="_blank" rel="noopener noreferrer">OS Terrain 50</a> ·
+          <a href="assets/drainage_area/metadata.json?v=3.21.57" target="_blank" rel="noopener noreferrer">本站 DEM 元数据</a>
+        </p>
         <p>排水网络：后台保留一份完整 Thames 上游 50 m 累积汇水栅格（每格 0.0025 km²），仅作为动态阈值计算源；界面不再单独显示「汇水贡献面积」图层。「地形推导排水网络」直接按用户设置的最小汇水面积阈值实时筛选这同一份数据，不生成独立网络数据。
           <a href="https://deltares.github.io/pyflwdir/latest/_generated/pyflwdir.from_dem.html" target="_blank" rel="noopener noreferrer">D8 / depression filling 方法</a> ·
           <a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">共享水文数据元数据</a>
@@ -563,7 +586,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.56';
+  const APP_VERSION='3.21.57';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -776,6 +799,12 @@
 
   const NETWORK_SOURCE='terrain-drainage-network-source';
   const NETWORK_LAYER='terrain-drainage-network-layer';
+
+  const CONTOUR_SOURCE='os-terrain50-contours-source';
+  const CONTOUR_LINE_LAYER='os-terrain50-contours-line';
+  const CONTOUR_LABEL_LAYER='os-terrain50-contours-label';
+  const CONTOUR_INTERVAL_M=10;
+  const CONTOUR_MAJOR_INTERVAL_M=50;
   // 25 m display: twice the base hydrology dimensions, split below 4096 px.
   // Outer bounds and every image coordinate share the existing EPSG:3857 grid.
   const FLOOD_GRID_SIZE=2;
@@ -841,6 +870,15 @@
 
   let terrainLocalError=null;
   let terrainViewMode=null;
+
+  let contourEnabled=false;
+  let contourOpacity=0.72;
+  let contourWorker=null;
+  let contourWorkerRequestId=0;
+  let contourPendingTimer=null;
+  let contourLastAppliedRequest=0;
+  let contourError=null;
+
   let networkEnabled=false;
   let networkOpacity=0.9;
   let networkThreshold=1;
@@ -1025,6 +1063,453 @@
       s.onerror=()=>{googleLoading=false;reject(new Error('Google Maps 脚本下载失败。'))};
       document.head.appendChild(s);
     });
+  }
+
+
+  function contourWorkerSource(){
+    return `
+      let dem=null;
+      let cfg=null;
+      const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+      async function loadDem(){
+        if(dem)return dem;
+        const response=await fetch(cfg.url,{cache:'force-cache'});
+        if(!response.ok)throw new Error('OS Terrain 50 DEM 加载失败（'+response.status+'）');
+
+        const bitmap=await createImageBitmap(await response.blob());
+        if(bitmap.width!==cfg.width||bitmap.height!==cfg.height){
+          bitmap.close();
+          throw new Error('OS Terrain 50 DEM 尺寸不匹配');
+        }
+
+        const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});
+        ctx.drawImage(bitmap,0,0);
+        bitmap.close();
+
+        const rgba=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+        const codes=new Uint16Array(canvas.width*canvas.height);
+        for(let i=0;i<codes.length;i++){
+          codes[i]=(rgba[i*4]<<8)|rgba[i*4+1];
+        }
+        canvas.width=1;canvas.height=1;
+        dem=codes;
+        return dem;
+      }
+
+      function decode(code){
+        if(!code)return NaN;
+        return cfg.minimum+(code-1)*cfg.step;
+      }
+
+      function pixelX(col){
+        return cfg.bounds.left+
+          (col+0.5)/cfg.width*(cfg.bounds.right-cfg.bounds.left);
+      }
+
+      function pixelY(row){
+        return cfg.bounds.top-
+          (row+0.5)/cfg.height*(cfg.bounds.top-cfg.bounds.bottom);
+      }
+
+      function mercToLngLat(x,y){
+        const R=6378137;
+        const lng=x/R*180/Math.PI;
+        const lat=(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI;
+        return [lng,lat];
+      }
+
+      function insideStudy(x,y){
+        if(!cfg.study)return true;
+        const dx=x-cfg.study.x;
+        const dy=y-cfg.study.y;
+        return dx*dx+dy*dy<=cfg.study.radius*cfg.study.radius;
+      }
+
+      function crossed(a,b,level){
+        if(!Number.isFinite(a)||!Number.isFinite(b)||a===b)return false;
+        return (a<level&&b>=level)||(b<level&&a>=level);
+      }
+
+      function interp(a,b,za,zb,level){
+        const den=zb-za;
+        const t=Math.abs(den)<1e-12?0.5:clamp((level-za)/den,0,1);
+        return [
+          a[0]+(b[0]-a[0])*t,
+          a[1]+(b[1]-a[1])*t
+        ];
+      }
+
+      function addSegment(store,level,a,b){
+        if(!store.has(level))store.set(level,[]);
+        store.get(level).push([
+          mercToLngLat(a[0],a[1]),
+          mercToLngLat(b[0],b[1])
+        ]);
+      }
+
+      function buildContours(bounds,zoom){
+        const dx=(cfg.bounds.right-cfg.bounds.left)/cfg.width;
+        const dy=(cfg.bounds.top-cfg.bounds.bottom)/cfg.height;
+
+        const col0=clamp(
+          Math.floor((bounds.left-cfg.bounds.left)/dx)-2,
+          0,cfg.width-2
+        );
+        const col1=clamp(
+          Math.ceil((bounds.right-cfg.bounds.left)/dx)+2,
+          1,cfg.width-1
+        );
+        const row0=clamp(
+          Math.floor((cfg.bounds.top-bounds.top)/dy)-2,
+          0,cfg.height-2
+        );
+        const row1=clamp(
+          Math.ceil((cfg.bounds.top-bounds.bottom)/dy)+2,
+          1,cfg.height-1
+        );
+
+        // Low zoom is visually generalized to 100 m sampling for responsiveness.
+        // At closer scales the original stored 50 m grid is used.
+        const stride=zoom<11.5?2:1;
+        const segments=new Map();
+
+        for(let row=row0;row<row1;row+=stride){
+          const rr=Math.min(row+stride,cfg.height-1);
+          const y0=pixelY(row),y1=pixelY(rr);
+
+          for(let col=col0;col<col1;col+=stride){
+            const cc=Math.min(col+stride,cfg.width-1);
+            const x0=pixelX(col),x1=pixelX(cc);
+            const cx=(x0+x1)*0.5,cy=(y0+y1)*0.5;
+            if(!insideStudy(cx,cy))continue;
+
+            const z00=decode(dem[row*cfg.width+col]);
+            const z10=decode(dem[row*cfg.width+cc]);
+            const z11=decode(dem[rr*cfg.width+cc]);
+            const z01=decode(dem[rr*cfg.width+col]);
+
+            if(
+              !Number.isFinite(z00)||!Number.isFinite(z10)||
+              !Number.isFinite(z11)||!Number.isFinite(z01)
+            )continue;
+
+            const minZ=Math.min(z00,z10,z11,z01);
+            const maxZ=Math.max(z00,z10,z11,z01);
+            const tl=[x0,y0],tr=[x1,y0],br=[x1,y1],bl=[x0,y1];
+
+            for(
+              let level=Math.ceil(minZ/cfg.interval)*cfg.interval;
+              level<=maxZ;
+              level+=cfg.interval
+            ){
+              const pts=[];
+              if(crossed(z00,z10,level))pts.push(interp(tl,tr,z00,z10,level));
+              if(crossed(z10,z11,level))pts.push(interp(tr,br,z10,z11,level));
+              if(crossed(z01,z11,level))pts.push(interp(bl,br,z01,z11,level));
+              if(crossed(z00,z01,level))pts.push(interp(tl,bl,z00,z01,level));
+
+              if(pts.length===2){
+                addSegment(segments,level,pts[0],pts[1]);
+              }else if(pts.length===4){
+                const centre=(z00+z10+z11+z01)*0.25;
+                if(centre>=level){
+                  addSegment(segments,level,pts[0],pts[3]);
+                  addSegment(segments,level,pts[1],pts[2]);
+                }else{
+                  addSegment(segments,level,pts[0],pts[1]);
+                  addSegment(segments,level,pts[2],pts[3]);
+                }
+              }
+            }
+          }
+        }
+
+        const features=[];
+        for(const [level,lines] of segments){
+          if(!lines.length)continue;
+          features.push({
+            type:'Feature',
+            properties:{
+              elevation:level,
+              label:String(Math.round(level))+' m',
+              major:Math.abs(level%cfg.majorInterval)<1e-6?1:0
+            },
+            geometry:{type:'MultiLineString',coordinates:lines}
+          });
+        }
+
+        return {type:'FeatureCollection',features};
+      }
+
+      self.onmessage=async event=>{
+        const data=event.data||{};
+        try{
+          if(data.type==='init'){
+            cfg=data.config;
+            await loadDem();
+            self.postMessage({type:'ready'});
+            return;
+          }
+
+          if(data.type==='contours'){
+            await loadDem();
+            self.postMessage({
+              type:'contours',
+              requestId:data.requestId,
+              geojson:buildContours(data.bounds,data.zoom)
+            });
+          }
+        }catch(error){
+          self.postMessage({
+            type:'error',
+            requestId:data.requestId||0,
+            message:error?.message||String(error)
+          });
+        }
+      };
+    `;
+  }
+
+  function mercatorFromLngLat(lng,lat){
+    const R=6378137;
+    const clamped=Math.max(-85.05112878,Math.min(85.05112878,lat));
+    return {
+      x:R*lng*Math.PI/180,
+      y:R*Math.log(Math.tan(Math.PI/4+clamped*Math.PI/360))
+    };
+  }
+
+  function ensureContourWorker(){
+    if(contourWorker)return contourWorker;
+
+    const blob=new Blob([contourWorkerSource()],{type:'text/javascript'});
+    const workerUrl=URL.createObjectURL(blob);
+    contourWorker=new Worker(workerUrl);
+    URL.revokeObjectURL(workerUrl);
+
+    const center3857=mercatorFromLngLat(
+      FOCUS70_CENTER.lng,
+      FOCUS70_CENTER.lat
+    );
+    const mercatorRadius=
+      FOCUS70_RADIUS_M/
+      Math.cos(FOCUS70_CENTER.lat*Math.PI/180);
+
+    contourWorker.postMessage({
+      type:'init',
+      config:{
+        url:new URL(
+          assetUrl('assets/drainage_area/dem50_log16.webp'),
+          location.href
+        ).href,
+        width:DRAINAGE_3857.baseWidth50m,
+        height:DRAINAGE_3857.baseHeight50m,
+        bounds:DRAINAGE_3857,
+        minimum:-100,
+        step:0.1,
+        interval:CONTOUR_INTERVAL_M,
+        majorInterval:CONTOUR_MAJOR_INTERVAL_M,
+        study:{
+          x:center3857.x,
+          y:center3857.y,
+          radius:mercatorRadius
+        }
+      }
+    });
+
+    contourWorker.onmessage=event=>{
+      const data=event.data||{};
+
+      if(data.type==='error'){
+        contourError=data.message||'等高线生成失败';
+        if(contourEnabled){
+          $('contourStatus').textContent=contourError;
+          $('contourStatus').className='layerStatus error';
+        }
+        return;
+      }
+
+      if(
+        data.type!=='contours'||
+        !contourEnabled||
+        data.requestId<contourLastAppliedRequest
+      )return;
+
+      contourLastAppliedRequest=data.requestId;
+      contourError=null;
+
+      const source=osmMap?.getSource(CONTOUR_SOURCE);
+      if(source)source.setData(data.geojson);
+
+      const count=data.geojson?.features?.length||0;
+      $('contourStatus').textContent=
+        '已显示 · 10 m 等高距 · '+count+' 个高程级';
+      $('contourStatus').className='layerStatus';
+    };
+
+    return contourWorker;
+  }
+
+  function ensureContourLayer(){
+    if(!osmMap||!osmStyleReady)return;
+
+    if(!osmMap.getSource(CONTOUR_SOURCE)){
+      osmMap.addSource(CONTOUR_SOURCE,{
+        type:'geojson',
+        data:{type:'FeatureCollection',features:[]},
+        attribution:'OS Terrain 50 · Ordnance Survey OpenData'
+      });
+    }
+
+    if(!osmMap.getLayer(CONTOUR_LINE_LAYER)){
+      osmMap.addLayer({
+        id:CONTOUR_LINE_LAYER,
+        type:'line',
+        source:CONTOUR_SOURCE,
+        minzoom:9,
+        layout:{
+          visibility:contourEnabled?'visible':'none',
+          'line-join':'round',
+          'line-cap':'round'
+        },
+        paint:{
+          'line-color':[
+            'case',
+            ['==',['get','major'],1],
+            '#655548',
+            '#8b7a6b'
+          ],
+          'line-opacity':contourOpacity,
+          'line-width':[
+            'interpolate',['linear'],['zoom'],
+            9,['case',['==',['get','major'],1],1.15,0.55],
+            16,['case',['==',['get','major'],1],2.1,1.0]
+          ]
+        }
+      },getFirstSymbolLayerId());
+    }
+
+    if(!osmMap.getLayer(CONTOUR_LABEL_LAYER)){
+      osmMap.addLayer({
+        id:CONTOUR_LABEL_LAYER,
+        type:'symbol',
+        source:CONTOUR_SOURCE,
+        minzoom:12.5,
+        filter:['==',['get','major'],1],
+        layout:{
+          visibility:contourEnabled?'visible':'none',
+          'symbol-placement':'line',
+          'symbol-spacing':420,
+          'text-field':['get','label'],
+          'text-size':11,
+          'text-allow-overlap':false
+        },
+        paint:{
+          'text-color':'#5e4f40',
+          'text-halo-color':'rgba(255,255,255,0.92)',
+          'text-halo-width':1.2
+        }
+      });
+    }
+  }
+
+  function contourViewportBounds(){
+    if(!osmMap)return null;
+
+    const b=osmMap.getBounds();
+    const sw=mercatorFromLngLat(b.getWest(),b.getSouth());
+    const ne=mercatorFromLngLat(b.getEast(),b.getNorth());
+    const padX=(ne.x-sw.x)*0.10;
+    const padY=(ne.y-sw.y)*0.10;
+
+    return {
+      left:Math.max(DRAINAGE_3857.left,sw.x-padX),
+      right:Math.min(DRAINAGE_3857.right,ne.x+padX),
+      bottom:Math.max(DRAINAGE_3857.bottom,sw.y-padY),
+      top:Math.min(DRAINAGE_3857.top,ne.y+padY)
+    };
+  }
+
+  function refreshContourLayer(delay=80){
+    clearTimeout(contourPendingTimer);
+    contourPendingTimer=null;
+
+    if(
+      !contourEnabled||
+      !osmMap||
+      !osmStyleReady||
+      currentProvider!=='osm'
+    )return;
+
+    ensureContourLayer();
+
+    contourPendingTimer=setTimeout(()=>{
+      if(
+        !contourEnabled||
+        !osmMap||
+        currentProvider!=='osm'||
+        osmMap.isMoving?.()||
+        osmMap.isZooming?.()
+      )return;
+
+      const bounds=contourViewportBounds();
+      if(
+        !bounds||
+        bounds.left>=bounds.right||
+        bounds.bottom>=bounds.top
+      )return;
+
+      const requestId=++contourWorkerRequestId;
+      $('contourStatus').textContent=
+        requestId===1?'正在读取 OS Terrain 50…':'正在更新等高线…';
+      $('contourStatus').className='layerStatus';
+
+      ensureContourWorker().postMessage({
+        type:'contours',
+        requestId,
+        bounds,
+        zoom:osmMap.getZoom()
+      });
+    },delay);
+  }
+
+  function updateContourLayer(){
+    if(!osmMap||!osmStyleReady)return;
+
+    ensureContourLayer();
+
+    const visibility=
+      contourEnabled&&currentProvider==='osm'
+        ?'visible'
+        :'none';
+
+    for(const id of [CONTOUR_LINE_LAYER,CONTOUR_LABEL_LAYER]){
+      if(osmMap.getLayer(id)){
+        osmMap.setLayoutProperty(id,'visibility',visibility);
+      }
+    }
+
+    if(contourEnabled&&currentProvider==='osm'){
+      $('contourStatus').textContent='准备生成等高线…';
+      $('contourStatus').className='layerStatus';
+      refreshContourLayer(10);
+    }else{
+      $('contourStatus').textContent=
+        contourEnabled?'仅在 OpenStreetMap / OpenFreeMap 显示':'已关闭';
+      $('contourStatus').className='layerStatus';
+    }
+  }
+
+  function applyContourOpacity(){
+    if(osmMap?.getLayer(CONTOUR_LINE_LAYER)){
+      osmMap.setPaintProperty(
+        CONTOUR_LINE_LAYER,
+        'line-opacity',
+        contourOpacity
+      );
+    }
   }
 
   function removeGoogleTerrain(){
@@ -6545,7 +7030,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.56)
+     * DISPLAY STABILITY ONLY (v3.21.57)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -6858,7 +7343,7 @@
       $('view2D').disabled=false;$('view3D').disabled=false;
       $('streetVehicleToggle').disabled=false;
       $('placeSearchButton').disabled=false;
-      for(const id of ['terrainToggle','floodToggle','networkToggle','focus70Toggle','osmStructureToggle']){
+      for(const id of ['terrainToggle','contourToggle','floodToggle','networkToggle','focus70Toggle','osmStructureToggle']){
         $(id).disabled=false;
       }
       syncOsmStructureVisibility();
@@ -6940,6 +7425,7 @@
       tuneCityBuildingFarField();
       syncCityView();
       syncFloodView();
+      if(contourEnabled)refreshContourLayer(120);
       scheduleStreetVehicleRefresh(40);
       osmMap.triggerRepaint();
     });
@@ -7111,6 +7597,17 @@
     terrainOpacity=Number(e.target.value);
     $('terrainOpacityValue').textContent=Math.round(terrainOpacity*100)+'%';
     applyTerrainOpacity();
+  });
+
+  $('contourToggle').addEventListener('change',e=>{
+    contourEnabled=e.target.checked;
+    updateContourLayer();
+  });
+
+  $('contourOpacity').addEventListener('input',e=>{
+    contourOpacity=Number(e.target.value);
+    $('contourOpacityValue').textContent=Math.round(contourOpacity*100)+'%';
+    applyContourOpacity();
   });
 
   $('floodToggle').addEventListener('change',e=>{
@@ -7390,7 +7887,7 @@
   };
 
   syncBadge();
-  for(const id of ['terrainToggle','floodToggle','networkToggle','focus70Toggle']){
+  for(const id of ['terrainToggle','contourToggle','floodToggle','networkToggle','focus70Toggle']){
     $(id).checked=false;
   }
   $('googleMap').style.display='none';
