@@ -332,6 +332,7 @@ export function createLocalFloodUI({
   let buildingById=new Map();
   let impactedStateIds=new Set();
   let selectedSourceFeatureIds=new Set();
+  let selectedBoundarySourceFeatureIds=new Set();
   let buildingSourceId=null;
   let buildingSourceLayer='building';
   let sceneFeatures=new Map();
@@ -803,10 +804,17 @@ export function createLocalFloodUI({
           :(fragments[0]?.id!==undefined&&fragments[0]?.id!==null?fragments[0].id:null);
 
       const key='building-'+String(groupId);
+      const boundaryCrossing=Boolean(split.outside);
 
-      // The authoritative native building is collapsed completely with feature-state.
-      // For a building crossing the red boundary, reconstruct its OUTSIDE part in grey.
-      if(split.outside){
+      /*
+       * Fully-inside buildings are NOT duplicated into the local GeoJSON scene.
+       * Their original CITY_BUILDINGS_SOURCE feature is recoloured by feature-state.
+       *
+       * Only a building that actually crosses the red boundary needs clipping:
+       * collapse its native full footprint, then reconstruct grey-outside and
+       * orange/red-inside fragments here.
+       */
+      if(boundaryCrossing){
         sceneFeatures.set(key+'|outside',{
           type:'Feature',
           properties:{
@@ -832,11 +840,15 @@ export function createLocalFloodUI({
         },
         geometry:split.inside
       };
-      sceneFeatures.set(insideKey,insideScene);
+
+      if(boundaryCrossing){
+        sceneFeatures.set(insideKey,insideScene);
+      }
 
       selected.push({
         feature:insideScene,
-        key:insideKey,
+        key:boundaryCrossing?insideKey:null,
+        boundaryCrossing,
         sourceFeatureId,
         sourceId:source,
         sourceLayer
@@ -860,16 +872,54 @@ export function createLocalFloodUI({
 
   function setSelectedNativeFeatureStates(){
     if(!buildingSourceId)return;
+
+    for(const sourceFeatureId of selectedSourceFeatureIds){
+      if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
+      const key=String(sourceFeatureId);
+      const boundaryCrossing=selectedBoundarySourceFeatureIds.has(key);
+
+      try{
+        map.setFeatureState(
+          {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
+          {
+            localFloodSelected:true,
+            localFloodBoundary:boundaryCrossing,
+            localFloodHidden:hideSelectedBuildings,
+            localFloodImpacted:false
+          }
+        );
+      }catch(error){
+        console.warn('Unable to apply flood building state',sourceFeatureId,error);
+      }
+    }
+    map.triggerRepaint();
+  }
+
+  function setNativeHiddenStates(hidden){
+    if(!buildingSourceId)return;
     for(const sourceFeatureId of selectedSourceFeatureIds){
       if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
       try{
         map.setFeatureState(
           {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
-          {localFloodSelected:true}
+          {localFloodHidden:Boolean(hidden)}
         );
-      }catch(error){
-        console.warn('Unable to collapse native selected building',sourceFeatureId,error);
-      }
+      }catch(error){}
+    }
+    map.triggerRepaint();
+  }
+
+  function setNativeImpactedStates(impactedSourceIds=new Set()){
+    if(!buildingSourceId)return;
+    for(const sourceFeatureId of selectedSourceFeatureIds){
+      if(sourceFeatureId===null||sourceFeatureId===undefined)continue;
+      const impacted=impactedSourceIds.has(String(sourceFeatureId));
+      try{
+        map.setFeatureState(
+          {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
+          {localFloodImpacted:impacted}
+        );
+      }catch(error){}
     }
     map.triggerRepaint();
   }
@@ -881,12 +931,18 @@ export function createLocalFloodUI({
         try{
           map.setFeatureState(
             {source:buildingSourceId,sourceLayer:buildingSourceLayer,id:sourceFeatureId},
-            {localFloodSelected:false,localFloodImpacted:false}
+            {
+              localFloodSelected:false,
+              localFloodBoundary:false,
+              localFloodHidden:false,
+              localFloodImpacted:false
+            }
           );
         }catch(error){}
       }
     }
     selectedSourceFeatureIds.clear();
+    selectedBoundarySourceFeatureIds.clear();
     map.triggerRepaint();
   }
 
@@ -1015,6 +1071,13 @@ export function createLocalFloodUI({
         .filter(id=>id!==null&&id!==undefined)
     );
 
+    selectedBoundarySourceFeatureIds=new Set(
+      queried.selected
+        .filter(item=>item.boundaryCrossing)
+        .map(item=>String(item.sourceFeatureId))
+        .filter(id=>id!=='null'&&id!=='undefined')
+    );
+
     const buildings=queried.selected.map((item,id)=>{
       const entry=normaliseBuilding(
         item.feature,
@@ -1030,8 +1093,7 @@ export function createLocalFloodUI({
     setSelectedNativeFeatureStates();
     setCityBuildingFloodSelection?.({
       active:true,
-      sourceFeatureIds:[...selectedSourceFeatureIds],
-      selectionRing:ring.map(point=>[point[0],point[1]])
+      sourceFeatureIds:[...selectedSourceFeatureIds]
     });
 
     // Restore the complete user camera after extraction.
@@ -1119,6 +1181,7 @@ export function createLocalFloodUI({
     }
 
     impactedStateIds=nextImpacted;
+    setNativeImpactedStates(impactedSourceIds);
 
     if(buildingColourChanged){
       publishBuildingScene();
@@ -1451,6 +1514,7 @@ export function createLocalFloodUI({
   $('localFloodReset').addEventListener('click',()=>{
     simulator?.reset();
     impactedStateIds.clear();
+    setNativeImpactedStates(new Set());
     let changed=false;
     for(const feature of sceneFeatures.values()){
       if(feature.properties.impacted){
@@ -1466,6 +1530,7 @@ export function createLocalFloodUI({
 
   $('localFloodHideSelectedBuildings')?.addEventListener('change',event=>{
     hideSelectedBuildings=Boolean(event.target.checked);
+    setNativeHiddenStates(hideSelectedBuildings);
     publishBuildingScene();
 
     status(
