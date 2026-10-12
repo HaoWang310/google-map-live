@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.0';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.1';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -337,6 +337,10 @@ export function createLocalFloodUI({
   let areaHoverInside=false;
   let areaHoverLngLat=null;
   let areaPopup=null;
+  let sceneRefreshTimer=null;
+  let sceneRefreshBusy=false;
+  let sceneRefreshQueued=false;
+  let committedPolygon=null;
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -477,18 +481,18 @@ export function createLocalFloodUI({
     }
     if(!map.getLayer(BUILDING_SCENE_FILL)){
       map.addLayer({
-        id:BUILDING_SCENE_FILL,type:'fill',source:BUILDING_SCENE_SOURCE,minzoom:14,
+        id:BUILDING_SCENE_FILL,type:'fill',source:BUILDING_SCENE_SOURCE,minzoom:12,
         layout:{visibility:map.getPitch()>.5?'none':'visible'},
         paint:{'fill-color':buildingColourExpression(),'fill-opacity':1}
       },getFirstSymbolLayerId());
     }
     if(!map.getLayer(BUILDING_SCENE_3D)){
       map.addLayer({
-        id:BUILDING_SCENE_3D,type:'fill-extrusion',source:BUILDING_SCENE_SOURCE,minzoom:14,
+        id:BUILDING_SCENE_3D,type:'fill-extrusion',source:BUILDING_SCENE_SOURCE,minzoom:12,
         layout:{visibility:map.getPitch()>.5?'visible':'none'},
         paint:{
           'fill-extrusion-color':buildingColourExpression(),
-          'fill-extrusion-height':['+',['get','simHeight'],0.35],
+          'fill-extrusion-height':['get','simHeight'],
           'fill-extrusion-base':['get','simBase'],
           'fill-extrusion-opacity':1,
           'fill-extrusion-vertical-gradient':false
@@ -539,6 +543,11 @@ export function createLocalFloodUI({
 
   function clearSimulation(keepSelection=false){
     hideAreaPopup();
+    clearTimeout(sceneRefreshTimer);
+    sceneRefreshTimer=null;
+    sceneRefreshQueued=false;
+    sceneRefreshBusy=false;
+    committedPolygon=null;
     simulator?.pause();
     prepared=false;setupInfo=null;selectedBuildings=[];
     clearSelectedBuildingStates();
@@ -637,9 +646,9 @@ export function createLocalFloodUI({
     const sourceLayer=cityLayer?.['source-layer']||'building';
     if(!source)return {selected:[],sceneCount:0,visibleCount:0,source:null,sourceLayer};
 
-    // queryRenderedFeatures alone is camera-dependent: pitched/rotated views may omit
-    // occluded or distant buildings. Merge it with querySourceFeatures from every
-    // currently loaded source tile, then merge tile fragments by a stable building id.
+    // Use every currently loaded source-tile feature, plus rendered features as a
+    // fallback. This is camera-independent enough for pitched views and lets the scene
+    // refill itself as new far/background tiles arrive.
     const groups=new Map();
     const addFeature=feature=>{
       if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
@@ -651,19 +660,20 @@ export function createLocalFloodUI({
     };
 
     try{
-      for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[]){
-        addFeature(feature);
-      }
-    }catch(error){
-      console.warn('Rendered building query failed',error);
-    }
-
-    try{
       for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
         addFeature(feature);
       }
     }catch(error){
       console.warn('Source building query failed',error);
+    }
+
+    try{
+      for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[]){
+        addFeature(feature);
+      }
+    }catch(error){
+      // CITY_BUILDINGS_LAYER is intentionally hidden during flood mode, so an empty
+      // rendered query is normal. querySourceFeatures above remains authoritative.
     }
 
     const raw=[];
@@ -676,27 +686,46 @@ export function createLocalFloodUI({
     const selected=[];
 
     for(const {feature,key} of raw){
-      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))continue;
-
       const p=feature.properties||{};
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
-      const split=splitBuildingBySelection(feature.geometry,selectionRing);
-      if(!split.inside)continue;
+      const mayIntersect=boxesIntersect(bounds,geometryBBox(feature.geometry));
+      const split=mayIntersect
+        ?splitBuildingBySelection(feature.geometry,selectionRing)
+        :{inside:null,outside:feature.geometry};
 
-      const insideKey=key+'|inside';
-      const insideScene={
-        type:'Feature',
-        properties:{
-          simHeight:height,
-          simBase:base,
-          selected:true,
-          impacted:false
-        },
-        geometry:split.inside
-      };
-      sceneFeatures.set(insideKey,insideScene);
-      selected.push({feature:insideScene,key:insideKey});
+      // Grey geometry is rebuilt from the same loaded OSM source tiles. For a building
+      // that crosses the red polygon, this is only the outside fragment.
+      if(split.outside){
+        sceneFeatures.set(key+'|outside',{
+          type:'Feature',
+          properties:{
+            simHeight:height,
+            simBase:base,
+            selected:false,
+            impacted:false
+          },
+          geometry:split.outside
+        });
+      }
+
+      // Orange geometry is the exact red-polygon intersection. There is no native grey
+      // extrusion underneath it, so the side walls cannot z-fight or show grey patches.
+      if(split.inside){
+        const insideKey=key+'|inside';
+        const insideScene={
+          type:'Feature',
+          properties:{
+            simHeight:height,
+            simBase:base,
+            selected:true,
+            impacted:false
+          },
+          geometry:split.inside
+        };
+        sceneFeatures.set(insideKey,insideScene);
+        selected.push({feature:insideScene,key:insideKey});
+      }
     }
 
     return {
@@ -706,6 +735,48 @@ export function createLocalFloodUI({
       source,
       sourceLayer
     };
+  }
+
+  function restoreImpactedSceneColours(){
+    for(const id of impactedStateIds){
+      const entry=buildingById.get(id);
+      const scene=entry&&sceneFeatures.get(entry.sceneKey);
+      if(scene)scene.properties.impacted=true;
+    }
+  }
+
+  function refreshBuildingSceneFromLoadedTiles(){
+    if(!prepared||isPreparingSelection||!committedPolygon?.[0])return;
+    if(sceneRefreshBusy){
+      sceneRefreshQueued=true;
+      return;
+    }
+
+    sceneRefreshBusy=true;
+    try{
+      const ring=committedPolygon[0];
+      const bounds=bboxLngLat(ring);
+      const queried=queryBuildings(bounds,ring);
+      if(queried.visibleCount){
+        restoreImpactedSceneColours();
+        publishBuildingScene();
+      }
+    }finally{
+      sceneRefreshBusy=false;
+      if(sceneRefreshQueued){
+        sceneRefreshQueued=false;
+        scheduleBuildingSceneRefresh(90);
+      }
+    }
+  }
+
+  function scheduleBuildingSceneRefresh(delay=140){
+    if(!prepared||isPreparingSelection||!committedPolygon?.[0])return;
+    clearTimeout(sceneRefreshTimer);
+    sceneRefreshTimer=setTimeout(()=>{
+      sceneRefreshTimer=null;
+      refreshBuildingSceneFromLoadedTiles();
+    },delay);
   }
 
   function ensureSimulator(){
@@ -795,14 +866,16 @@ export function createLocalFloodUI({
     }
 
     publishBuildingScene();
-    // Native grey OSM buildings stay streamed continuously. This scene only overlays
-    // the red-polygon intersection in orange/red, so camera movement cannot empty the city.
+    // Activate the complete local replacement scene only after it is ready. Native
+    // building geometry is hidden to remove grey/orange coplanar overlap; this scene
+    // keeps refilling from loaded OSM source tiles as the camera moves.
     setCityBuildingFloodSelection?.({active:true});
 
     try{
       const info=await ensureSimulator().setup({polygon,buildings});
       setupInfo=info;
       prepared=true;
+      committedPolygon=polygon.map(ring=>ring.map(point=>[point[0],point[1]]));
       ensureWaterLayer(info);
       $('localFloodGridInfo').textContent=
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
@@ -1125,7 +1198,17 @@ export function createLocalFloodUI({
   map.on('mousemove',onMapMouseMove);
 
   const syncSceneOnPitch=()=>syncBuildingSceneView();
+  const refreshSceneAfterCamera=()=>scheduleBuildingSceneRefresh(90);
+  const refreshSceneFromSource=event=>{
+    if(!prepared||!buildingSourceId||event.sourceId!==buildingSourceId)return;
+    if(event.isSourceLoaded) scheduleBuildingSceneRefresh(60);
+  };
+
   map.on('pitch',syncSceneOnPitch);
+  map.on('moveend',refreshSceneAfterCamera);
+  map.on('zoomend',refreshSceneAfterCamera);
+  map.on('rotateend',refreshSceneAfterCamera);
+  map.on('sourcedata',refreshSceneFromSource);
 
   const cancelSelectionEdit=()=>{
     drawing=false;
@@ -1210,6 +1293,11 @@ export function createLocalFloodUI({
       window.removeEventListener('mouseup',onAnchorMouseUpWindow);
       map.off('mousemove',onMapMouseMove);
       map.off('pitch',syncSceneOnPitch);
+      map.off('moveend',refreshSceneAfterCamera);
+      map.off('zoomend',refreshSceneAfterCamera);
+      map.off('rotateend',refreshSceneAfterCamera);
+      map.off('sourcedata',refreshSceneFromSource);
+      clearTimeout(sceneRefreshTimer);
       document.removeEventListener('keydown',keydown);
     }
   };
