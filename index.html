@@ -3985,11 +3985,12 @@
       expansions++;
 
       if(
-        state.path.length>0&&
         streetVehicleStateEndpointNearViewportEdge(
           state.route,state.direction,85
         )
       ){
+        // An empty plan is valid when the current route itself already carries
+        // the vehicle from its entry side to a viewport exit.
         return state.path;
       }
 
