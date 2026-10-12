@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.6';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.7';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -46,6 +46,39 @@ function formatEdgeDistance(metres){
   if(metres>=1000)return (metres/1000).toFixed(metres>=10000?1:2)+' km';
   if(metres>=100)return Math.round(metres)+' m';
   return metres.toFixed(1)+' m';
+}
+
+function geodesicRingAreaM2(ring){
+  if(!ring?.length||ring.length<3)return 0;
+  const earthRadius=6371008.8;
+  const pts=closeRing(ring);
+  let sum=0;
+  for(let i=0;i<pts.length-1;i++){
+    const lon1=pts[i][0]*Math.PI/180;
+    const lon2=pts[i+1][0]*Math.PI/180;
+    const lat1=pts[i][1]*Math.PI/180;
+    const lat2=pts[i+1][1]*Math.PI/180;
+    let dLon=lon2-lon1;
+    if(dLon>Math.PI)dLon-=2*Math.PI;
+    if(dLon<-Math.PI)dLon+=2*Math.PI;
+    sum+=dLon*(2+Math.sin(lat1)+Math.sin(lat2));
+  }
+  return Math.abs(sum)*earthRadius*earthRadius/2;
+}
+
+function formatAreaHtml(areaM2){
+  const ha=areaM2/10000;
+  const km2=areaM2/1e6;
+  if(areaM2>=1e6){
+    return '<strong>区域面积</strong><br>'+km2.toFixed(3)+' km²<br>'+
+      ha.toFixed(1)+' ha';
+  }
+  if(areaM2>=10000){
+    return '<strong>区域面积</strong><br>'+ha.toFixed(2)+' ha<br>'+
+      Math.round(areaM2).toLocaleString()+' m²';
+  }
+  return '<strong>区域面积</strong><br>'+
+    Math.round(areaM2).toLocaleString()+' m²';
 }
 
 function unmercator(x,y){
@@ -290,6 +323,10 @@ export function createLocalFloodUI({
   let canvasContext=null;
   let simulator=null;
   let setupInfo=null;
+  let areaHoverTimer=null;
+  let areaHoverInside=false;
+  let areaHoverLngLat=null;
+  let areaPopup=null;
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -491,6 +528,7 @@ export function createLocalFloodUI({
   }
 
   function clearSimulation(keepSelection=false){
+    hideAreaPopup();
     simulator?.pause();
     prepared=false;setupInfo=null;selectedBuildings=[];
     clearSelectedBuildingStates();
@@ -835,6 +873,8 @@ export function createLocalFloodUI({
 
     if(!editingSelection||isPreparingSelection)return;
 
+    hideAreaPopup();
+
     // 1) Double-click an existing anchor -> delete it.
     const anchorIndex=findAnchorAtPoint(event.point);
     if(anchorIndex!==null){
@@ -925,6 +965,45 @@ export function createLocalFloodUI({
     return best;
   };
 
+  const hideAreaPopup=()=>{
+    clearTimeout(areaHoverTimer);
+    areaHoverTimer=null;
+    areaHoverInside=false;
+    areaHoverLngLat=null;
+    if(areaPopup){
+      areaPopup.remove();
+      areaPopup=null;
+    }
+  };
+
+  const scheduleAreaPopup=lngLat=>{
+    if(!polygon?.[0]||vertices.length<3)return;
+    areaHoverLngLat=[lngLat.lng,lngLat.lat];
+
+    if(areaHoverInside||areaHoverTimer)return;
+
+    areaHoverInside=true;
+    areaHoverTimer=setTimeout(()=>{
+      areaHoverTimer=null;
+      if(!areaHoverInside||!polygon?.[0]||!areaHoverLngLat)return;
+
+      const areaM2=geodesicRingAreaM2(polygon[0]);
+      if(!(areaM2>0))return;
+
+      areaPopup?.remove();
+      areaPopup=new maplibregl.Popup({
+        closeButton:false,
+        closeOnClick:false,
+        className:'local-flood-area-popup',
+        offset:14,
+        maxWidth:'220px'
+      })
+        .setLngLat(areaHoverLngLat)
+        .setHTML(formatAreaHtml(areaM2))
+        .addTo(map);
+    },2000);
+  };
+
   const canvasContainer=map.getCanvasContainer();
 
   const pointFromMouseEvent=event=>{
@@ -946,6 +1025,7 @@ export function createLocalFloodUI({
     event.stopPropagation();
     event.stopImmediatePropagation?.();
 
+    hideAreaPopup();
     dragVertexIndex=index;
     dragPanWasEnabled=map.dragPan.isEnabled();
     if(dragPanWasEnabled)map.dragPan.disable();
@@ -988,7 +1068,27 @@ export function createLocalFloodUI({
   };
 
   const onMapMouseMove=event=>{
-    if(!editingSelection||dragVertexIndex>=0)return;
+    if(dragVertexIndex>=0){
+      hideAreaPopup();
+      return;
+    }
+
+    // Area tooltip: staying anywhere inside the red polygon for >= 2 seconds
+    // shows the current real ground area. Leaving the polygon cancels/hides it.
+    const ring=polygon?.[0];
+    const insideArea=Boolean(
+      ring?.length>=4 &&
+      pointInRingLngLat([event.lngLat.lng,event.lngLat.lat],ring)
+    );
+
+    if(insideArea){
+      scheduleAreaPopup(event.lngLat);
+    }else{
+      hideAreaPopup();
+    }
+
+    if(!editingSelection)return;
+
     const index=findAnchorAtPoint(event.point);
     if(index!==null){
       map.getCanvas().style.cursor='grab';
@@ -998,7 +1098,10 @@ export function createLocalFloodUI({
     map.getCanvas().style.cursor=edge?'crosshair':'';
   };
 
+  const onCanvasMouseLeave=()=>hideAreaPopup();
+
   canvasContainer.addEventListener('mousedown',onAnchorMouseDownCapture,true);
+  canvasContainer.addEventListener('mouseleave',onCanvasMouseLeave);
   window.addEventListener('mousemove',onAnchorMouseMoveWindow,{passive:false});
   window.addEventListener('mouseup',onAnchorMouseUpWindow);
   map.on('mousemove',onMapMouseMove);
@@ -1075,14 +1178,16 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('圈选后边线显示实际距离；可拖动锚点、双击加/删点、空白处移动视窗；Enter 生成或重新生成。');
+  status('圈选后边线显示实际距离；鼠标在红色区域内停留 2 秒显示面积；可拖动锚点、双击加/删点。');
 
   return {
     clear:()=>clearSimulation(false),
     destroy(){
       clearSimulation(false);
       simulator?.destroy();simulator=null;
+      hideAreaPopup();
       canvasContainer.removeEventListener('mousedown',onAnchorMouseDownCapture,true);
+      canvasContainer.removeEventListener('mouseleave',onCanvasMouseLeave);
       window.removeEventListener('mousemove',onAnchorMouseMoveWindow);
       window.removeEventListener('mouseup',onAnchorMouseUpWindow);
       map.off('mousemove',onMapMouseMove);
