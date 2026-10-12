@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.10';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.11';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -705,131 +705,79 @@ export function createLocalFloodUI({
   function queryBuildings(bounds,selectionRing){
     ensureCityBuildings();
 
-    const style=map.getStyle?.()||{};
-    const layers=style.layers||[];
     const cityLayer=map.getLayer(cityBuildingsLayerId);
-    const preferredSource=cityLayer?.source||null;
-    const preferredSourceLayer=cityLayer?.['source-layer']||'building';
+    const source=cityLayer?.source||null;
+    const sourceLayer=cityLayer?.['source-layer']||'building';
 
-    const sourceCandidates=[];
-    const renderedLayerIds=[];
-
-    const addSourceCandidate=(sourceId,sourceLayer='building',priority=10)=>{
-      if(!sourceId)return;
-      const key=sourceId+'|'+sourceLayer;
-      const existing=sourceCandidates.find(item=>item.key===key);
-      if(existing){
-        existing.priority=Math.min(existing.priority,priority);
-        return;
-      }
-      sourceCandidates.push({key,sourceId,sourceLayer,priority});
-    };
-
-    if(cityLayer){
-      renderedLayerIds.push(cityBuildingsLayerId);
-      addSourceCandidate(preferredSource,preferredSourceLayer,0);
+    if(!source){
+      return {
+        selected:[],
+        sceneCount:0,
+        visibleCount:0,
+        source:null,
+        sourceLayer,
+        diagnostics:{sourceFeatureCount:0,renderedFeatureCount:0,groupCount:0,clippedCount:0}
+      };
     }
 
-    for(const layer of layers){
-      const sourceLayer=String(layer?.['source-layer']||'').toLowerCase();
-      const id=String(layer?.id||'').toLowerCase();
-      const isBuilding=
-        sourceLayer==='building'||
-        sourceLayer.includes('building')||
-        id.includes('building');
-
-      if(!isBuilding)continue;
-
-      if(layer.id&&!renderedLayerIds.includes(layer.id)){
-        renderedLayerIds.push(layer.id);
-      }
-      if(layer.source){
-        addSourceCandidate(layer.source,layer['source-layer']||'building',5);
-      }
-    }
-
-    sourceCandidates.sort((a,b)=>a.priority-b.priority);
-
-    const candidates=[];
-    const seenGeometry=new Set();
+    /*
+     * IMPORTANT: use ONE authoritative vector source only.
+     *
+     * v3.21.9 queried both the dedicated city source and all OpenFreeMap building
+     * layers. The same real building could therefore enter the local scene twice with
+     * slightly different/generalised geometry. Those coplanar roofs caused the orange /
+     * beige triangular stripes seen in the screenshot.
+     *
+     * The dedicated CITY_BUILDINGS_SOURCE is z14-detail and uses OpenMapTiles building
+     * feature ids. Grouping fragments by feature id gives one building geometry only.
+     */
+    const groups=new Map();
     let sourceFeatureCount=0;
     let renderedFeatureCount=0;
 
-    const addCandidate=(feature,meta={})=>{
+    const addFeature=feature=>{
       if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
       if(hide3DFlag(feature.properties?.hide_3d))return;
+      if(!boxesIntersect(bounds,geometryBBox(feature.geometry)))return;
 
-      const bbox=geometryBBox(feature.geometry);
-      if(!boxesIntersect(bounds,bbox))return;
-
-      // Geometry-key dedupe is deliberate. The same building can arrive from the
-      // dedicated z13/z14 source and the OpenFreeMap basemap source. Using only an
-      // OSM feature id previously merged unrelated tile fragments and could collapse
-      // the extraction; using geometry keeps real tile fragments while removing exact
-      // duplicates across sources.
-      const gKey=featureKey(feature);
-      if(seenGeometry.has(gKey))return;
-      seenGeometry.add(gKey);
-
-      const p=feature.properties||{};
-      const sourceFeatureId=
+      const id=
         feature.id!==undefined&&feature.id!==null
-          ?feature.id
-          :(p.osm_id??p.osm_way_id??p.osm_relation_id??p.openstreetmap_id??p.id??null);
+          ?'id:'+String(feature.id)
+          :'geom:'+featureKey(feature);
 
-      candidates.push({
-        feature,
-        sourceFeatureId,
-        sourceId:meta.sourceId||feature.source||null,
-        sourceLayer:meta.sourceLayer||feature.sourceLayer||feature['source-layer']||'building'
-      });
+      if(!groups.has(id))groups.set(id,[]);
+      groups.get(id).push(feature);
     };
 
-    // 1) Read loaded vector source tiles directly. This works even if a building layer
-    // is occluded by another 3D building or currently outside the rendered depth order.
-    for(const candidate of sourceCandidates){
-      try{
-        const features=map.querySourceFeatures(
-          candidate.sourceId,
-          {sourceLayer:candidate.sourceLayer}
-        )||[];
-        sourceFeatureCount+=features.length;
-        for(const feature of features){
-          addCandidate(feature,{
-            sourceId:candidate.sourceId,
-            sourceLayer:candidate.sourceLayer
-          });
-        }
-      }catch(error){}
+    try{
+      const features=map.querySourceFeatures(source,{sourceLayer})||[];
+      sourceFeatureCount=features.length;
+      for(const feature of features)addFeature(feature);
+    }catch(error){
+      console.warn('Dedicated building source query failed',error);
     }
 
-    // 2) Read rendered building geometry inside the screen-space box enclosing the
-    // selection. This is the fallback that guarantees "what I can already see on the
-    // map can become orange" even when one vector source is late.
-    if(renderedLayerIds.length){
-      const projected=selectionRing.map(point=>map.project(point));
-      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-      for(const p of projected){
-        minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
-        maxX=Math.max(maxX,p.x); maxY=Math.max(maxY,p.y);
-      }
-      const queryBox=[
-        [Math.floor(minX)-12,Math.floor(minY)-12],
-        [Math.ceil(maxX)+12,Math.ceil(maxY)+12]
-      ];
-
-      for(const layerId of renderedLayerIds){
-        if(!map.getLayer(layerId))continue;
-        try{
-          const features=map.queryRenderedFeatures(queryBox,{layers:[layerId]})||[];
-          renderedFeatureCount+=features.length;
-          for(const feature of features){
-            addCandidate(feature,{
-              sourceId:feature.source||null,
-              sourceLayer:feature.sourceLayer||feature['source-layer']||'building'
-            });
-          }
-        }catch(error){}
+    // Same-source rendered fallback only. It cannot introduce a second building dataset.
+    if(map.getLayer(cityBuildingsLayerId)){
+      try{
+        const projected=selectionRing.map(point=>map.project(point));
+        let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+        for(const p of projected){
+          minX=Math.min(minX,p.x); minY=Math.min(minY,p.y);
+          maxX=Math.max(maxX,p.x); maxY=Math.max(maxY,p.y);
+        }
+        const queryBox=[
+          [Math.floor(minX)-12,Math.floor(minY)-12],
+          [Math.ceil(maxX)+12,Math.ceil(maxY)+12]
+        ];
+        const rendered=map.queryRenderedFeatures(
+          queryBox,
+          {layers:[cityBuildingsLayerId]}
+        )||[];
+        renderedFeatureCount=rendered.length;
+        for(const feature of rendered)addFeature(feature);
+      }catch(error){
+        console.warn('Dedicated rendered building query failed',error);
       }
     }
 
@@ -837,19 +785,27 @@ export function createLocalFloodUI({
     const selected=[];
     let clippedCount=0;
 
-    for(const item of candidates){
-      const feature=item.feature;
-      const split=splitBuildingBySelection(feature.geometry,selectionRing);
+    for(const [groupId,fragments] of groups){
+      const merged=mergeBuildingFragments(groupId,fragments);
+      if(!merged)continue;
+
+      const split=splitBuildingBySelection(merged.geometry,selectionRing);
       if(!split.inside)continue;
 
       clippedCount++;
-      const p=feature.properties||{};
+      const p=merged.properties||{};
       const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
       const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
-      const key='building-'+clippedCount+'-'+featureKey(feature);
 
-      // If a building crosses the red line, keep only its outside fragment grey in the
-      // local replacement scene. Everything fully outside remains the native OSM city.
+      const sourceFeatureId=
+        p.__sourceFeatureId!==undefined&&p.__sourceFeatureId!==null
+          ?p.__sourceFeatureId
+          :(fragments[0]?.id!==undefined&&fragments[0]?.id!==null?fragments[0].id:null);
+
+      const key='building-'+String(groupId);
+
+      // The authoritative native building is collapsed completely with feature-state.
+      // For a building crossing the red boundary, reconstruct its OUTSIDE part in grey.
       if(split.outside){
         sceneFeatures.set(key+'|outside',{
           type:'Feature',
@@ -879,22 +835,22 @@ export function createLocalFloodUI({
       selected.push({
         feature:insideScene,
         key:insideKey,
-        sourceFeatureId:item.sourceFeatureId,
-        sourceId:item.sourceId,
-        sourceLayer:item.sourceLayer
+        sourceFeatureId,
+        sourceId:source,
+        sourceLayer
       });
     }
 
     return {
       selected,
       sceneCount:sceneFeatures.size,
-      visibleCount:candidates.length,
-      source:preferredSource,
-      sourceLayer:preferredSourceLayer,
+      visibleCount:groups.size,
+      source,
+      sourceLayer,
       diagnostics:{
         sourceFeatureCount,
         renderedFeatureCount,
-        candidateCount:candidates.length,
+        groupCount:groups.size,
         clippedCount
       }
     };
@@ -1036,7 +992,7 @@ export function createLocalFloodUI({
       status(
         '已读取建筑数据，但没有生成橙色建筑（source '+(d.sourceFeatureCount||0)+
         ' · rendered '+(d.renderedFeatureCount||0)+
-        ' · candidates '+(d.candidateCount||0)+
+        ' · groups '+(d.groupCount||0)+
         ' · clipped '+(d.clippedCount||0)+
         '）。红框已保留，可直接按 Enter 重试。',
         true
@@ -1053,7 +1009,6 @@ export function createLocalFloodUI({
     // the solid orange local extrusion above it.
     selectedSourceFeatureIds=new Set(
       queried.selected
-        .filter(item=>item.sourceId===buildingSourceId)
         .map(item=>item.sourceFeatureId)
         .filter(id=>id!==null&&id!==undefined)
     );
