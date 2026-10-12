@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.31</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.32</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.31';
+  const APP_VERSION='3.21.32';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1597,9 +1597,12 @@
       );
     }
 
-    // The switch hides only OSM labels/POIs/transit annotations.
+    // The switch hides OSM labels/POIs/transit annotations and street vehicles.
     // Road/building geometry, grey 3D buildings and all analysis layers remain visible.
+    // The separate street-vehicle toggle state is preserved, so cars restore
+    // automatically when this OSM annotation switch is unchecked again.
     syncCityView();
+    syncStreetVehicleView();
   }
 
   function streetVehicleDistanceM(a,b){
@@ -1859,6 +1862,7 @@
   function syncStreetVehicleView(){
     if(!osmMap||!osmStyleReady)return;
     const is3D=osmMap.getPitch()>.5;
+    const showVehicles=streetVehiclesEnabled&&!osmStructuresHidden;
     const firstSymbol=getFirstSymbolLayerId();
 
     // Keep vehicles above roads/analysis geometry in layer order, while normal
@@ -1876,7 +1880,7 @@
       osmMap.setLayoutProperty(
         STREET_VEHICLE_LAYER,
         'visibility',
-        streetVehiclesEnabled&&is3D?'visible':'none'
+        showVehicles&&is3D?'visible':'none'
       );
     }
 
@@ -1884,7 +1888,7 @@
       osmMap.setLayoutProperty(
         STREET_VEHICLE_2D_LAYER,
         'visibility',
-        streetVehiclesEnabled&&!is3D?'visible':'none'
+        showVehicles&&!is3D?'visible':'none'
       );
     }
   }
@@ -3149,7 +3153,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.31)
+     * DISPLAY STABILITY ONLY (v3.21.32)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
