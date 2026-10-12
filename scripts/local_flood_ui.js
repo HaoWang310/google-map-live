@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.7';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.20.8';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -67,17 +67,9 @@ function geodesicRingAreaM2(ring){
 }
 
 function formatAreaHtml(areaM2){
-  const ha=areaM2/10000;
   const km2=areaM2/1e6;
-  if(areaM2>=1e6){
-    return '<strong>区域面积</strong><br>'+km2.toFixed(3)+' km²<br>'+
-      ha.toFixed(1)+' ha';
-  }
-  if(areaM2>=10000){
-    return '<strong>区域面积</strong><br>'+ha.toFixed(2)+' ha<br>'+
-      Math.round(areaM2).toLocaleString()+' m²';
-  }
   return '<strong>区域面积</strong><br>'+
+    km2.toFixed(4)+' km²<br>'+
     Math.round(areaM2).toLocaleString()+' m²';
 }
 
