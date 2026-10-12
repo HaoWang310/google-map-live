@@ -446,12 +446,107 @@ export function createLocalFloodUI({
 
   function isolateClipPolygonCss(){
     if(!polygon?.[0]?.length)return '';
-    const pts=polygon[0]
+
+    const groundPts=polygon[0]
       .slice(0,-1)
       .map(point=>map.project(point))
       .filter(p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y));
-    if(pts.length<3)return '';
-    return 'polygon('+pts.map(p=>p.x.toFixed(1)+'px '+p.y.toFixed(1)+'px').join(',')+')';
+
+    if(groundPts.length<3)return '';
+
+    /*
+     * 3D IMPORTANT:
+     * A screen-space clip built only from the ground polygon cuts off the upper
+     * parts of extruded buildings, because their roofs project above the site's
+     * ground footprint. Build an extrusion-aware screen silhouette instead:
+     * ground polygon + upward-shifted copies sized from the tallest selected
+     * building and the current pixels-per-metre scale, then take the convex hull.
+     */
+    let maxHeightM=0;
+    for(const feature of sceneFeatures.values()){
+      if(feature?.properties?.selected!==true)continue;
+      maxHeightM=Math.max(
+        maxHeightM,
+        Number(feature.properties?.simHeight)||0
+      );
+    }
+    maxHeightM=Math.max(12,Math.min(180,maxHeightM));
+
+    const ring=polygon[0];
+    let cx=0,cy=0,count=0;
+    for(const p of ring.slice(0,-1)){
+      const [x,y]=mercator(p[0],p[1]);
+      cx+=x; cy+=y; count++;
+    }
+    cx/=Math.max(1,count); cy/=Math.max(1,count);
+
+    const c0=unmercator(cx,cy);
+    const c1=unmercator(cx+10,cy);
+    const p0=map.project(c0);
+    const p1=map.project(c1);
+    const pxPerM=Math.max(0.05,Math.hypot(p1.x-p0.x,p1.y-p0.y)/10);
+
+    const pitchRad=(Number(map.getPitch())||0)*Math.PI/180;
+    const verticalPx=Math.min(
+      420,
+      Math.max(30,maxHeightM*pxPerM*Math.sin(pitchRad)*1.25+18)
+    );
+
+    const candidates=[];
+    for(const p of groundPts){
+      candidates.push([p.x,p.y]);
+      candidates.push([p.x,p.y-verticalPx]);
+    }
+
+    // Monotonic-chain convex hull in screen coordinates.
+    const pts=[...candidates].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+    const cross=(o,a,b)=>
+      (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
+
+    const lower=[];
+    for(const p of pts){
+      while(lower.length>=2&&cross(lower[lower.length-2],lower[lower.length-1],p)<=0){
+        lower.pop();
+      }
+      lower.push(p);
+    }
+
+    const upper=[];
+    for(let i=pts.length-1;i>=0;i--){
+      const p=pts[i];
+      while(upper.length>=2&&cross(upper[upper.length-2],upper[upper.length-1],p)<=0){
+        upper.pop();
+      }
+      upper.push(p);
+    }
+
+    lower.pop();
+    upper.pop();
+    const hull=lower.concat(upper);
+    if(hull.length<3)return '';
+
+    const canvas=map.getCanvas();
+    const w=canvas.clientWidth||canvas.width||1;
+    const h=canvas.clientHeight||canvas.height||1;
+
+    // Small screen-space breathing room prevents antialiasing from shaving edges.
+    const centroid=hull.reduce(
+      (acc,p)=>[acc[0]+p[0]/hull.length,acc[1]+p[1]/hull.length],
+      [0,0]
+    );
+    const margin=10;
+    const expanded=hull.map(([x,y])=>{
+      const dx=x-centroid[0],dy=y-centroid[1];
+      const len=Math.hypot(dx,dy)||1;
+      return [
+        Math.max(0,Math.min(w,x+dx/len*margin)),
+        Math.max(0,Math.min(h,y+dy/len*margin))
+      ];
+    });
+
+    return 'polygon('+expanded
+      .map(p=>p[0].toFixed(1)+'px '+p[1].toFixed(1)+'px')
+      .join(',')+')';
   }
 
   function applyIsolateCanvasClip(){
@@ -582,8 +677,10 @@ export function createLocalFloodUI({
       const fittedZoom=map.getZoom();
       map.easeTo({
         center:fittedCenter,
-        zoom:Math.max(15.5,Math.min(18,fittedZoom-0.15)),
-        pitch:48,
+        // Pull back slightly more so roofs and tall façades remain comfortably
+        // inside the isolated viewport after the 3D silhouette clip is applied.
+        zoom:Math.max(15.2,Math.min(18,fittedZoom-0.35)),
+        pitch:42,
         bearing:isolateCamera?.bearing||0,
         duration:650
       });
