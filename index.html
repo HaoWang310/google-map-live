@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.32</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.33</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.32';
+  const APP_VERSION='3.21.33';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -570,17 +570,71 @@
   const STREET_VEHICLE_SOURCE='osm-street-vehicles-source';
   const STREET_VEHICLE_LAYER='osm-street-vehicles-3d';
   const STREET_VEHICLE_2D_LAYER='osm-street-vehicles-2d';
-  const STREET_VEHICLE_COUNT=36;
+  // London traffic catalogue. All dimensions are metres and are used directly
+  // by the 3D geometry, collision footprint and following model.
+  //
+  // Bus references:
+  // - New Routemaster: 11.232 m × 2.55 m × 4.42 m (TfL technical specification).
+  // - Typical London single deck reference: 10.82 m × 2.474 m × 2.85 m (TfL guidance).
+  //
+  // Black-cab proportions follow the current LEVC TX envelope (<5 m long, <2 m wide).
+  const STREET_VEHICLE_TYPES={
+    hatchback:{
+      id:'hatchback',label:'Hatchback',
+      length:4.08,width:1.78,height:1.48,wheelbase:2.58,
+      bodyHeight:0.70,cabinHeight:1.34,speedFactor:1.00,
+      colors:[
+        {body:'#2563eb',cabin:'#60a5fa',roof:'#bfdbfe'},
+        {body:'#dc2626',cabin:'#f87171',roof:'#fecaca'},
+        {body:'#e5e7eb',cabin:'#cbd5e1',roof:'#f8fafc'},
+        {body:'#111827',cabin:'#475569',roof:'#94a3b8'}
+      ]
+    },
+    sedan:{
+      id:'sedan',label:'Saloon',
+      length:4.62,width:1.82,height:1.44,wheelbase:2.76,
+      bodyHeight:0.68,cabinHeight:1.30,speedFactor:1.02,
+      colors:[
+        {body:'#475569',cabin:'#94a3b8',roof:'#e2e8f0'},
+        {body:'#1d4ed8',cabin:'#60a5fa',roof:'#bfdbfe'},
+        {body:'#f8fafc',cabin:'#cbd5e1',roof:'#ffffff'},
+        {body:'#7c3aed',cabin:'#a78bfa',roof:'#ddd6fe'}
+      ]
+    },
+    blackCab:{
+      id:'blackCab',label:'London black cab',
+      length:4.85,width:1.90,height:1.90,wheelbase:2.98,
+      bodyHeight:0.88,cabinHeight:1.72,speedFactor:0.91,
+      colors:[
+        {body:'#111827',cabin:'#334155',roof:'#0f172a'},
+        {body:'#1f2937',cabin:'#475569',roof:'#111827'}
+      ]
+    },
+    van:{
+      id:'van',label:'Delivery van',
+      length:5.20,width:2.02,height:2.38,wheelbase:3.30,
+      bodyHeight:1.08,cabinHeight:2.18,speedFactor:0.88,
+      colors:[
+        {body:'#f8fafc',cabin:'#cbd5e1',roof:'#ffffff'},
+        {body:'#e5e7eb',cabin:'#94a3b8',roof:'#f1f5f9'},
+        {body:'#2563eb',cabin:'#60a5fa',roof:'#dbeafe'}
+      ]
+    },
+    doubleBus:{
+      id:'doubleBus',label:'London double-decker',
+      length:11.232,width:2.55,height:4.42,wheelbase:6.00,
+      bodyHeight:1.62,cabinHeight:4.20,speedFactor:0.72,
+      fixedColor:{body:'#d71920',cabin:'#c9161d',roof:'#ef4444'}
+    },
+    singleBus:{
+      id:'singleBus',label:'London single-decker',
+      length:10.82,width:2.474,height:2.85,wheelbase:5.82,
+      bodyHeight:1.12,cabinHeight:2.66,speedFactor:0.76,
+      fixedColor:{body:'#d71920',cabin:'#c9161d',roof:'#ef4444'}
+    }
+  };
 
-  // Real-world reference dimensions for a typical passenger car.
-  // Geometry is generated in metres, so vehicle scale stays physically consistent
-  // with the OSM/OpenMapTiles buildings instead of changing with screen pixels.
-  const STREET_VEHICLE_LENGTH_M=4.35;
-  const STREET_VEHICLE_WIDTH_M=1.80;
-  const STREET_VEHICLE_HEIGHT_M=1.44;
-  const STREET_VEHICLE_BODY_HEIGHT_M=0.68;
-  const STREET_VEHICLE_CABIN_HEIGHT_M=1.30;
-  const STREET_VEHICLE_WHEELBASE_M=2.65;
+  const STREET_VEHICLE_COUNT=36;
   const STREET_VEHICLE_MIN_SPAWN_GAP_M=11.0;
   const STREET_VEHICLE_SAME_LANE_HEADWAY_M=12.0;
   const STREET_VEHICLE_MIN_VISIBLE=14;
@@ -591,16 +645,6 @@
   const STREET_VEHICLE_VIRTUAL_SIGNAL_CYCLE_MS=14000;
   const STREET_VEHICLE_JUNCTION_LOOKAHEAD_M=18;
   const STREET_VEHICLE_STOP_LINE_M=3.8;
-  const STREET_VEHICLE_COLOR_SCHEMES=[
-    {body:'#2563eb',cabin:'#60a5fa',roof:'#bfdbfe'}, // blue
-    {body:'#dc2626',cabin:'#f87171',roof:'#fecaca'}, // red
-    {body:'#d97706',cabin:'#fbbf24',roof:'#fde68a'}, // amber
-    {body:'#059669',cabin:'#34d399',roof:'#a7f3d0'}, // green
-    {body:'#7c3aed',cabin:'#a78bfa',roof:'#ddd6fe'}, // violet
-    {body:'#475569',cabin:'#94a3b8',roof:'#e2e8f0'}, // graphite
-    {body:'#e5e7eb',cabin:'#cbd5e1',roof:'#f8fafc'}, // white/silver
-    {body:'#111827',cabin:'#475569',roof:'#94a3b8'}  // black
-  ];
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -1632,6 +1676,46 @@
     return [lng,lat];
   }
 
+  function streetVehicleSpec(vehicle){
+    return STREET_VEHICLE_TYPES[
+      vehicle?.vehicleType||'sedan'
+    ]||STREET_VEHICLE_TYPES.sedan;
+  }
+
+  function streetVehiclePickColor(type,index=0){
+    const spec=STREET_VEHICLE_TYPES[type]||STREET_VEHICLE_TYPES.sedan;
+    if(spec.fixedColor)return spec.fixedColor;
+    const palette=spec.colors||STREET_VEHICLE_TYPES.sedan.colors;
+    return palette[index%palette.length];
+  }
+
+  function streetVehicleTypeAllowedOnRoute(type,route){
+    const c=String(route?.roadClass||'').toLowerCase();
+    if(type==='doubleBus'){
+      return !/service|living_street|track|path/.test(c);
+    }
+    if(type==='singleBus'||type==='van'){
+      return !/track|path/.test(c);
+    }
+    return true;
+  }
+
+  function chooseStreetVehicleType(index,route=null){
+    const r=Math.random();
+    let type=
+      r<0.34?'hatchback':
+      r<0.61?'sedan':
+      r<0.75?'blackCab':
+      r<0.88?'van':
+      r<0.955?'doubleBus':
+      'singleBus';
+
+    if(route&&!streetVehicleTypeAllowedOnRoute(type,route)){
+      type=Math.random()<0.55?'hatchback':'sedan';
+    }
+    return type;
+  }
+
   function streetVehicleOffsetMeters(origin,bearing,forwardM,leftM){
     const theta=bearing*Math.PI/180;
     const east=
@@ -1673,11 +1757,23 @@
     ]);
   }
 
-  function streetVehicleBodyGeometry(origin,bearing){
-    // Slightly tapered/chamfered footprint so the extrusion reads as a car,
-    // not a generic rectangular box.
-    const halfL=STREET_VEHICLE_LENGTH_M/2;
-    const halfW=STREET_VEHICLE_WIDTH_M/2;
+  function streetVehicleBodyGeometry(origin,bearing,spec){
+    const halfL=spec.length/2;
+    const halfW=spec.width/2;
+
+    if(spec.id==='van'||spec.id==='blackCab'){
+      return streetVehiclePolygon(origin,bearing,[
+        [ halfL,        halfW*0.82],
+        [ halfL-0.30,   halfW],
+        [-halfL+0.25,   halfW],
+        [-halfL,        halfW*0.90],
+        [-halfL,       -halfW*0.90],
+        [-halfL+0.25,  -halfW],
+        [ halfL-0.30,  -halfW],
+        [ halfL,       -halfW*0.82]
+      ]);
+    }
+
     return streetVehiclePolygon(origin,bearing,[
       [ halfL,           halfW*0.73],
       [ halfL-0.38,      halfW],
@@ -1690,17 +1786,36 @@
     ]);
   }
 
-  function streetVehicleCabinGeometry(origin,bearing){
-    // Cabin is slightly forward-biased and narrower than the body.
+  function streetVehicleCabinGeometry(origin,bearing,spec){
+    if(spec.id==='blackCab'){
+      return streetVehicleRect(
+        origin,bearing,
+        spec.length*0.64,
+        spec.width*0.82,
+        -0.18,0
+      );
+    }
+
+    if(spec.id==='van'){
+      return streetVehicleRect(
+        origin,bearing,
+        spec.length*0.72,
+        spec.width*0.88,
+        -0.20,0
+      );
+    }
+
+    const halfL=spec.length/2;
+    const halfW=spec.width/2;
     return streetVehiclePolygon(origin,bearing,[
-      [ 1.05,  0.66],
-      [ 0.72,  0.72],
-      [-1.12,  0.68],
-      [-1.28,  0.56],
-      [-1.28, -0.56],
-      [-1.12, -0.68],
-      [ 0.72, -0.72],
-      [ 1.05, -0.66]
+      [ halfL*0.47,  halfW*0.72],
+      [ halfL*0.31,  halfW*0.79],
+      [-halfL*0.50,  halfW*0.75],
+      [-halfL*0.58,  halfW*0.62],
+      [-halfL*0.58, -halfW*0.62],
+      [-halfL*0.50, -halfW*0.75],
+      [ halfL*0.31, -halfW*0.79],
+      [ halfL*0.47, -halfW*0.72]
     ]);
   }
 
@@ -1713,55 +1828,57 @@
     };
   }
 
-  function streetVehicleModelFeatures(vehicle,sample){
+  function streetVehicleCarLikeFeatures(vehicle,sample,spec,scheme){
     const origin=sample.point;
     const bearing=sample.bearing;
     const id=vehicle.id;
-    const scheme=vehicle.colorScheme||STREET_VEHICLE_COLOR_SCHEMES[0];
 
     const body={
       type:'Feature',
       properties:{
-        vehicleId:id,
-        part:'body',
-        minHeight:0.16,
-        height:STREET_VEHICLE_BODY_HEIGHT_M,
-        color:scheme.body
+        vehicleId:id,vehicleType:spec.id,part:'body',
+        minHeight:0.16,height:spec.bodyHeight,color:scheme.body
       },
-      geometry:streetVehicleBodyGeometry(origin,bearing)
+      geometry:streetVehicleBodyGeometry(origin,bearing,spec)
     };
 
+    const cabinBase=spec.id==='van'?0.72:(spec.id==='blackCab'?0.78:0.70);
     const cabin={
       type:'Feature',
       properties:{
-        vehicleId:id,
-        part:'cabin',
-        minHeight:0.72,
-        height:STREET_VEHICLE_CABIN_HEIGHT_M,
-        color:scheme.cabin
+        vehicleId:id,vehicleType:spec.id,part:'cabin',
+        minHeight:cabinBase,height:spec.cabinHeight,color:scheme.cabin
       },
-      geometry:streetVehicleCabinGeometry(origin,bearing)
+      geometry:streetVehicleCabinGeometry(origin,bearing,spec)
     };
+
+    const roofLength=
+      spec.id==='van'?spec.length*0.54:
+      spec.id==='blackCab'?spec.length*0.42:
+      spec.length*0.38;
+    const roofWidth=
+      spec.id==='van'?spec.width*0.76:
+      spec.id==='blackCab'?spec.width*0.68:
+      spec.width*0.68;
 
     const roof={
       type:'Feature',
       properties:{
-        vehicleId:id,
-        part:'roof',
-        minHeight:STREET_VEHICLE_CABIN_HEIGHT_M-0.03,
-        height:STREET_VEHICLE_HEIGHT_M,
-        color:scheme.roof
+        vehicleId:id,vehicleType:spec.id,part:'roof',
+        minHeight:spec.cabinHeight-0.04,height:spec.height,color:scheme.roof
       },
-      geometry:streetVehicleRect(origin,bearing,1.72,1.24,-0.08,0)
+      geometry:streetVehicleRect(origin,bearing,roofLength,roofWidth,-0.08,0)
     };
 
-    const wheelForward=STREET_VEHICLE_WHEELBASE_M/2;
-    const wheelLeft=STREET_VEHICLE_WIDTH_M/2+0.02;
+    const wheelForward=spec.wheelbase/2;
+    const wheelLeft=spec.width/2+0.02;
+    const wheelLength=spec.id==='van'?0.82:0.72;
+    const wheelHeight=spec.id==='van'?0.72:0.60;
     const wheelGeometries=[];
     for(const forward of [wheelForward,-wheelForward]){
       for(const left of [wheelLeft,-wheelLeft]){
         wheelGeometries.push(
-          streetVehicleRect(origin,bearing,0.72,0.24,forward,left)
+          streetVehicleRect(origin,bearing,wheelLength,0.24,forward,left)
         );
       }
     }
@@ -1769,46 +1886,156 @@
     const wheels={
       type:'Feature',
       properties:{
-        vehicleId:id,
-        part:'wheels',
-        minHeight:0.04,
-        height:0.60,
-        color:'#111827'
+        vehicleId:id,vehicleType:spec.id,part:'wheels',
+        minHeight:0.04,height:wheelHeight,color:'#111827'
       },
       geometry:streetVehicleMultiPolygon(wheelGeometries)
     };
 
+    const lampOffset=spec.width*0.29;
     const headLights={
       type:'Feature',
       properties:{
-        vehicleId:id,
-        part:'headlights',
-        minHeight:0.52,
-        height:0.68,
+        vehicleId:id,vehicleType:spec.id,part:'headlights',
+        minHeight:spec.bodyHeight*0.72,
+        height:spec.bodyHeight*0.94,
         color:'#fde68a'
       },
       geometry:streetVehicleMultiPolygon([
-        streetVehicleRect(origin,bearing,0.16,0.34,STREET_VEHICLE_LENGTH_M/2-0.05, 0.52),
-        streetVehicleRect(origin,bearing,0.16,0.34,STREET_VEHICLE_LENGTH_M/2-0.05,-0.52)
+        streetVehicleRect(origin,bearing,0.16,0.30,spec.length/2-0.05, lampOffset),
+        streetVehicleRect(origin,bearing,0.16,0.30,spec.length/2-0.05,-lampOffset)
       ])
     };
 
     const tailLights={
       type:'Feature',
       properties:{
-        vehicleId:id,
-        part:'taillights',
-        minHeight:0.50,
-        height:0.67,
+        vehicleId:id,vehicleType:spec.id,part:'taillights',
+        minHeight:spec.bodyHeight*0.68,
+        height:spec.bodyHeight*0.92,
         color:'#ef4444'
       },
       geometry:streetVehicleMultiPolygon([
-        streetVehicleRect(origin,bearing,0.16,0.32,-STREET_VEHICLE_LENGTH_M/2+0.05, 0.53),
-        streetVehicleRect(origin,bearing,0.16,0.32,-STREET_VEHICLE_LENGTH_M/2+0.05,-0.53)
+        streetVehicleRect(origin,bearing,0.16,0.30,-spec.length/2+0.05, lampOffset),
+        streetVehicleRect(origin,bearing,0.16,0.30,-spec.length/2+0.05,-lampOffset)
       ])
     };
 
     return [body,cabin,roof,wheels,headLights,tailLights];
+  }
+
+  function streetVehicleBusFeatures(vehicle,sample,spec){
+    const origin=sample.point;
+    const bearing=sample.bearing;
+    const id=vehicle.id;
+    const red='#d71920';
+    const darkRed='#b5121b';
+    const glass='#172554';
+
+    const lowerBody={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'lowerBody',
+        minHeight:0.18,
+        height:spec.id==='doubleBus'?1.82:1.28,
+        color:red
+      },
+      geometry:streetVehicleRect(origin,bearing,spec.length,spec.width,0,0)
+    };
+
+    const upperBody={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'upperBody',
+        minHeight:spec.id==='doubleBus'?1.72:1.16,
+        height:spec.height-0.18,
+        color:darkRed
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,spec.length*0.96,spec.width*0.96,-0.05,0
+      )
+    };
+
+    const roof={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'roof',
+        minHeight:spec.height-0.20,height:spec.height,color:'#ef4444'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,spec.length*0.93,spec.width*0.90,-0.08,0
+      )
+    };
+
+    const sideOffset=spec.width/2-0.05;
+    const windowLength=spec.length*0.72;
+    const windows=[];
+    for(const left of [sideOffset,-sideOffset]){
+      windows.push(
+        streetVehicleRect(origin,bearing,windowLength,0.11,0.15,left)
+      );
+    }
+
+    const lowerWindows={
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'lowerWindows',
+        minHeight:1.02,
+        height:spec.id==='doubleBus'?1.63:2.10,
+        color:glass
+      },
+      geometry:streetVehicleMultiPolygon(windows)
+    };
+
+    const features=[lowerBody,upperBody,roof,lowerWindows];
+
+    if(spec.id==='doubleBus'){
+      features.push({
+        type:'Feature',
+        properties:{
+          vehicleId:id,vehicleType:spec.id,part:'upperWindows',
+          minHeight:2.48,height:3.78,color:glass
+        },
+        geometry:streetVehicleMultiPolygon(windows)
+      });
+    }
+
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'frontGlass',
+        minHeight:1.08,
+        height:spec.id==='doubleBus'?3.78:2.35,
+        color:'#0f172a'
+      },
+      geometry:streetVehicleRect(
+        origin,bearing,0.16,spec.width*0.72,spec.length/2-0.08,0
+      )
+    });
+
+    features.push({
+      type:'Feature',
+      properties:{
+        vehicleId:id,vehicleType:spec.id,part:'taillights',
+        minHeight:0.58,height:0.88,color:'#fb7185'
+      },
+      geometry:streetVehicleMultiPolygon([
+        streetVehicleRect(origin,bearing,0.16,0.30,-spec.length/2+0.05, spec.width*0.31),
+        streetVehicleRect(origin,bearing,0.16,0.30,-spec.length/2+0.05,-spec.width*0.31)
+      ])
+    });
+
+    return features;
+  }
+
+  function streetVehicleModelFeatures(vehicle,sample){
+    const spec=streetVehicleSpec(vehicle);
+    if(spec.id==='doubleBus'||spec.id==='singleBus'){
+      return streetVehicleBusFeatures(vehicle,sample,spec);
+    }
+
+    const scheme=vehicle.colorScheme||streetVehiclePickColor(spec.id,0);
+    return streetVehicleCarLikeFeatures(vehicle,sample,spec,scheme);
   }
 
   function ensureStreetVehicleLayer(){
@@ -2252,9 +2479,10 @@
     return Math.min(STREET_VEHICLE_COUNT,target);
   }
 
-  function streetVehicleFootprintCorners(sample){
-    const halfL=STREET_VEHICLE_LENGTH_M/2;
-    const halfW=STREET_VEHICLE_WIDTH_M/2;
+  function streetVehicleFootprintCorners(sample,vehicle=null){
+    const spec=streetVehicleSpec(vehicle);
+    const halfL=spec.length/2;
+    const halfW=spec.width/2;
     return [
       streetVehicleOffsetMeters(sample.point,sample.bearing, halfL, halfW),
       streetVehicleOffsetMeters(sample.point,sample.bearing, halfL,-halfW),
@@ -2271,13 +2499,13 @@
     ];
   }
 
-  function streetVehiclePolygonsOverlap(aSample,bSample){
+  function streetVehiclePolygonsOverlap(aSample,bSample,aVehicle=null,bVehicle=null){
     const origin=[
       (aSample.point[0]+bSample.point[0])*0.5,
       (aSample.point[1]+bSample.point[1])*0.5
     ];
-    const a=streetVehicleFootprintCorners(aSample).map(p=>streetVehicleLocalXY(p,origin));
-    const b=streetVehicleFootprintCorners(bSample).map(p=>streetVehicleLocalXY(p,origin));
+    const a=streetVehicleFootprintCorners(aSample,aVehicle).map(p=>streetVehicleLocalXY(p,origin));
+    const b=streetVehicleFootprintCorners(bSample,bVehicle).map(p=>streetVehicleLocalXY(p,origin));
 
     const axes=[];
     for(const poly of [a,b]){
@@ -2317,13 +2545,19 @@
 
       // Exact oriented footprint test: cars on opposite lanes may pass side-by-side,
       // but no two vehicle rectangles are allowed to intersect.
-      if(streetVehiclePolygonsOverlap(sample,otherSample))return true;
+      if(streetVehiclePolygonsOverlap(sample,otherSample,ignoreVehicle,other))return true;
 
       if(route===other.route&&direction===other.direction){
         const distance=streetVehicleDistanceM(sample.point,otherSample.point);
-        const headway=spawn
-          ?STREET_VEHICLE_MIN_SPAWN_GAP_M
-          :STREET_VEHICLE_SAME_LANE_HEADWAY_M;
+        const selfSpec=streetVehicleSpec(ignoreVehicle);
+        const otherSpec=streetVehicleSpec(other);
+        const lengthAllowance=
+          Math.max(selfSpec.length,otherSpec.length)*0.72;
+        const headway=
+          (spawn
+            ?STREET_VEHICLE_MIN_SPAWN_GAP_M
+            :STREET_VEHICLE_SAME_LANE_HEADWAY_M)+
+          lengthAllowance;
         if(distance<headway)return true;
       }
     }
@@ -2375,7 +2609,12 @@
         :vehicle.distanceM-other.distanceM;
 
       if(delta<=0)continue;
-      const gap=Math.max(0.15,delta-STREET_VEHICLE_LENGTH_M);
+      const selfSpec=streetVehicleSpec(vehicle);
+      const leadSpec=streetVehicleSpec(other);
+      const gap=Math.max(
+        0.15,
+        delta-(selfSpec.length+leadSpec.length)/2
+      );
 
       if(!best||gap<best.gap){
         best={vehicle:other,gap};
@@ -2433,6 +2672,10 @@
 
     for(const candidate of streetVehicleRoutes){
       if(candidate===currentRoute||candidate.coords.length<2)continue;
+      if(
+        vehicle?.vehicleType&&
+        !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,candidate)
+      )continue;
 
       const options=[
         {
@@ -2506,8 +2749,10 @@
 
   function streetVehicleDesiredSpeed(vehicle,time){
     const driver=ensureStreetVehicleDriver(vehicle);
+    const spec=streetVehicleSpec(vehicle);
     let desired=(vehicle.route?.speedLimitMps??8.9)*
       driver.speedFactor*
+      (spec.speedFactor??1)*
       streetVehicleCurveSpeedFactor(vehicle);
 
     const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
@@ -2722,6 +2967,10 @@
 
     for(let i=0;i<streetVehicleRoutes.length;i++){
       const route=streetVehicleRoutes[(start+i)%streetVehicleRoutes.length];
+      if(
+        vehicle?.vehicleType&&
+        !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,route)
+      )continue;
       const distanceM=streetVehicleEdgeEntryDistance(route,resolvedDirection);
       if(distanceM===null)continue;
 
@@ -2733,9 +2982,11 @@
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
       ensureStreetVehicleDriver(vehicle);
+      const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
         (route.speedLimitMps??8.9)*
-        (0.48+Math.random()*0.30);
+        (spec.speedFactor??1)*
+        (0.42+Math.random()*0.28);
       vehicle.active=true;
       vehicle.respawnAt=0;
       return true;
@@ -2765,6 +3016,10 @@
       const route=streetVehicleRoutes[
         Math.floor(Math.random()*streetVehicleRoutes.length)
       ];
+      if(
+        vehicle?.vehicleType&&
+        !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,route)
+      )continue;
       const distanceM=randomVisibleStreetDistance(route);
       if(distanceM===null)continue;
 
@@ -2776,9 +3031,11 @@
       vehicle.direction=resolvedDirection;
       vehicle.distanceM=distanceM;
       ensureStreetVehicleDriver(vehicle);
+      const spec=streetVehicleSpec(vehicle);
       vehicle.speedMps=
         (route.speedLimitMps??8.9)*
-        (0.48+Math.random()*0.30);
+        (spec.speedFactor??1)*
+        (0.42+Math.random()*0.28);
       vehicle.active=true;
       vehicle.respawnAt=0;
       return true;
@@ -2827,15 +3084,15 @@
       attempts++;
       const index=streetVehicles.length;
       const direction=index%2===0?1:-1;
+      const vehicleType=chooseStreetVehicleType(index);
       const vehicle={
-        id:'street-car-'+index+'-'+Date.now().toString(36),
+        id:'street-vehicle-'+index+'-'+Date.now().toString(36),
+        vehicleType,
         route:null,
         direction,
         distanceM:0,
-        speedMps:4.5+Math.random()*5.5,
-        colorScheme:STREET_VEHICLE_COLOR_SCHEMES[
-          index%STREET_VEHICLE_COLOR_SCHEMES.length
-        ],
+        speedMps:0,
+        colorScheme:streetVehiclePickColor(vehicleType,index),
         driver:createStreetVehicleDriverProfile(index),
         lng:0,lat:0,bearing:0,
         active:true,
@@ -3153,7 +3410,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.32)
+     * DISPLAY STABILITY ONLY (v3.21.33)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
