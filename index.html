@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.22</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.23</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -552,15 +552,14 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.22';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.22';
+  const APP_VERSION='3.21.23';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
-  const CITY_BUILDINGS_SELECTED_LAYER='osm-city-buildings-selected-3d';
-  const CITY_BUILDINGS_SELECTED_FILL='osm-city-buildings-selected-2d';
+  const CITY_BUILDINGS_BACKGROUND_FILL='osm-city-buildings-2d';
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -711,7 +710,6 @@
   let currentProvider='osm';
   let terrainEnabled=false;
   let terrainOpacity=0.42;
-  let terrainRefreshTimer=null;
   let terrainRequestId=0;
 
   let googleTerrainGround=null;
@@ -745,10 +743,7 @@
   let osmFocusReady=false;
   let cityBuildingsShown=false;
   let localFloodBuildingOverride=false;
-  const localFloodBaseBuildingVisibility=new Map();
-  let localFloodSelectedBuildingIds=[];
   let localFloodSelectionRing=[];
-  let localFloodHideSelectedBuildings=false;
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
   let osmStructuresHidden=false;
@@ -909,12 +904,6 @@
     $('terrainStatus').className='layerStatus';
   }
 
-  function scheduleTerrainRefresh(delay=70,quality='preview'){
-    if(!terrainEnabled)return;
-    clearTimeout(terrainRefreshTimer);
-    terrainRefreshTimer=setTimeout(()=>refreshTerrainGround(quality),delay);
-  }
-
   async function refreshGoogleTerrainGround(){
     if(!googleMap||!terrainEnabled)return;
     const nw=networkCoordinates()[0],se=networkCoordinates()[2];
@@ -988,14 +977,6 @@
 
   function refreshOsmTerrainGround(){ensureOsmTerrainLayer();}
 
-  async function refreshTerrainGround(){
-    if(currentProvider==='google'){
-      await refreshGoogleTerrainGround();
-    }else{
-      await refreshOsmTerrainGround();
-    }
-  }
-
   function applyTerrainOpacity(){
     if(googleTerrainGround)googleTerrainGround.setOpacity(terrainOpacity);
     if(osmMap&&osmMap.getLayer(TERRAIN_TILE_LAYER)){
@@ -1017,7 +998,6 @@
   function updateTerrainLayers(){
     if(!terrainEnabled){
       terrainRequestId++;
-      clearTimeout(terrainRefreshTimer);
       removeGoogleTerrain();
       removeOsmTerrain();
       return;
@@ -1053,7 +1033,7 @@
     if(osmMap.getLayer(FLOOD_DETAIL_LAYER))osmMap.moveLayer(FLOOD_DETAIL_LAYER,firstSymbol);
     if(osmMap.getLayer(NETWORK_LAYER))osmMap.moveLayer(NETWORK_LAYER,firstSymbol);
     for(const id of [
-      CITY_BUILDINGS_LAYER,CITY_BUILDINGS_SELECTED_FILL,CITY_BUILDINGS_SELECTED_LAYER
+      CITY_BUILDINGS_LAYER,CITY_BUILDINGS_BACKGROUND_FILL
     ]){
       if(osmMap.getLayer(id))osmMap.moveLayer(id,firstSymbol);
     }
@@ -1613,7 +1593,6 @@
     }
 
     const baseFilter=['!', ['boolean',['get','hide_3d'],false]];
-    const never=['==',1,0];
     const height=['max',0,['to-number',['get','render_height'],5]];
     const base=['max',0,['to-number',['get','render_min_height'],0]];
 
@@ -1628,7 +1607,6 @@
     const nativeHeight=height;
     const nativeBase=base;
     const nativeColour='#c6ced5';
-    const selectedColour='#ff9f1a';
 
     /*
      * Transparent driver layer: keep the dedicated building source requesting
@@ -1671,9 +1649,9 @@
       },getFirstSymbolLayerId());
     }
 
-    if(!osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL)){
+    if(!osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL)){
       osmMap.addLayer({
-        id:CITY_BUILDINGS_SELECTED_FILL,
+        id:CITY_BUILDINGS_BACKGROUND_FILL,
         type:'fill',
         source:CITY_BUILDINGS_SOURCE,
         'source-layer':'building',
@@ -1687,24 +1665,7 @@
       },getFirstSymbolLayerId());
     }
 
-    if(!osmMap.getLayer(CITY_BUILDINGS_SELECTED_LAYER)){
-      osmMap.addLayer({
-        id:CITY_BUILDINGS_SELECTED_LAYER,
-        type:'fill-extrusion',
-        source:CITY_BUILDINGS_SOURCE,
-        'source-layer':'building',
-        minzoom:13,
-        filter:never,
-        layout:{visibility:'none'},
-        paint:{
-          'fill-extrusion-color':selectedColour,
-          'fill-extrusion-height':height,
-          'fill-extrusion-base':base,
-          'fill-extrusion-opacity':1,
-          'fill-extrusion-vertical-gradient':false
-        }
-      },getFirstSymbolLayerId());
-    }
+
 
     cityBuildingsShown=false;
     updateCityBuildingSelectionPaint();
@@ -1774,9 +1735,9 @@
       osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-base',visibleBase);
     }
 
-    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL)){
-      osmMap.setPaintProperty(CITY_BUILDINGS_SELECTED_FILL,'fill-color','#c6ced5');
-      osmMap.setPaintProperty(CITY_BUILDINGS_SELECTED_FILL,'fill-opacity',fillOpacity);
+    if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL)){
+      osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-color','#c6ced5');
+      osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-opacity',fillOpacity);
     }
 
     osmMap.triggerRepaint();
@@ -1786,7 +1747,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.22)
+     * DISPLAY STABILITY ONLY (v3.21.23)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
@@ -1806,44 +1767,6 @@
     }
   }
 
-  function isBaseOsmBuildingGeometryLayer(layer){
-    if(!layer)return false;
-    const id=String(layer.id||'');
-    if(id.startsWith('local-flood-building-scene-'))return false;
-    if(id===CITY_BUILDINGS_DRIVER_LAYER)return false;
-    if([CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_SELECTED_FILL].includes(id))return false;
-    if(!['fill','fill-extrusion','line'].includes(layer.type))return false;
-
-    const sourceLayer=String(layer['source-layer']||'').toLowerCase();
-    const lowerId=id.toLowerCase();
-    return sourceLayer==='building'||sourceLayer.includes('building')||lowerId.includes('building');
-  }
-
-  function setBaseOsmBuildingGeometryHidden(hidden){
-    if(!osmMap||!osmStyleReady)return;
-    const layers=osmMap.getStyle()?.layers||[];
-
-    if(hidden){
-      for(const layer of layers){
-        if(!isBaseOsmBuildingGeometryLayer(layer))continue;
-        if(!localFloodBaseBuildingVisibility.has(layer.id)){
-          localFloodBaseBuildingVisibility.set(
-            layer.id,
-            osmMap.getLayoutProperty(layer.id,'visibility')||'visible'
-          );
-        }
-        osmMap.setLayoutProperty(layer.id,'visibility','none');
-      }
-      return;
-    }
-
-    for(const [id,visibility] of localFloodBaseBuildingVisibility){
-      if(osmMap.getLayer(id)){
-        osmMap.setLayoutProperty(id,'visibility',visibility||'visible');
-      }
-    }
-    localFloodBaseBuildingVisibility.clear();
-  }
 
   function isCompetingOsmBuildingExtrusionLayer(layer){
     if(!layer||layer.type!=='fill-extrusion')return false;
@@ -1851,7 +1774,7 @@
     const id=String(layer.id||'');
     if(id===CITY_BUILDINGS_LAYER)return false;
     if(id===CITY_BUILDINGS_DRIVER_LAYER)return false;
-    if([CITY_BUILDINGS_SELECTED_LAYER,CITY_BUILDINGS_SELECTED_FILL].includes(id))return false;
+    if(id===CITY_BUILDINGS_BACKGROUND_FILL)return false;
     if(id.startsWith('local-flood-building-scene-'))return false;
 
     const sourceLayer=String(layer['source-layer']||'').toLowerCase();
@@ -1891,19 +1814,11 @@
   function setCityBuildingFloodSelection(selection=null){
     const active=Boolean(selection?.active);
     localFloodBuildingOverride=active;
-
-    // IDs are retained only for diagnostics/backward compatibility.
-    // They are NOT used to recolour or hide geometry.
-    localFloodSelectedBuildingIds=active
-      ?[...new Set((selection?.sourceFeatureIds||[]).filter(id=>id!==null&&id!==undefined))]
-      :[];
-
     localFloodSelectionRing=active
       ?normaliseFloodSelectionRing(selection?.selectionRing||[])
       :[];
-    localFloodHideSelectedBuildings=active&&Boolean(selection?.hideSelectedBuildings);
 
-    setBaseOsmBuildingGeometryHidden(false);
+    // Selection ownership is purely spatial. No vector-tile feature IDs are retained.
     enforceSingleCityBuildingSource();
     updateCityBuildingSelectionPaint();
     syncCityView();
@@ -1929,13 +1844,8 @@
 
     // Plan view now uses the SAME authoritative vector source as 3D, rendered as
     // solid footprints. This fixes the previous top-view blank building blocks.
-    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_FILL)){
-      osmMap.setLayoutProperty(CITY_BUILDINGS_SELECTED_FILL,'visibility',is3D?'none':'visible');
-    }
-
-    // The old extra selected-extrusion layer remains permanently disabled.
-    if(osmMap.getLayer(CITY_BUILDINGS_SELECTED_LAYER)){
-      osmMap.setLayoutProperty(CITY_BUILDINGS_SELECTED_LAYER,'visibility','none');
+    if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL)){
+      osmMap.setLayoutProperty(CITY_BUILDINGS_BACKGROUND_FILL,'visibility',is3D?'none':'visible');
     }
 
     updateCityBuildingSelectionPaint();
