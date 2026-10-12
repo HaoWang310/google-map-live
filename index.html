@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.34</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.35</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.34';
+  const APP_VERSION='3.21.35';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -649,6 +649,9 @@
   const STREET_SIGNAL_ROUTE_RADIUS_M=12.0;
   const STREET_SIGNAL_CYCLE_MS=16000;
   const STREET_VEHICLE_EXIT_MARGIN_PX=110;
+  const STREET_LANE_WIDTH_MAJOR_M=3.25;
+  const STREET_LANE_WIDTH_LOCAL_M=2.85;
+  const STREET_LANE_WIDTH_SERVICE_M=2.60;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -2303,6 +2306,101 @@
     ).toLowerCase();
   }
 
+  function streetVehicleParseLaneNumber(value){
+    if(value===null||value===undefined)return null;
+    const n=Number.parseInt(String(value).trim(),10);
+    return Number.isFinite(n)&&n>0?Math.min(8,n):null;
+  }
+
+  function streetVehicleParseOneway(value,roadClass=''){
+    const text=String(value??'').trim().toLowerCase();
+    if(['yes','true','1'].includes(text))return 1;
+    if(['-1','reverse'].includes(text))return -1;
+    if(['no','false','0'].includes(text))return 0;
+
+    // Motorways/trunks in vector tiles are commonly represented as directional
+    // centre-lines even when the original oneway tag is omitted.
+    const c=String(roadClass||'').toLowerCase();
+    if(c.includes('motorway'))return 1;
+    return 0;
+  }
+
+  function streetVehicleLaneWidthForClass(roadClass){
+    const c=String(roadClass||'').toLowerCase();
+    if(/motorway|trunk|primary/.test(c))return STREET_LANE_WIDTH_MAJOR_M;
+    if(/service|living_street|track/.test(c))return STREET_LANE_WIDTH_SERVICE_M;
+    return STREET_LANE_WIDTH_LOCAL_M;
+  }
+
+  function streetVehicleInferredLaneCount(roadClass,oneway){
+    const c=String(roadClass||'').toLowerCase();
+    if(oneway!==0){
+      if(/motorway|trunk|primary/.test(c))return 2;
+      if(/secondary|tertiary/.test(c))return 2;
+      return 1;
+    }
+
+    // Total lanes for a two-way carriageway.
+    if(/motorway|trunk|primary/.test(c))return 4;
+    if(/secondary/.test(c))return 2;
+    if(/tertiary/.test(c))return 2;
+    return 2;
+  }
+
+  function streetVehicleLaneCount(route,direction){
+    if(!route)return 1;
+    if(route.oneway===1){
+      return direction>=0?Math.max(1,route.lanesForward||route.lanesTotal||1):0;
+    }
+    if(route.oneway===-1){
+      return direction<0?Math.max(1,route.lanesBackward||route.lanesTotal||1):0;
+    }
+    return direction>=0
+      ?Math.max(1,route.lanesForward||Math.ceil((route.lanesTotal||2)/2))
+      :Math.max(1,route.lanesBackward||Math.floor((route.lanesTotal||2)/2));
+  }
+
+  function streetVehicleDirectionAllowed(route,direction){
+    return streetVehicleLaneCount(route,direction)>0;
+  }
+
+  function streetVehicleLaneOffsetM(route,direction,laneIndex=0){
+    const laneCount=Math.max(1,streetVehicleLaneCount(route,direction));
+    const lane=Math.max(0,Math.min(laneCount-1,Math.round(laneIndex||0)));
+    const width=route?.laneWidthM||STREET_LANE_WIDTH_LOCAL_M;
+
+    if(route?.oneway===1||route?.oneway===-1){
+      // One-way geometry represents the carriageway centre. Spread lanes around it.
+      return (lane-(laneCount-1)/2)*width;
+    }
+
+    // Two-way UK traffic: every direction travels on the LEFT of its own bearing.
+    // lane 0 = inner lane near the centre line; higher indices = curb/outer lanes.
+    return width*(lane+0.5);
+  }
+
+  function streetVehicleChooseLaneIndex(vehicle,route,direction,turnAngle=null){
+    const laneCount=streetVehicleLaneCount(route,direction);
+    if(laneCount<=1)return 0;
+
+    const type=vehicle?.vehicleType||'sedan';
+
+    // London buses normally favour the left/curb lane; vans also bias outward.
+    if(type==='doubleBus'||type==='singleBus')return laneCount-1;
+    if(type==='van'&&Math.random()<0.72)return laneCount-1;
+
+    // Approach lane selection: left turn -> outer/left lane, right turn -> inner lane.
+    if(Number.isFinite(turnAngle)){
+      if(turnAngle<-24)return laneCount-1;
+      if(turnAngle>24)return 0;
+    }
+
+    // Cars/cabs distribute across available lanes rather than stacking on one centreline.
+    const aggression=vehicle?.driver?.aggression??0.5;
+    if(aggression>0.68&&Math.random()<0.58)return 0;
+    return Math.floor(Math.random()*laneCount);
+  }
+
   function streetVehicleParseMaxSpeedMps(value){
     if(value===null||value===undefined)return null;
     const text=String(value).trim().toLowerCase();
@@ -2344,15 +2442,49 @@
     if(!(lengthM>=55))return null;
 
     const roadClass=streetVehicleRoadClass(feature);
+    const properties=feature?.properties||{};
     const taggedMaxSpeed=streetVehicleParseMaxSpeedMps(
-      feature?.properties?.maxspeed
+      properties.maxspeed
     );
+    const oneway=streetVehicleParseOneway(
+      properties.oneway??properties.one_way,
+      roadClass
+    );
+
+    const lanesTotal=
+      streetVehicleParseLaneNumber(properties.lanes)||
+      streetVehicleInferredLaneCount(roadClass,oneway);
+
+    let lanesForward=
+      streetVehicleParseLaneNumber(
+        properties['lanes:forward']??properties.lanes_forward
+      );
+    let lanesBackward=
+      streetVehicleParseLaneNumber(
+        properties['lanes:backward']??properties.lanes_backward
+      );
+
+    if(oneway===1){
+      lanesForward=lanesForward||lanesTotal;
+      lanesBackward=0;
+    }else if(oneway===-1){
+      lanesForward=0;
+      lanesBackward=lanesBackward||lanesTotal;
+    }else{
+      lanesForward=lanesForward||Math.max(1,Math.ceil(lanesTotal/2));
+      lanesBackward=lanesBackward||Math.max(1,Math.floor(lanesTotal/2));
+    }
 
     return {
       coords:clean,
       cumulative,
       lengthM,
       roadClass,
+      oneway,
+      lanesTotal,
+      lanesForward,
+      lanesBackward,
+      laneWidthM:streetVehicleLaneWidthForClass(roadClass),
       speedLimitMps:Math.max(
         4.0,
         Math.min(18.0,taggedMaxSpeed??streetVehicleClassSpeedMps(roadClass))
@@ -2360,8 +2492,10 @@
     };
   }
 
-  function routePointAt(route,distanceM,direction=1){
+  function routePointAt(route,distanceM,direction=1,laneIndex=0){
     if(!route||route.coords.length<2)return null;
+    if(!streetVehicleDirectionAllowed(route,direction))return null;
+
     const d=Math.max(0,Math.min(route.lengthM,distanceM));
     let i=1;
     while(i<route.cumulative.length&&route.cumulative[i]<d)i++;
@@ -2369,19 +2503,30 @@
 
     const a=route.coords[i-1],b=route.coords[i];
     const start=route.cumulative[i-1],end=route.cumulative[i];
-    const t=(d-start)/Math.max(1e-9,end-start);
-    const point=[
-      a[0]+(b[0]-a[0])*t,
-      a[1]+(b[1]-a[1])*t
+    const ratio=(d-start)/Math.max(1e-9,end-start);
+    const centrePoint=[
+      a[0]+(b[0]-a[0])*ratio,
+      a[1]+(b[1]-a[1])*ratio
     ];
 
     const bearing=direction>=0
       ?streetVehicleBearing(a,b)
       :(streetVehicleBearing(a,b)+180)%360;
+    const laneOffset=streetVehicleLaneOffsetM(
+      route,direction,laneIndex
+    );
 
     return {
-      point:offsetStreetVehiclePoint(point,bearing,2.2),
-      bearing
+      point:offsetStreetVehiclePoint(centrePoint,bearing,laneOffset),
+      bearing,
+      laneIndex:Math.max(
+        0,
+        Math.min(
+          Math.max(0,streetVehicleLaneCount(route,direction)-1),
+          Math.round(laneIndex||0)
+        )
+      ),
+      laneOffset
     };
   }
 
@@ -2454,7 +2599,8 @@
     const routeHasVisibleSample=route=>{
       const samples=[0.06,0.12,0.20,0.32,0.44,0.56,0.68,0.80,0.88,0.94];
       return samples.some(f=>{
-        const sample=routePointAt(route,route.lengthM*f,1);
+        const dir=streetVehicleDirectionAllowed(route,1)?1:-1;
+        const sample=routePointAt(route,route.lengthM*f,dir,0);
         if(!sample)return false;
         const p=osmMap.project(sample.point);
         return (
@@ -2472,11 +2618,17 @@
       const first=route.coords[0];
       const mid=route.coords[Math.floor(route.coords.length/2)];
       const last=route.coords.at(-1);
-      const key=[first,mid,last]
-        .flat()
-        .map(v=>Number(v).toFixed(5))
-        .join('|');
+      const pointKey=p=>p.map(v=>Number(v).toFixed(5)).join(',');
+      const forwardKey=[
+        pointKey(first),pointKey(mid),pointKey(last)
+      ].join('|');
+      const reverseKey=[
+        pointKey(last),pointKey(mid),pointKey(first)
+      ].join('|');
+      const key=forwardKey<reverseKey?forwardKey:reverseKey;
 
+      // The same OSM road often arrives once from rendered layers and once from
+      // querySourceFeatures, sometimes reversed. Treat it as ONE route.
       if(seen.has(key))return;
       seen.add(key);
       routes.push(route);
@@ -2550,9 +2702,9 @@
   function randomVisibleStreetDistance(route){
     if(!route)return null;
     const canvas=osmMap.getCanvas();
+    const testDirection=streetVehicleDirectionAllowed(route,1)?1:-1;
+    if(!streetVehicleDirectionAllowed(route,testDirection))return null;
 
-    // Sample deterministic fractions first so very pitched views still find a point
-    // on the visible portion of a long road.
     const fractions=[
       0.50,0.35,0.65,0.22,0.78,0.12,0.88,
       ...Array.from({length:14},()=>0.06+Math.random()*0.88)
@@ -2560,7 +2712,7 @@
 
     for(const f of fractions){
       const d=route.lengthM*f;
-      const sample=routePointAt(route,d,1);
+      const sample=routePointAt(route,d,testDirection,0);
       if(!sample)continue;
       const p=osmMap.project(sample.point);
       if(
@@ -2569,7 +2721,6 @@
         p.y<=canvas.clientHeight-12
       )return d;
     }
-
     return null;
   }
 
@@ -2619,7 +2770,12 @@
       };
     }
 
-    return routePointAt(vehicle.route,distanceM,vehicle.direction);
+    return routePointAt(
+      vehicle.route,
+      distanceM,
+      vehicle.direction,
+      vehicle.laneIndex||0
+    );
   }
 
   function streetVehicleVisibleCount(){
@@ -2722,7 +2878,11 @@
       // but no two vehicle rectangles are allowed to intersect.
       if(streetVehiclePolygonsOverlap(sample,otherSample,ignoreVehicle,other))return true;
 
-      if(route===other.route&&direction===other.direction){
+      if(
+        route===other.route&&
+        direction===other.direction&&
+        (other.laneIndex||0)===(ignoreVehicle?.laneIndex||0)
+      ){
         const distance=streetVehicleDistanceM(sample.point,otherSample.point);
         const selfSpec=streetVehicleSpec(ignoreVehicle);
         const otherSpec=streetVehicleSpec(other);
@@ -2776,7 +2936,8 @@
         other===vehicle||
         other.active===false||
         other.route!==vehicle.route||
-        other.direction!==vehicle.direction
+        other.direction!==vehicle.direction||
+        (other.laneIndex||0)!==(vehicle.laneIndex||0)
       )continue;
 
       const delta=vehicle.direction>=0
@@ -2852,20 +3013,23 @@
         !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,candidate)
       )continue;
 
-      const options=[
-        {
+      const options=[];
+      if(streetVehicleDirectionAllowed(candidate,1)){
+        options.push({
           point:candidate.coords[0],
           direction:1,
           distanceM:Math.min(0.35,candidate.lengthM),
           bearing:streetVehicleRouteTravelBearing(candidate,1,false)
-        },
-        {
+        });
+      }
+      if(streetVehicleDirectionAllowed(candidate,-1)){
+        options.push({
           point:candidate.coords.at(-1),
           direction:-1,
           distanceM:Math.max(0,candidate.lengthM-0.35),
           bearing:streetVehicleRouteTravelBearing(candidate,-1,false)
-        }
-      ];
+        });
+      }
 
       for(const option of options){
         const gap=streetVehicleDistanceM(currentEndpoint,option.point);
@@ -3198,10 +3362,17 @@
     const weighted=[];
 
     for(const candidate of candidates){
+      const nextLaneIndex=streetVehicleChooseLaneIndex(
+        vehicle,
+        candidate.route,
+        candidate.direction,
+        candidate.signedAngle
+      );
       const sample=routePointAt(
         candidate.route,
         candidate.distanceM,
-        candidate.direction
+        candidate.direction,
+        nextLaneIndex
       );
       if(!sample)continue;
       if(
@@ -3234,7 +3405,7 @@
         weight*=0.90+(1-driver.turnRandom)*0.25;
       }
 
-      weighted.push({...candidate,weight});
+      weighted.push({...candidate,weight,laneIndex:nextLaneIndex});
     }
 
     if(!weighted.length)return false;
@@ -3252,6 +3423,7 @@
 
     vehicle.route=chosen.route;
     vehicle.direction=chosen.direction;
+    vehicle.laneIndex=chosen.laneIndex||0;
     vehicle.distanceM=chosen.distanceM;
     vehicle.speedMps=Math.min(
       vehicle.speedMps,
@@ -3271,8 +3443,9 @@
     );
   }
 
-  function streetVehicleEdgeEntryDistance(route,direction){
+  function streetVehicleEdgeEntryDistance(route,direction,laneIndex=0){
     if(!route||route.lengthM<=0)return null;
+    if(!streetVehicleDirectionAllowed(route,direction))return null;
 
     const steps=52;
     let previous=null;
@@ -3280,7 +3453,7 @@
     for(let i=0;i<=steps;i++){
       const f=direction>=0?i/steps:1-i/steps;
       const distanceM=route.lengthM*f;
-      const sample=routePointAt(route,distanceM,direction);
+      const sample=routePointAt(route,distanceM,direction,laneIndex);
       if(!sample)continue;
 
       const inside=streetVehiclePointInsideViewport(sample.point,8);
@@ -3300,7 +3473,7 @@
   function assignStreetVehicleFromViewEdge(vehicle,direction=null){
     if(!streetVehicleRoutes.length)return false;
 
-    const resolvedDirection=direction??(Math.random()<0.5?1:-1);
+    let resolvedDirection=direction??(Math.random()<0.5?1:-1);
     const start=Math.floor(Math.random()*streetVehicleRoutes.length);
 
     for(let i=0;i<streetVehicleRoutes.length;i++){
@@ -3309,10 +3482,24 @@
         vehicle?.vehicleType&&
         !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,route)
       )continue;
-      const distanceM=streetVehicleEdgeEntryDistance(route,resolvedDirection);
+
+      if(!streetVehicleDirectionAllowed(route,resolvedDirection)){
+        const opposite=-resolvedDirection;
+        if(!streetVehicleDirectionAllowed(route,opposite))continue;
+        resolvedDirection=opposite;
+      }
+
+      vehicle.laneIndex=streetVehicleChooseLaneIndex(
+        vehicle,route,resolvedDirection
+      );
+      const distanceM=streetVehicleEdgeEntryDistance(
+        route,resolvedDirection,vehicle.laneIndex
+      );
       if(distanceM===null)continue;
 
-      const sample=routePointAt(route,distanceM,resolvedDirection);
+      const sample=routePointAt(
+        route,distanceM,resolvedDirection,vehicle.laneIndex
+      );
       if(!sample)continue;
       if(streetVehicleConflicts(sample,route,resolvedDirection,vehicle,true))continue;
 
@@ -3336,9 +3523,18 @@
 
   function beginStreetVehicleExit(vehicle){
     const atForwardEnd=vehicle.direction>=0;
-    vehicle.exitOrigin=atForwardEnd
-      ?vehicle.route.coords.at(-1)
-      :vehicle.route.coords[0];
+    const endDistance=atForwardEnd?vehicle.route.lengthM:0;
+    const laneEnd=routePointAt(
+      vehicle.route,
+      endDistance,
+      vehicle.direction,
+      vehicle.laneIndex||0
+    );
+    vehicle.exitOrigin=laneEnd?.point||(
+      atForwardEnd
+        ?vehicle.route.coords.at(-1)
+        :vehicle.route.coords[0]
+    );
     vehicle.exitBearing=streetVehicleRouteTravelBearing(
       vehicle.route,
       vehicle.direction,
@@ -3373,7 +3569,7 @@
   function assignStreetVehicleToVisibleRoute(vehicle,direction=null){
     if(!streetVehicleRoutes.length)return false;
 
-    const resolvedDirection=direction??(Math.random()<0.5?1:-1);
+    let resolvedDirection=direction??(Math.random()<0.5?1:-1);
     const attempts=Math.min(80,Math.max(20,streetVehicleRoutes.length*3));
 
     for(let i=0;i<attempts;i++){
@@ -3384,10 +3580,22 @@
         vehicle?.vehicleType&&
         !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,route)
       )continue;
+
+      if(!streetVehicleDirectionAllowed(route,resolvedDirection)){
+        const opposite=-resolvedDirection;
+        if(!streetVehicleDirectionAllowed(route,opposite))continue;
+        resolvedDirection=opposite;
+      }
+
       const distanceM=randomVisibleStreetDistance(route);
       if(distanceM===null)continue;
 
-      const sample=routePointAt(route,distanceM,resolvedDirection);
+      vehicle.laneIndex=streetVehicleChooseLaneIndex(
+        vehicle,route,resolvedDirection
+      );
+      const sample=routePointAt(
+        route,distanceM,resolvedDirection,vehicle.laneIndex
+      );
       if(!sample)continue;
       if(streetVehicleConflicts(sample,route,resolvedDirection,vehicle,true))continue;
 
@@ -3466,6 +3674,7 @@
         state:'cruise',
         lastSignalId:null,
         signalState:'green',
+        laneIndex:0,
         exitMode:false,
         exitOrigin:null,
         exitBearing:0,
@@ -3805,7 +4014,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.34)
+     * DISPLAY STABILITY ONLY (v3.21.35)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
