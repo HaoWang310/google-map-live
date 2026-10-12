@@ -584,21 +584,7 @@
   const FOCUS70_CENTER={lat:51.50733434456047,lng:-0.12768375058439654};
   const FOCUS70_RADIUS_M=70000;
 
-  // London display grid for the shared Thames hydrology analysis.
-  // The hydrological solve is performed on the larger complete Thames upstream domain
-  // at 50 m, then cropped/reprojected to this 70 km-radius London display footprint.
-  // These BNG bounds define the display crop, not the upstream analysis boundary.
-  const DRAINAGE_BNG={
-    left:460012,
-    right:600062,
-    bottom:110348,
-    top:250398,
-    width:2801,
-    height:2801,
-    cellSizeM:50,
-    physicalWidthM:140050,
-    physicalHeightM:140050
-  };
+  // Hydrology display uses the already reprojected EPSG:3857 raster directly.
 
   // Authoritative hydrology display projection.
   // The browser preview is derived from the analytical raster already warped
@@ -710,7 +696,6 @@
   let currentProvider='osm';
   let terrainEnabled=false;
   let terrainOpacity=0.42;
-  let terrainRequestId=0;
 
   let googleTerrainGround=null;
   let googleTerrainBounds=null;
@@ -975,8 +960,6 @@
       '正在生成本地地形瓦片…';
   }
 
-  function refreshOsmTerrainGround(){ensureOsmTerrainLayer();}
-
   function applyTerrainOpacity(){
     if(googleTerrainGround)googleTerrainGround.setOpacity(terrainOpacity);
     if(osmMap&&osmMap.getLayer(TERRAIN_TILE_LAYER)){
@@ -997,7 +980,6 @@
 
   function updateTerrainLayers(){
     if(!terrainEnabled){
-      terrainRequestId++;
       removeGoogleTerrain();
       removeOsmTerrain();
       return;
@@ -1819,8 +1801,6 @@
       :[];
 
     // Selection ownership is purely spatial. No vector-tile feature IDs are retained.
-    enforceSingleCityBuildingSource();
-    updateCityBuildingSelectionPaint();
     syncCityView();
   }
 
