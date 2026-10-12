@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.15</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.16</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -482,7 +482,7 @@
         <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.21.15 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.21.16 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
           <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
         <p>排水网络：后台保留一份完整 Thames 上游 50 m 累积汇水栅格（每格 0.0025 km²），仅作为动态阈值计算源；界面不再单独显示「汇水贡献面积」图层。「地形推导排水网络」直接按用户设置的最小汇水面积阈值实时筛选这同一份数据，不生成独立网络数据。
@@ -568,7 +568,7 @@
   const ZOOM=10;
 
   // Environment Agency LiDAR Composite DTM 1 m source.
-  // v3.21.15 uses only the locally cached official terrain rendering at runtime.
+  // v3.21.16 uses only the locally cached official terrain rendering at runtime.
   // The browser builds WebMercator XYZ tiles in a worker, so no EA WMS/WMTS
   // request is made while panning, zooming or pitching the map.
   const TERRAIN_LOCAL_TILES=['ea-terrain-local://tiles/{z}/{x}/{y}'];
@@ -746,7 +746,7 @@
   let cityBuildingsShown=false;
   let localFloodBuildingOverride=false;
   const localFloodBaseBuildingVisibility=new Map();
-  const localFloodCompeting3dVisibility=new Map();
+  const localFloodCompeting3dFilters=new Map();
   let localFloodSelectedBuildingIds=[];
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
@@ -1798,49 +1798,84 @@
     );
   }
 
-  function setCompetingOsmBuildingExtrusionsHidden(hidden){
+  function setCompetingOsmBuildingSelection(selectedIds=[]){
     if(!osmMap||!osmStyleReady)return;
+
+    const ids=[...new Set(
+      (selectedIds||[]).filter(id=>id!==null&&id!==undefined)
+    )];
     const layers=osmMap.getStyle()?.layers||[];
 
-    if(hidden){
+    if(ids.length){
       for(const layer of layers){
         if(!isCompetingOsmBuildingExtrusionLayer(layer))continue;
 
-        if(!localFloodCompeting3dVisibility.has(layer.id)){
-          localFloodCompeting3dVisibility.set(
+        // Preserve the basemap layer's original filter exactly once.
+        // During flood-selection mode exclude ONLY the OSM feature ids that
+        // intersect the red polygon. Do not hide the whole 3D-building layer:
+        // that was the reason unrelated surrounding buildings disappeared.
+        if(!localFloodCompeting3dFilters.has(layer.id)){
+          const originalFilter=osmMap.getFilter(layer.id);
+          localFloodCompeting3dFilters.set(
             layer.id,
-            osmMap.getLayoutProperty(layer.id,'visibility')||'visible'
+            originalFilter===undefined?null:originalFilter
           );
         }
-        osmMap.setLayoutProperty(layer.id,'visibility','none');
+
+        const originalFilter=localFloodCompeting3dFilters.get(layer.id);
+        const selectedIdFilter=[
+          '!',
+          ['in',['id'],['literal',ids]]
+        ];
+        const nextFilter=originalFilter
+          ?['all',originalFilter,selectedIdFilter]
+          :selectedIdFilter;
+
+        try{
+          osmMap.setFilter(layer.id,nextFilter);
+        }catch(error){
+          console.warn('Unable to isolate selected basemap buildings',layer.id,error);
+        }
       }
       return;
     }
 
-    for(const [id,visibility] of localFloodCompeting3dVisibility){
-      if(osmMap.getLayer(id)){
-        osmMap.setLayoutProperty(id,'visibility',visibility||'visible');
+    // Restore every competing basemap layer to its untouched original filter.
+    for(const [id,filter] of localFloodCompeting3dFilters){
+      if(!osmMap.getLayer(id))continue;
+      try{
+        osmMap.setFilter(id,filter);
+      }catch(error){
+        console.warn('Unable to restore basemap building filter',id,error);
       }
     }
-    localFloodCompeting3dVisibility.clear();
+    localFloodCompeting3dFilters.clear();
   }
 
   function setCityBuildingFloodSelection(selection=null){
     const active=Boolean(selection?.active);
+    const selectedIds=active
+      ?[...new Set((selection?.sourceFeatureIds||[]).filter(id=>id!==null&&id!==undefined))]
+      :[];
+
     localFloodBuildingOverride=active;
+    localFloodSelectedBuildingIds=selectedIds;
 
     /*
-     * During local-flood mode there must be exactly ONE native 3D building source:
-     * CITY_BUILDINGS_LAYER. OpenFreeMap styles may already contain their own
-     * fill-extrusion building layer. If that layer stays visible underneath the local
-     * orange scene, the same roof/walls are rasterized twice and produce the beige /
-     * orange triangular z-fighting visible in the screenshots.
+     * Keep ALL unrelated OSM/OpenFreeMap buildings visible.
      *
-     * Keep roads, labels and 2D building fills untouched. Hide only competing 3D
-     * building extrusions while the flood selection is active.
+     * Previous versions hid the entire competing basemap fill-extrusion layer when
+     * the orange flood-selection scene was generated. The dedicated city layer is
+     * not a pixel-for-pixel replacement for every basemap building at every LOD, so
+     * unrelated buildings around the red polygon visibly disappeared.
+     *
+     * We now exclude only the exact selected OSM feature ids from competing native
+     * extrusion layers. local_flood_ui.js reconstructs boundary-crossing buildings as
+     * grey-outside + orange/red-inside, so there is no z-fighting inside the polygon
+     * and no collateral disappearance outside it.
      */
     setBaseOsmBuildingGeometryHidden(false);
-    setCompetingOsmBuildingExtrusionsHidden(active);
+    setCompetingOsmBuildingSelection(selectedIds);
     syncCityView();
   }
 
