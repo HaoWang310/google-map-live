@@ -387,14 +387,11 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
       if(activeId===data.id||queue.some(job=>job.id===data.id))cancelled.add(data.id);
       return;
     }
-    const duplicateIndex=queue.findIndex(job=>
-      job.threshold===data.threshold&&job.z===data.z&&job.x===data.x&&job.y===data.y
-    );
-    if(duplicateIndex<0){
-      // New viewport requests should not sit behind a long backlog from the previous
-      // camera position. LIFO is intentional for interactive pan/zoom responsiveness.
-      queue.unshift(data);
-    }
+    // New viewport requests should not sit behind a long backlog from the previous
+    // camera position. LIFO is intentional for interactive pan/zoom responsiveness.
+    // Keep every request id: MapLibre owns cancellation and each protocol promise must
+    // eventually resolve or reject.
+    queue.unshift(data);
     pump();
   };
 }
