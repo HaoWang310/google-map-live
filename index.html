@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.39</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.40</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.39';
+  const APP_VERSION='3.21.40';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -659,6 +659,12 @@
   const STREET_VEHICLE_RENDER_INTERVAL_MS=40;
   const STREET_VEHICLE_RENDER_MOVING_MS=60;
   const STREET_SIGNAL_RENDER_INTERVAL_MS=420;
+  const STREET_VEHICLE_PLAN_LOOKAHEAD_M=34;
+  const STREET_VEHICLE_LANE_CHANGE_DURATION_MS=950;
+  const STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS=2600;
+  const STREET_VEHICLE_STUCK_LANE_CHANGE_MS=2600;
+  const STREET_VEHICLE_STUCK_RECOVERY_MS=6200;
+  const STREET_VEHICLE_PROGRESS_EPS_M=1.2;
   const assetUrl=path=>path+'?v='+APP_VERSION;
 
   const API_KEY='AIzaSyANIQCOwWyl_-uJdc8JxLn7D5Y1AC55cY8';
@@ -2550,7 +2556,10 @@
 
   function streetVehicleLaneOffsetM(route,direction,laneIndex=0){
     const laneCount=Math.max(1,streetVehicleLaneCount(route,direction));
-    const lane=Math.max(0,Math.min(laneCount-1,Math.round(laneIndex||0)));
+    const lane=Math.max(
+      0,
+      Math.min(laneCount-1,Number(laneIndex)||0)
+    );
     const width=route?.laneWidthM||STREET_LANE_WIDTH_LOCAL_M;
 
     if(route?.oneway===1||route?.oneway===-1){
@@ -2725,7 +2734,7 @@
         0,
         Math.min(
           Math.max(0,streetVehicleLaneCount(route,direction)-1),
-          Math.round(laneIndex||0)
+          Number(laneIndex)||0
         )
       ),
       laneOffset
@@ -3009,7 +3018,9 @@
       vehicle.route,
       distanceM,
       vehicle.direction,
-      vehicle.laneIndex||0
+      Number.isFinite(vehicle.lanePosition)
+        ?vehicle.lanePosition
+        :(vehicle.laneIndex||0)
     );
   }
 
@@ -3553,9 +3564,12 @@
       d0+(vehicle.direction>=0?look*2:-look*2)
     ));
 
-    const a=routePointAt(route,d0,vehicle.direction);
-    const b=routePointAt(route,d1,vehicle.direction);
-    const c=routePointAt(route,d2,vehicle.direction);
+    const lane=Number.isFinite(vehicle.lanePosition)
+      ?vehicle.lanePosition
+      :(vehicle.laneIndex||0);
+    const a=routePointAt(route,d0,vehicle.direction,lane);
+    const b=routePointAt(route,d1,vehicle.direction,lane);
+    const c=routePointAt(route,d2,vehicle.direction,lane);
     if(!a||!b||!c)return 1;
 
     const turn=
@@ -3677,7 +3691,9 @@
     }
 
     streetTrafficSignals=clusters
-      .filter(cluster=>cluster.approaches.length>=3)
+      // Do not turn every vector-tile split or T-junction into a red-light stop.
+      // A game traffic signal is created only for a robust 4-approach intersection.
+      .filter(cluster=>cluster.approaches.length>=4)
       .filter(cluster=>streetVehiclePointInsideViewport(cluster.point,-160))
       .slice(0,48)
       .map((cluster,index)=>{
@@ -3813,6 +3829,393 @@
     return upcoming.state==='green';
   }
 
+  function streetVehicleWeightedConnection(vehicle){
+    const candidates=streetVehicleConnectionCandidates(vehicle);
+    if(!candidates.length)return null;
+
+    const driver=ensureStreetVehicleDriver(vehicle);
+    const weighted=[];
+
+    for(const candidate of candidates){
+      const preferredLane=streetVehicleChooseLaneIndex(
+        vehicle,
+        candidate.route,
+        candidate.direction,
+        candidate.signedAngle
+      );
+      const safeLane=streetVehicleSafeLaneSample(
+        vehicle,
+        candidate.route,
+        candidate.direction,
+        candidate.distanceM,
+        preferredLane
+      );
+      if(!safeLane)continue;
+
+      let weight=
+        candidate.angle<14?8.5:
+        candidate.angle<34?4.8:
+        candidate.angle<70?2.2:
+        0.55;
+
+      const speedRatio=
+        (candidate.route.speedLimitMps??8.9)/
+        Math.max(4,vehicle.route?.speedLimitMps??8.9);
+      weight*=Math.max(0.55,Math.min(1.5,speedRatio));
+
+      const candidateKey=streetVehicleRouteKey(candidate.route);
+      if(
+        vehicle.previousRouteKey&&
+        candidateKey===vehicle.previousRouteKey
+      ){
+        weight*=0.18;
+      }
+
+      if(candidate.signedAngle<0){
+        weight*=0.9+driver.turnRandom*0.22;
+      }else if(candidate.signedAngle>0){
+        weight*=0.9+(1-driver.turnRandom)*0.22;
+      }
+
+      const load=streetVehicleRouteLoad(candidate.route);
+      weight*=1/(1+load*0.22);
+
+      weighted.push({
+        ...candidate,
+        laneIndex:safeLane.laneIndex,
+        weight
+      });
+    }
+
+    if(!weighted.length)return null;
+    const total=weighted.reduce((sum,item)=>sum+item.weight,0);
+    let pick=Math.random()*total;
+    for(const item of weighted){
+      pick-=item.weight;
+      if(pick<=0)return item;
+    }
+    return weighted.at(-1);
+  }
+
+  function streetVehiclePlanNextConnection(vehicle,time,force=false){
+    if(!vehicle?.route)return null;
+    const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
+    if(!force&&distanceToEnd>STREET_VEHICLE_PLAN_LOOKAHEAD_M){
+      return vehicle.plannedConnection||null;
+    }
+
+    const currentKey=streetVehicleRouteKey(vehicle.route);
+    if(
+      !force&&
+      vehicle.plannedConnection&&
+      vehicle.plannedConnection.fromRouteKey===currentKey
+    ){
+      return vehicle.plannedConnection;
+    }
+
+    const chosen=streetVehicleWeightedConnection(vehicle);
+    if(!chosen){
+      vehicle.plannedConnection=null;
+      return null;
+    }
+
+    vehicle.plannedConnection={
+      fromRouteKey:currentKey,
+      routeKey:streetVehicleRouteKey(chosen.route),
+      direction:chosen.direction,
+      laneIndex:chosen.laneIndex||0,
+      distanceM:chosen.distanceM,
+      signedAngle:chosen.signedAngle,
+      angle:chosen.angle,
+      plannedAt:time
+    };
+    return vehicle.plannedConnection;
+  }
+
+  function streetVehicleResolvePlannedConnection(vehicle){
+    const plan=vehicle?.plannedConnection;
+    if(!plan)return null;
+
+    const route=streetVehicleRoutes.find(
+      candidate=>streetVehicleRouteKey(candidate)===plan.routeKey
+    );
+    if(!route)return null;
+
+    if(!streetVehicleDirectionAllowed(route,plan.direction))return null;
+    if(
+      vehicle?.vehicleType&&
+      !streetVehicleTypeAllowedOnRoute(vehicle.vehicleType,route)
+    )return null;
+
+    const safeLane=streetVehicleSafeLaneSample(
+      vehicle,
+      route,
+      plan.direction,
+      plan.distanceM,
+      plan.laneIndex||0
+    );
+    if(!safeLane)return null;
+
+    return {
+      route,
+      direction:plan.direction,
+      laneIndex:safeLane.laneIndex,
+      distanceM:plan.distanceM,
+      sample:safeLane.sample,
+      signedAngle:plan.signedAngle||0,
+      angle:plan.angle||0
+    };
+  }
+
+  function streetVehiclePlannedEntryBlocked(vehicle){
+    const resolved=streetVehicleResolvePlannedConnection(vehicle);
+    if(!resolved)return false;
+    return streetVehicleConflicts(
+      resolved.sample,
+      resolved.route,
+      resolved.direction,
+      vehicle,
+      false
+    );
+  }
+
+  function streetVehicleLaneIsClear(
+    vehicle,
+    laneIndex,
+    distanceM=vehicle.distanceM
+  ){
+    if(!vehicle?.route)return false;
+    const count=streetVehicleLaneCount(vehicle.route,vehicle.direction);
+    if(laneIndex<0||laneIndex>=count)return false;
+
+    const sample=routePointAt(
+      vehicle.route,
+      distanceM,
+      vehicle.direction,
+      laneIndex
+    );
+    if(!sample||streetVehicleIntersectsBuilding(sample,vehicle))return false;
+
+    const aheadDistance=Math.max(
+      0,
+      Math.min(
+        vehicle.route.lengthM,
+        distanceM+(vehicle.direction>=0?9:-9)
+      )
+    );
+    const ahead=routePointAt(
+      vehicle.route,
+      aheadDistance,
+      vehicle.direction,
+      laneIndex
+    );
+    if(!ahead||streetVehicleIntersectsBuilding(ahead,vehicle))return false;
+
+    for(const other of streetVehicles){
+      if(other===vehicle||other.active===false)continue;
+      const otherSample=streetVehicleSample(other);
+      if(!otherSample)continue;
+
+      const distance=streetVehicleDistanceM(sample.point,otherSample.point);
+      if(distance>18)continue;
+
+      if(
+        other.route===vehicle.route&&
+        other.direction===vehicle.direction&&
+        (other.laneIndex||0)===laneIndex
+      ){
+        if(Math.abs(other.distanceM-distanceM)<14)return false;
+      }
+
+      if(
+        distance<7&&
+        streetVehiclePolygonsOverlap(
+          sample,otherSample,vehicle,other
+        )
+      )return false;
+    }
+    return true;
+  }
+
+  function streetVehicleTryLaneChange(vehicle,time,reason='traffic'){
+    if(!vehicle?.route||vehicle.routeEndWait)return false;
+    if(time<Number(vehicle.laneChangeCooldownUntil||0))return false;
+
+    const count=streetVehicleLaneCount(
+      vehicle.route,vehicle.direction
+    );
+    if(count<=1)return false;
+
+    const current=Math.max(
+      0,
+      Math.min(count-1,Math.round(vehicle.laneIndex||0))
+    );
+    const candidates=[current-1,current+1]
+      .filter(lane=>lane>=0&&lane<count);
+
+    const driver=ensureStreetVehicleDriver(vehicle);
+    if(driver.aggression<0.48)candidates.reverse();
+
+    for(const lane of candidates){
+      if(!streetVehicleLaneIsClear(vehicle,lane))continue;
+
+      vehicle.laneFrom=Number.isFinite(vehicle.lanePosition)
+        ?vehicle.lanePosition
+        :current;
+      vehicle.laneIndex=lane;
+      vehicle.laneTarget=lane;
+      vehicle.laneChangeStartedAt=time;
+      vehicle.laneChangeUntil=
+        time+STREET_VEHICLE_LANE_CHANGE_DURATION_MS;
+      vehicle.laneChangeCooldownUntil=
+        time+STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS;
+      vehicle.state='lane_change_'+reason;
+      return true;
+    }
+    return false;
+  }
+
+  function streetVehicleUpdateLanePosition(vehicle,time){
+    if(!Number.isFinite(vehicle.lanePosition)){
+      vehicle.lanePosition=vehicle.laneIndex||0;
+    }
+
+    if(!Number.isFinite(vehicle.laneChangeUntil)||!vehicle.laneChangeUntil){
+      vehicle.lanePosition=vehicle.laneIndex||0;
+      return;
+    }
+
+    const start=Number(vehicle.laneChangeStartedAt||time);
+    const duration=Math.max(
+      1,
+      Number(vehicle.laneChangeUntil)-start
+    );
+    const p=Math.max(0,Math.min(1,(time-start)/duration));
+    const eased=p*p*(3-2*p);
+    vehicle.lanePosition=
+      Number(vehicle.laneFrom||0)+
+      (
+        Number(vehicle.laneTarget||vehicle.laneIndex||0)-
+        Number(vehicle.laneFrom||0)
+      )*eased;
+
+    if(p>=1){
+      vehicle.lanePosition=vehicle.laneIndex||0;
+      vehicle.laneChangeUntil=0;
+      vehicle.laneChangeStartedAt=0;
+    }
+  }
+
+  function streetVehicleTryRecoveryUTurn(vehicle,time){
+    if(!vehicle?.route)return false;
+    const opposite=-vehicle.direction;
+    if(!streetVehicleDirectionAllowed(vehicle.route,opposite))return false;
+
+    const preferred=streetVehicleChooseLaneIndex(
+      vehicle,vehicle.route,opposite
+    );
+    const safe=streetVehicleSafeLaneSample(
+      vehicle,
+      vehicle.route,
+      opposite,
+      vehicle.distanceM,
+      preferred
+    );
+    if(!safe)return false;
+
+    const originalDirection=vehicle.direction;
+    const originalLane=vehicle.laneIndex;
+    vehicle.direction=opposite;
+    vehicle.laneIndex=safe.laneIndex;
+
+    if(
+      streetVehicleConflicts(
+        safe.sample,
+        vehicle.route,
+        opposite,
+        vehicle,
+        false
+      )
+    ){
+      vehicle.direction=originalDirection;
+      vehicle.laneIndex=originalLane;
+      return false;
+    }
+
+    vehicle.previousRouteKey=streetVehicleRouteKey(vehicle.route);
+    vehicle.lanePosition=safe.laneIndex;
+    vehicle.laneTarget=safe.laneIndex;
+    vehicle.plannedConnection=null;
+    vehicle.speedMps=Math.max(1.5,vehicle.speedMps);
+    vehicle.state='recovery_u_turn';
+    vehicle.stuckSince=0;
+    vehicle.lastProgressAt=time;
+    vehicle.laneChangeCooldownUntil=
+      time+STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS;
+    return true;
+  }
+
+  function streetVehicleUpdateStuckRecovery(vehicle,time){
+    if(!vehicle?.route||vehicle.active===false)return;
+    const sample=streetVehicleSample(vehicle);
+    if(!sample)return;
+
+    if(!vehicle.lastProgressPoint){
+      vehicle.lastProgressPoint=[sample.point[0],sample.point[1]];
+      vehicle.lastProgressAt=time;
+      vehicle.stuckSince=0;
+      return;
+    }
+
+    const moved=streetVehicleDistanceM(
+      vehicle.lastProgressPoint,
+      sample.point
+    );
+    if(moved>=STREET_VEHICLE_PROGRESS_EPS_M){
+      vehicle.lastProgressPoint=[sample.point[0],sample.point[1]];
+      vehicle.lastProgressAt=time;
+      vehicle.stuckSince=0;
+      vehicle.recoveryLaneTried=false;
+      return;
+    }
+
+    const legitimateStop=
+      vehicle.state==='stop_red'||
+      vehicle.state==='brake_amber'||
+      vehicle.state==='yield_junction'||
+      vehicle.routeEndWait;
+
+    if(vehicle.speedMps<0.45&&!legitimateStop){
+      if(!vehicle.stuckSince)vehicle.stuckSince=time;
+      const stuckFor=time-vehicle.stuckSince;
+
+      if(
+        stuckFor>STREET_VEHICLE_STUCK_LANE_CHANGE_MS&&
+        !vehicle.recoveryLaneTried
+      ){
+        vehicle.recoveryLaneTried=true;
+        if(streetVehicleTryLaneChange(vehicle,time,'recovery')){
+          vehicle.stuckSince=0;
+          return;
+        }
+      }
+
+      if(stuckFor>STREET_VEHICLE_STUCK_RECOVERY_MS){
+        if(streetVehicleTryRecoveryUTurn(vehicle,time)){
+          vehicle.recoveryLaneTried=false;
+          return;
+        }
+
+        streetVehiclePlanNextConnection(vehicle,time,true);
+        scheduleStreetVehicleRefresh(30);
+        vehicle.stuckSince=time-1800;
+      }
+    }else{
+      vehicle.stuckSince=0;
+      vehicle.recoveryLaneTried=false;
+    }
+  }
+
   function streetVehicleDesiredSpeed(vehicle,time){
     const driver=ensureStreetVehicleDriver(vehicle);
     const spec=streetVehicleSpec(vehicle);
@@ -3824,13 +4227,35 @@
       streetVehicleCurveSpeedFactor(vehicle);
 
     const distanceToEnd=streetVehicleDistanceToRouteEnd(vehicle);
-    if(distanceToEnd<STREET_VEHICLE_JUNCTION_LOOKAHEAD_M){
-      const connections=streetVehicleConnectionCandidates(vehicle);
-      if(connections.length>=2){
-        desired*=0.72;
-        vehicle.state='junction_approach';
-      }
 
+    if(distanceToEnd<STREET_VEHICLE_PLAN_LOOKAHEAD_M){
+      const plan=streetVehiclePlanNextConnection(vehicle,time,false);
+      if(plan){
+        if(Math.abs(plan.signedAngle||0)>55){
+          desired*=0.48;
+          vehicle.state='turn_approach';
+        }else if(Math.abs(plan.signedAngle||0)>24){
+          desired*=0.68;
+          vehicle.state='turn_approach';
+        }
+
+        if(
+          distanceToEnd<10&&
+          streetVehiclePlannedEntryBlocked(vehicle)
+        ){
+          vehicle.state='yield_junction';
+          const stoppingDistance=Math.max(0,distanceToEnd-2.8);
+          desired=Math.min(
+            desired,
+            Math.sqrt(
+              2*driver.comfortableBrake*stoppingDistance
+            )
+          );
+        }
+      }
+    }
+
+    if(distanceToEnd<STREET_VEHICLE_JUNCTION_LOOKAHEAD_M){
       const signal=streetVehicleUpcomingSignal(vehicle,time);
       if(signal){
         vehicle.lastSignalId=signal.signal.id;
@@ -3850,11 +4275,20 @@
           );
         }else if(signal.state==='amber'){
           vehicle.state='brake_amber';
-          desired*=0.38;
-        }else{
+          desired*=0.42;
+        }else if(vehicle.state==='cruise'){
           vehicle.state='signal_green';
         }
       }
+    }
+
+    const lead=streetVehicleLeadInfo(vehicle);
+    if(
+      lead&&
+      lead.gap<Math.max(11,vehicle.speedMps*1.65)&&
+      vehicle.speedMps>1.0
+    ){
+      streetVehicleTryLaneChange(vehicle,time,'overtake');
     }
 
     return Math.max(0,desired);
@@ -3935,82 +4369,48 @@
   function continueStreetVehicleOntoConnectedRoute(vehicle){
     if(!vehicle?.route||!streetVehicleRoutes.length)return false;
 
-    const candidates=streetVehicleConnectionCandidates(vehicle);
-    if(!candidates.length)return false;
+    let chosen=streetVehicleResolvePlannedConnection(vehicle);
 
-    const driver=ensureStreetVehicleDriver(vehicle);
-    const weighted=[];
-
-    for(const candidate of candidates){
-      const preferredLane=streetVehicleChooseLaneIndex(
+    if(!chosen){
+      streetVehiclePlanNextConnection(
         vehicle,
-        candidate.route,
-        candidate.direction,
-        candidate.signedAngle
+        performance.now(),
+        true
       );
-      const safeLane=streetVehicleSafeLaneSample(
-        vehicle,
-        candidate.route,
-        candidate.direction,
-        candidate.distanceM,
-        preferredLane
-      );
-      if(!safeLane)continue;
-      const nextLaneIndex=safeLane.laneIndex;
-      const sample=safeLane.sample;
-      if(
-        streetVehicleConflicts(
-          sample,
-          candidate.route,
-          candidate.direction,
-          vehicle,
-          false
-        )
-      )continue;
-
-      // GTA-like but deterministic-enough road choice:
-      // prefer straight roads, still allow left/right turns, prefer roads with
-      // similar/higher class speed, and avoid abrupt branch changes.
-      let weight=
-        candidate.angle<16?7.0:
-        candidate.angle<38?4.0:
-        candidate.angle<72?2.2:
-        0.8;
-
-      const speedRatio=
-        (candidate.route.speedLimitMps??8.9)/
-        Math.max(4,vehicle.route.speedLimitMps??8.9);
-      weight*=Math.max(0.55,Math.min(1.45,speedRatio));
-
-      if(candidate.signedAngle<0){
-        weight*=0.90+driver.turnRandom*0.25;
-      }else if(candidate.signedAngle>0){
-        weight*=0.90+(1-driver.turnRandom)*0.25;
-      }
-
-      weighted.push({...candidate,weight,laneIndex:nextLaneIndex});
+      chosen=streetVehicleResolvePlannedConnection(vehicle);
     }
 
-    if(!weighted.length)return false;
+    if(!chosen)return false;
 
-    const total=weighted.reduce((sum,item)=>sum+item.weight,0);
-    let pick=Math.random()*total;
-    let chosen=weighted.at(-1);
-    for(const item of weighted){
-      pick-=item.weight;
-      if(pick<=0){
-        chosen=item;
-        break;
-      }
+    if(
+      streetVehicleConflicts(
+        chosen.sample,
+        chosen.route,
+        chosen.direction,
+        vehicle,
+        false
+      )
+    ){
+      return false;
     }
 
+    const oldKey=streetVehicleRouteKey(vehicle.route);
+    vehicle.previousRouteKey=oldKey;
     vehicle.route=chosen.route;
     vehicle.direction=chosen.direction;
     vehicle.laneIndex=chosen.laneIndex||0;
+    vehicle.lanePosition=vehicle.laneIndex;
+    vehicle.laneTarget=vehicle.laneIndex;
     vehicle.distanceM=chosen.distanceM;
-    vehicle.speedMps=Math.min(
-      vehicle.speedMps,
-      (chosen.route.speedLimitMps??8.9)*0.72
+    vehicle.plannedConnection=null;
+    clearStreetVehicleRouteEndWait(vehicle);
+    vehicle.state='junction_exit';
+    vehicle.speedMps=Math.max(
+      1.4,
+      Math.min(
+        vehicle.speedMps,
+        (chosen.route.speedLimitMps??8.9)*0.72
+      )
     );
     return true;
   }
@@ -4099,6 +4499,17 @@
         (0.42+Math.random()*0.28);
       vehicle.active=true;
       vehicle.respawnAt=0;
+      vehicle.plannedConnection=null;
+      vehicle.previousRouteKey=vehicle.previousRouteKey||null;
+      vehicle.lanePosition=vehicle.laneIndex||0;
+      vehicle.laneTarget=vehicle.laneIndex||0;
+      vehicle.laneFrom=vehicle.laneIndex||0;
+      vehicle.laneChangeUntil=0;
+      vehicle.laneChangeCooldownUntil=0;
+      vehicle.stuckSince=0;
+      vehicle.recoveryLaneTried=false;
+      vehicle.lastProgressPoint=null;
+      vehicle.lastProgressAt=performance.now();
       return true;
     }
 
@@ -4151,12 +4562,13 @@
   function recoverStreetVehicleAtRouteEnd(vehicle,time){
     if(!vehicle?.routeEndWait)return false;
     if(time<Number(vehicle.routeEndRetryAt||0))return true;
-    vehicle.routeEndRetryAt=time+300;
+    vehicle.routeEndRetryAt=time+220;
 
+    streetVehiclePlanNextConnection(vehicle,time,true);
     if(continueStreetVehicleOntoConnectedRoute(vehicle)){
       clearStreetVehicleRouteEndWait(vehicle);
       vehicle.state='cruise';
-      vehicle.speedMps=Math.max(1.6,vehicle.speedMps);
+      vehicle.speedMps=Math.max(1.8,vehicle.speedMps);
       return true;
     }
 
@@ -4164,26 +4576,17 @@
     const endpointBlocked=
       endpointSample&&streetVehicleIntersectsBuilding(endpointSample,vehicle);
 
-    // True dead end in the visible scene: perform a restrained U-turn on the SAME
-    // road after waiting, but never if the endpoint footprint overlaps a building.
     if(
       !endpointBlocked&&
-      time-Number(vehicle.routeEndWaitSince||time)>1800&&
-      streetVehicleDirectionAllowed(vehicle.route,-vehicle.direction)
+      time-Number(vehicle.routeEndWaitSince||time)>1250&&
+      streetVehicleTryRecoveryUTurn(vehicle,time)
     ){
-      vehicle.direction=-vehicle.direction;
-      vehicle.laneIndex=streetVehicleChooseLaneIndex(
-        vehicle,
-        vehicle.route,
-        vehicle.direction
-      );
-      vehicle.distanceM=vehicle.direction>=0
-        ?Math.min(0.7,vehicle.route.lengthM)
-        :Math.max(0,vehicle.route.lengthM-0.7);
       clearStreetVehicleRouteEndWait(vehicle);
-      vehicle.state='u_turn';
-      vehicle.speedMps=1.8;
       return true;
+    }
+
+    if(time-Number(vehicle.routeEndWaitSince||time)>800){
+      scheduleStreetVehicleRefresh(30);
     }
 
     return true;
@@ -4287,6 +4690,17 @@
         (0.42+Math.random()*0.28);
       vehicle.active=true;
       vehicle.respawnAt=0;
+      vehicle.plannedConnection=null;
+      vehicle.previousRouteKey=vehicle.previousRouteKey||null;
+      vehicle.lanePosition=vehicle.laneIndex||0;
+      vehicle.laneTarget=vehicle.laneIndex||0;
+      vehicle.laneFrom=vehicle.laneIndex||0;
+      vehicle.laneChangeUntil=0;
+      vehicle.laneChangeCooldownUntil=0;
+      vehicle.stuckSince=0;
+      vehicle.recoveryLaneTried=false;
+      vehicle.lastProgressPoint=null;
+      vehicle.lastProgressAt=performance.now();
       return true;
     }
 
@@ -4372,7 +4786,19 @@
         routeEndWaitSince:0,
         routeEndRetryAt:0,
         nextAiAt:0,
-        lastAiAt:0
+        lastAiAt:0,
+        plannedConnection:null,
+        previousRouteKey:null,
+        lanePosition:0,
+        laneTarget:0,
+        laneFrom:0,
+        laneChangeStartedAt:0,
+        laneChangeUntil:0,
+        laneChangeCooldownUntil:0,
+        stuckSince:0,
+        recoveryLaneTried:false,
+        lastProgressPoint:null,
+        lastProgressAt:0
       };
 
       if(
@@ -4434,6 +4860,8 @@
       const canvas=osmMap.getCanvas();
 
       for(const vehicle of streetVehicles){
+        streetVehicleUpdateLanePosition(vehicle,time);
+
         if(vehicle.active===false){
           if(time>=Number(vehicle.respawnAt||0)){
             // Replacement vehicles enter through a visible-road edge; they never
@@ -4529,11 +4957,16 @@
         ){
           vehicle.distanceM=nextDistance;
         }else{
-          const driver=ensureStreetVehicleDriver(vehicle);
-          vehicle.speedMps=Math.max(
-            0,
-            vehicle.speedMps-driver.emergencyBrake*dt
+          const changed=streetVehicleTryLaneChange(
+            vehicle,time,'blocked'
           );
+          if(!changed){
+            const driver=ensureStreetVehicleDriver(vehicle);
+            vehicle.speedMps=Math.max(
+              0,
+              vehicle.speedMps-driver.emergencyBrake*dt
+            );
+          }
         }
 
         const sample=streetVehicleSample(vehicle);
@@ -4550,6 +4983,8 @@
           p.y>canvas.clientHeight+STREET_VEHICLE_EXIT_MARGIN_PX
         ){
           retireStreetVehicle(vehicle,time);
+        }else{
+          streetVehicleUpdateStuckRecovery(vehicle,time);
         }
       }
 
@@ -4751,7 +5186,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.39)
+     * DISPLAY STABILITY ONLY (v3.21.40)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
