@@ -640,6 +640,8 @@ export function createLocalFloodUI({
     if(area>60_000_000){status('圈选范围过大，请控制在约 60 km² 内。',true);return false;}
 
     status('正在准备模拟：放大选区并读取当前 OSM 建筑轮廓…');
+    prepared=false;
+    setButtons();
     map.fitBounds([[bounds.west,bounds.south],[bounds.east,bounds.north]],{
       padding:55,maxZoom:16.2,duration:500
     });
