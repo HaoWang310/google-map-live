@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.17</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.18</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -552,7 +552,7 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.15';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.18';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
   const APP_VERSION='3.21.15';
@@ -746,7 +746,6 @@
   let cityBuildingsShown=false;
   let localFloodBuildingOverride=false;
   const localFloodBaseBuildingVisibility=new Map();
-  const localFloodCompeting3dPaint=new Map();
   let localFloodSelectedBuildingIds=[];
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
@@ -1616,24 +1615,37 @@
     const height=['max',0,['to-number',['get','render_height'],5]];
     const base=['max',0,['to-number',['get','render_min_height'],0]];
 
-    // IMPORTANT: fill-extrusion-opacity is layer-wide in MapLibre and cannot be
-    // data-driven per feature. To remove only the native grey buildings selected by
-    // the local-flood tool, collapse those exact features to zero height instead.
-    // Boundary-crossing buildings are reconstructed by local_flood_ui.js as
-    // grey-outside + orange-inside, so nothing disappears outside the red polygon.
+    /*
+     * ONE authoritative 3D building source:
+     * CITY_BUILDINGS_LAYER owns every ordinary building in the 3D city.
+     *
+     * Fully-inside flood-selection buildings stay as their original vector feature:
+     * grey -> orange -> red, or zero height when hidden.
+     *
+     * Only boundary-crossing buildings are collapsed here and reconstructed as
+     * clipped grey-outside + orange/red-inside geometry by local_flood_ui.js.
+     */
+    const nativeHidden=[
+      'any',
+      ['boolean',['feature-state','localFloodBoundary'],false],
+      ['boolean',['feature-state','localFloodHidden'],false]
+    ];
     const nativeHeight=[
       'case',
-      ['boolean',['feature-state','localFloodSelected'],false],
-      0,
+      nativeHidden,0,
       height
     ];
     const nativeBase=[
       'case',
-      ['boolean',['feature-state','localFloodSelected'],false],
-      0,
+      nativeHidden,0,
       base
     ];
-
+    const nativeColour=[
+      'case',
+      ['boolean',['feature-state','localFloodImpacted'],false],'#ff3b30',
+      ['boolean',['feature-state','localFloodSelected'],false],'#ff9f1a',
+      '#c6ced5'
+    ];
     const selectedColour=[
       'case',
       ['boolean',['feature-state','localFloodImpacted'],false],'#ff3b30',
@@ -1672,7 +1684,7 @@
         filter:baseFilter,
         layout:{visibility:'none'},
         paint:{
-          'fill-extrusion-color':'#c6ced5',
+          'fill-extrusion-color':nativeColour,
           'fill-extrusion-height':nativeHeight,
           'fill-extrusion-base':nativeBase,
           'fill-extrusion-opacity':1,
@@ -1798,121 +1810,47 @@
     );
   }
 
-  function setCompetingOsmBuildingSelection(selectionRing=null){
+  function enforceSingleCityBuildingSource(){
     if(!osmMap||!osmStyleReady)return;
-
-    const validRing=Array.isArray(selectionRing)
-      ?selectionRing.filter(point=>
-        Array.isArray(point)&&point.length>=2&&
-        Number.isFinite(Number(point[0]))&&Number.isFinite(Number(point[1]))
-      ).map(point=>[Number(point[0]),Number(point[1])])
-      :[];
-
     const layers=osmMap.getStyle()?.layers||[];
 
-    if(validRing.length>=3){
-      const first=validRing[0];
-      const last=validRing[validRing.length-1];
-      const closedRing=(
-        first[0]===last[0]&&first[1]===last[1]
-      )?validRing:[...validRing,first];
-
-      const selectionGeometry={
-        type:'Polygon',
-        coordinates:[closedRing]
-      };
-
-      /*
-       * IMPORTANT:
-       * Never suppress competing OpenFreeMap buildings by feature id.
-       *
-       * Vector-tile feature ids are not a safe global spatial key across every
-       * visible tile/style layer. Reusing selected ids in a layer-wide filter can
-       * therefore remove unrelated buildings outside the red polygon.
-       *
-       * Instead, evaluate each rendered building geometry against the selection
-       * polygon directly. Features touching/intersecting the red polygon collapse
-       * to zero height; all other surrounding buildings keep their original paint
-       * expressions and remain visible.
-       */
-      const intersectsSelection=[
-        '<=',
-        ['distance',selectionGeometry],
-        0.05
-      ];
-
-      for(const layer of layers){
-        if(!isCompetingOsmBuildingExtrusionLayer(layer))continue;
-
-        if(!localFloodCompeting3dPaint.has(layer.id)){
-          const originalHeight=osmMap.getPaintProperty(layer.id,'fill-extrusion-height');
-          const originalBase=osmMap.getPaintProperty(layer.id,'fill-extrusion-base');
-
-          localFloodCompeting3dPaint.set(layer.id,{
-            height:originalHeight===undefined?0:originalHeight,
-            base:originalBase===undefined?0:originalBase
-          });
-        }
-
-        const original=localFloodCompeting3dPaint.get(layer.id);
-        try{
-          osmMap.setPaintProperty(
-            layer.id,
-            'fill-extrusion-height',
-            ['case',intersectsSelection,0,original.height]
-          );
-          osmMap.setPaintProperty(
-            layer.id,
-            'fill-extrusion-base',
-            ['case',intersectsSelection,0,original.base]
-          );
-        }catch(error){
-          console.warn('Unable to spatially isolate basemap buildings',layer.id,error);
-        }
-      }
-      return;
-    }
-
-    // Restore every competing basemap 3D layer exactly to its original height/base.
-    for(const [id,paint] of localFloodCompeting3dPaint){
-      if(!osmMap.getLayer(id))continue;
+    /*
+     * Never render a second OpenFreeMap fill-extrusion building layer underneath
+     * CITY_BUILDINGS_LAYER. Two independently tiled/generalised copies of the same
+     * OSM building are what caused the orange/beige z-fighting and the repeated
+     * "fix overlap -> lose neighbours" cycle.
+     *
+     * Roads, labels and 2D building fills remain untouched. Only competing 3D
+     * building extrusions are disabled. CITY_BUILDINGS_LAYER is the sole 3D source.
+     */
+    for(const layer of layers){
+      if(!isCompetingOsmBuildingExtrusionLayer(layer))continue;
       try{
-        osmMap.setPaintProperty(id,'fill-extrusion-height',paint.height);
-        osmMap.setPaintProperty(id,'fill-extrusion-base',paint.base);
+        if((osmMap.getLayoutProperty(layer.id,'visibility')||'visible')!=='none'){
+          osmMap.setLayoutProperty(layer.id,'visibility','none');
+        }
       }catch(error){
-        console.warn('Unable to restore basemap building paint',id,error);
+        console.warn('Unable to disable competing 3D building layer',layer.id,error);
       }
     }
-    localFloodCompeting3dPaint.clear();
   }
 
   function setCityBuildingFloodSelection(selection=null){
     const active=Boolean(selection?.active);
-    const selectedIds=active
+    localFloodBuildingOverride=active;
+    localFloodSelectedBuildingIds=active
       ?[...new Set((selection?.sourceFeatureIds||[]).filter(id=>id!==null&&id!==undefined))]
       :[];
-    const selectionRing=active&&Array.isArray(selection?.selectionRing)
-      ?selection.selectionRing
-      :null;
 
-    localFloodBuildingOverride=active;
-    localFloodSelectedBuildingIds=selectedIds;
-
-    /*
-     * Dedicated CITY_BUILDINGS_LAYER is already suppressed per selected source
-     * feature by local_flood_ui.js feature-state.
-     *
-     * Any additional OpenFreeMap fill-extrusion layer is suppressed spatially
-     * ONLY where its geometry intersects the current red polygon. This removes
-     * orange/grey z-fighting without hiding unrelated buildings elsewhere.
-     */
+    // No second 3D source is allowed back in during selection/edit/hide cycles.
     setBaseOsmBuildingGeometryHidden(false);
-    setCompetingOsmBuildingSelection(selectionRing);
+    enforceSingleCityBuildingSource();
     syncCityView();
   }
 
   function syncCityView(){
     if(!osmMap||!osmStyleReady)return;
+    enforceSingleCityBuildingSource();
     const pitch=osmMap.getPitch(),is3D=pitch>.5;
     $('view2D').setAttribute('aria-pressed',String(!is3D));
     $('view3D').setAttribute('aria-pressed',String(is3D));
