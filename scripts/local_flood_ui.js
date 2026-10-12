@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.12';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.13';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -813,7 +813,8 @@ export function createLocalFloodUI({
             simHeight:height,
             simBase:base,
             selected:false,
-            impacted:false
+            impacted:false,
+            sourceFeatureId:sourceFeatureId===null||sourceFeatureId===undefined?'':String(sourceFeatureId)
           },
           geometry:split.outside
         });
@@ -826,7 +827,8 @@ export function createLocalFloodUI({
           simHeight:height,
           simBase:base,
           selected:true,
-          impacted:false
+          impacted:false,
+          sourceFeatureId:sourceFeatureId===null||sourceFeatureId===undefined?'':String(sourceFeatureId)
         },
         geometry:split.inside
       };
@@ -1069,29 +1071,54 @@ export function createLocalFloodUI({
     map.triggerRepaint();
 
     const nextImpacted=new Set(data.impactedIds||[]);
-    let buildingColourChanged=false;
 
-    for(const id of impactedStateIds){
-      if(nextImpacted.has(id))continue;
-      const entry=buildingById.get(id);
-      const scene=entry&&sceneFeatures.get(entry.sceneKey);
-      if(scene?.properties.impacted){
-        scene.properties.impacted=false;
-        buildingColourChanged=true;
-      }
-    }
+    /*
+     * Red must fully replace orange for an impacted building.
+     *
+     * The simulator reports internal building ids. A single OSM building can still
+     * have more than one local scene fragment (tile fragment / selection clipping).
+     * Updating only entry.sceneKey leaves another copy orange at the same position.
+     *
+     * Convert impacted simulator ids to authoritative OSM sourceFeatureIds, then
+     * propagate the red state to EVERY selected local scene fragment that belongs
+     * to that same source feature. No selected fragment of an impacted building is
+     * allowed to remain orange.
+     */
+    const impactedSourceIds=new Set();
+    const impactedSceneKeys=new Set();
 
     for(const id of nextImpacted){
       const entry=buildingById.get(id);
-      const scene=entry&&sceneFeatures.get(entry.sceneKey);
-      if(scene&&!scene.properties.impacted){
-        scene.properties.impacted=true;
+      if(!entry)continue;
+
+      if(entry.sceneKey)impactedSceneKeys.add(entry.sceneKey);
+
+      if(entry.sourceFeatureId!==null&&entry.sourceFeatureId!==undefined){
+        impactedSourceIds.add(String(entry.sourceFeatureId));
+      }
+    }
+
+    let buildingColourChanged=false;
+
+    for(const [sceneKey,scene] of sceneFeatures){
+      if(!scene?.properties?.selected)continue;
+
+      const sourceFeatureId=String(scene.properties.sourceFeatureId||'');
+      const shouldBeImpacted=
+        impactedSceneKeys.has(sceneKey)||
+        (sourceFeatureId!==''&&impactedSourceIds.has(sourceFeatureId));
+
+      if(Boolean(scene.properties.impacted)!==shouldBeImpacted){
+        scene.properties.impacted=shouldBeImpacted;
         buildingColourChanged=true;
       }
     }
 
     impactedStateIds=nextImpacted;
-    if(buildingColourChanged)publishBuildingScene();
+
+    if(buildingColourChanged){
+      publishBuildingScene();
+    }
 
     const s=data.stats;
     $('localFloodStats').textContent=
