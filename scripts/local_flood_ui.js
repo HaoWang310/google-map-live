@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.0';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.1';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -253,7 +253,7 @@ export function createLocalFloodUI({
     return [
       'case',
       ['boolean',['get','impacted'],false],'#ff3b30',
-      ['boolean',['get','selected'],false],'#33b8ff',
+      ['boolean',['get','selected'],false],'#ff9f1a',
       '#c6ced5'
     ];
   }
@@ -268,7 +268,7 @@ export function createLocalFloodUI({
       map.addLayer({
         id:BUILDING_SCENE_FILL,type:'fill',source:BUILDING_SCENE_SOURCE,minzoom:14,
         layout:{visibility:map.getPitch()>.5?'none':'visible'},
-        paint:{'fill-color':buildingColourExpression(),'fill-opacity':0.92}
+        paint:{'fill-color':buildingColourExpression(),'fill-opacity':1}
       },getFirstSymbolLayerId());
     }
     if(!map.getLayer(BUILDING_SCENE_3D)){
@@ -279,7 +279,8 @@ export function createLocalFloodUI({
           'fill-extrusion-color':buildingColourExpression(),
           'fill-extrusion-height':['get','simHeight'],
           'fill-extrusion-base':['get','simBase'],
-          'fill-extrusion-opacity':1
+          'fill-extrusion-opacity':1,
+          'fill-extrusion-vertical-gradient':false
         }
       },getFirstSymbolLayerId());
     }
@@ -310,31 +311,13 @@ export function createLocalFloodUI({
     sceneFeatures.clear();
   }
 
-  function setBuildingImpactState(entry,impacted){
-    if(!entry?.stateRef)return false;
-    try{
-      map.setFeatureState(entry.stateRef,{localFloodImpacted:Boolean(impacted)});
-      return true;
-    }catch(error){
-      console.warn('Building impact state failed',entry.stateRef,error);
-      return false;
-    }
-  }
-
-  function clearImpactedBuildingStates(){
-    for(const id of impactedStateIds){
-      setBuildingImpactState(buildingById.get(id),false);
-    }
-    impactedStateIds.clear();
-  }
-
   function clearSelectedBuildingStates(){
     impactedStateIds.clear();
     buildingById.clear();
     buildingSourceId=null;
     buildingSourceLayer='building';
     removeBuildingScene();
-    setCityBuildingFloodSelection?.(null);
+    setCityBuildingFloodSelection?.({active:false});
   }
 
   function removeWaterLayers(){
@@ -539,7 +522,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内蓝色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋。'
+        '（'+info.cellSizeM+' m）· 圈内橙色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋。'
       );
       setButtons();
     }catch(error){
