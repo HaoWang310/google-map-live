@@ -329,10 +329,11 @@ export function createLocalFloodUI({
   }
 
   function clearSelectedBuildingStates(){
-    clearImpactedBuildingStates();
+    impactedStateIds.clear();
     buildingById.clear();
     buildingSourceId=null;
     buildingSourceLayer='building';
+    removeBuildingScene();
     setCityBuildingFloodSelection?.(null);
   }
 
@@ -376,21 +377,11 @@ export function createLocalFloodUI({
     await prepareSimulation();
   }
 
-  function normaliseBuilding(feature,id,source,sourceLayer){
-    const props=feature.properties||{};
-    const height=Math.max(2,Number(props.render_height)||Number(props.height)||5);
-    const base=Math.max(0,Number(props.render_min_height)||Number(props.min_height)||0);
+  function normaliseBuilding(feature,id,sceneKey){
     return {
       id,
-      geometry:feature.geometry,
-      stateRef:(feature.id!==undefined&&feature.id!==null&&source)
-        ?{source,sourceLayer,id:feature.id}
-        :null,
-      feature:{
-        type:'Feature',
-        properties:{_simId:id,simHeight:height,simBase:base},
-        geometry:feature.geometry
-      }
+      sceneKey,
+      geometry:feature.geometry
     };
   }
 
@@ -399,54 +390,64 @@ export function createLocalFloodUI({
     const cityLayer=map.getLayer(cityBuildingsLayerId);
     const source=cityLayer?.source;
     const sourceLayer=cityLayer?.['source-layer']||'building';
-    if(!source)return {features:[],source:null,sourceLayer,selectedIds:[]};
+    if(!source)return {selected:[],sceneCount:0,source:null,sourceLayer};
 
-    let raw=[];
+    const raw=[];
+    const seen=new Set();
+    const addFeature=feature=>{
+      if(!feature?.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))return;
+      if(feature.properties?.hide_3d===true)return;
+      const key=featureKey(feature);
+      if(seen.has(key))return;
+      seen.add(key);
+      raw.push({feature,key});
+    };
+
+    // Capture what is actually visible first. This avoids depending on OSM feature IDs,
+    // which are absent for some OpenFreeMap building tiles.
     try{
-      raw=map.querySourceFeatures(source,{sourceLayer})||[];
+      for(const feature of map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[]){
+        addFeature(feature);
+      }
+    }catch(error){
+      console.warn('Rendered building query failed',error);
+    }
+
+    // Then merge any additional loaded source-tile fragments.
+    try{
+      for(const feature of map.querySourceFeatures(source,{sourceLayer})||[]){
+        addFeature(feature);
+      }
     }catch(error){
       console.warn('Source building query failed',error);
     }
-    if(!raw.length){
-      try{raw=map.queryRenderedFeatures({layers:[cityBuildingsLayerId]})||[];}
-      catch(error){console.warn('Rendered building query failed',error);}
+
+    sceneFeatures.clear();
+    const selected=[];
+
+    for(const {feature,key} of raw){
+      const p=feature.properties||{};
+      const height=Math.max(2,Number(p.render_height)||Number(p.height)||5);
+      const base=Math.max(0,Number(p.render_min_height)||Number(p.min_height)||0);
+      const isInside=boxesIntersect(bounds,geometryBBox(feature.geometry))&&
+        geometryWithinSelection(feature.geometry,selectionRing);
+
+      const scene={
+        type:'Feature',
+        properties:{
+          simHeight:height,
+          simBase:base,
+          selected:isInside,
+          impacted:false
+        },
+        geometry:feature.geometry
+      };
+      sceneFeatures.set(key,scene);
+
+      if(isInside)selected.push({feature:scene,key});
     }
 
-    // OpenMapTiles uses osm_id as the vector-tile feature ID. Group all loaded
-    // tile fragments with the same OSM ID before testing the user's polygon.
-    // This prevents a clipped fragment from being coloured while the real building
-    // continues outside the selection.
-    const groups=new Map();
-    for(const feature of raw){
-      if(feature.id===undefined||feature.id===null)continue;
-      if(!feature.geometry||!['Polygon','MultiPolygon'].includes(feature.geometry.type))continue;
-      if(feature.properties?.hide_3d===true)continue;
-
-      const id=feature.id;
-      if(!groups.has(id))groups.set(id,[]);
-      groups.get(id).push(feature);
-    }
-
-    const out=[];
-    const selectedIds=[];
-    for(const [id,fragments] of groups){
-      const relevant=fragments.some(feature=>boxesIntersect(bounds,geometryBBox(feature.geometry)));
-      if(!relevant)continue;
-
-      // A building is selected only when every loaded fragment is fully inside.
-      // This is the strict "inside = blue, outside = grey" rule requested.
-      const fullyInside=fragments.every(feature=>
-        geometryWithinSelection(feature.geometry,selectionRing)
-      );
-      if(!fullyInside)continue;
-
-      const merged=mergeBuildingFragments(id,fragments);
-      if(!merged)continue;
-      out.push(merged);
-      selectedIds.push(id);
-    }
-
-    return {features:out,source,sourceLayer,selectedIds};
+    return {selected,sceneCount:sceneFeatures.size,source,sourceLayer};
   }
 
   function ensureSimulator(){
@@ -486,7 +487,7 @@ export function createLocalFloodUI({
     map.addLayer({
       id:WATER_LAYER,type:'raster',source:WATER_SOURCE,
       paint:{'raster-opacity':0.86,'raster-resampling':'linear','raster-fade-duration':0}
-    },map.getLayer(cityBuildingsLayerId)?cityBuildingsLayerId:getFirstSymbolLayerId());
+    },map.getLayer(BUILDING_SCENE_3D)?BUILDING_SCENE_3D:getFirstSymbolLayerId());
   }
 
   async function prepareSimulation(){
@@ -506,22 +507,25 @@ export function createLocalFloodUI({
 
     clearSelectedBuildingStates();
     const queried=queryBuildings(bounds,ring);
-    selectedBuildings=queried.features;
     buildingSourceId=queried.source;
     buildingSourceLayer=queried.sourceLayer;
+    selectedBuildings=queried.selected.map(item=>item.feature);
 
-    const buildings=selectedBuildings.map((feature,id)=>{
-      const item=normaliseBuilding(feature,id,buildingSourceId,buildingSourceLayer);
-      buildingById.set(id,item);
-      return {id,geometry:item.geometry};
+    const buildings=queried.selected.map((item,id)=>{
+      const entry=normaliseBuilding(item.feature,id,item.key);
+      buildingById.set(id,entry);
+      return {id,geometry:entry.geometry};
     });
 
-    // One native-vector colour per building:
-    // grey outside polygon, blue inside polygon, red if impacted.
-    setCityBuildingFloodSelection?.({
-      polygonCoordinates:polygon,
-      selectedIds:queried.selectedIds
-    });
+    if(!queried.sceneCount){
+      status('没有读取到 OSM 建筑。请等待地图瓦片加载完成后重新圈选。',true);
+      return;
+    }
+
+    publishBuildingScene();
+    // Hide the native grey 3D extrusion only after the full grey/blue replacement
+    // scene is ready, so there is never a blank or overlapping building state.
+    setCityBuildingFloodSelection?.({active:true});
 
     try{
       const info=await ensureSimulator().setup({polygon,buildings});
@@ -532,7 +536,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
       status(
         '范围已就绪：'+(area/1e6).toFixed(2)+' km² · 模拟网格 '+info.cols+'×'+info.rows+
-        '（'+info.cellSizeM+' m）· 圈内建筑 '+info.buildingCount+' 栋 · 已高亮 '+queried.selectedIds.length+' 个 OSM 建筑 ID。'
+        '（'+info.cellSizeM+' m）· 圈内蓝色建筑 '+info.buildingCount+' 栋 · 当前视图建筑 '+queried.sceneCount+' 栋。'
       );
       setButtons();
     }catch(error){
@@ -551,14 +555,29 @@ export function createLocalFloodUI({
     map.triggerRepaint();
 
     const nextImpacted=new Set(data.impactedIds||[]);
+    let buildingColourChanged=false;
+
     for(const id of impactedStateIds){
       if(nextImpacted.has(id))continue;
-      setBuildingImpactState(buildingById.get(id),false);
+      const entry=buildingById.get(id);
+      const scene=entry&&sceneFeatures.get(entry.sceneKey);
+      if(scene?.properties.impacted){
+        scene.properties.impacted=false;
+        buildingColourChanged=true;
+      }
     }
+
     for(const id of nextImpacted){
-      setBuildingImpactState(buildingById.get(id),true);
+      const entry=buildingById.get(id);
+      const scene=entry&&sceneFeatures.get(entry.sceneKey);
+      if(scene&&!scene.properties.impacted){
+        scene.properties.impacted=true;
+        buildingColourChanged=true;
+      }
     }
+
     impactedStateIds=nextImpacted;
+    if(buildingColourChanged)publishBuildingScene();
 
     const s=data.stats;
     $('localFloodStats').textContent=
@@ -594,6 +613,9 @@ export function createLocalFloodUI({
     if(vertices.length>=3)finishDrawing();
   });
 
+  const syncSceneOnPitch=()=>syncBuildingSceneView();
+  map.on('pitch',syncSceneOnPitch);
+
   const keydown=event=>{
     const tag=event.target?.tagName;
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
@@ -621,7 +643,15 @@ export function createLocalFloodUI({
   $('localFloodPause').addEventListener('click',()=>simulator?.pause());
   $('localFloodReset').addEventListener('click',()=>{
     simulator?.reset();
-    clearImpactedBuildingStates();
+    impactedStateIds.clear();
+    let changed=false;
+    for(const feature of sceneFeatures.values()){
+      if(feature.properties.impacted){
+        feature.properties.impacted=false;
+        changed=true;
+      }
+    }
+    if(changed)publishBuildingScene();
   });
   for(const id of ['localFloodRain','localFloodInfil','localFloodDuration']){
     $(id).addEventListener('input',updateParamLabels);
@@ -637,6 +667,7 @@ export function createLocalFloodUI({
     destroy(){
       clearSimulation(false);
       simulator?.destroy();simulator=null;
+      map.off('pitch',syncSceneOnPitch);
       document.removeEventListener('keydown',keydown);
     }
   };
