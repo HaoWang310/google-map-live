@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.44</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.45</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.44';
+  const APP_VERSION='3.21.45';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -660,8 +660,8 @@
   const STREET_LANE_WIDTH_LOCAL_M=2.85;
   const STREET_LANE_WIDTH_SERVICE_M=2.60;
   const STREET_VEHICLE_AI_INTERVAL_MS=105;
-  const STREET_VEHICLE_RENDER_INTERVAL_MS=40;
-  const STREET_VEHICLE_RENDER_MOVING_MS=60;
+  const STREET_VEHICLE_RENDER_INTERVAL_MS=16;
+  const STREET_VEHICLE_RENDER_MOVING_MS=20;
   const STREET_SIGNAL_RENDER_INTERVAL_MS=420;
   const STREET_VEHICLE_PLAN_LOOKAHEAD_M=34;
   const STREET_VEHICLE_LANE_CHANGE_DURATION_MS=950;
@@ -2414,9 +2414,11 @@
 
   function streetVehicleFeaturesForCurrentZoom(vehicle,sample){
     const zoom=osmMap?.getZoom?.()??16;
-    if(zoom>=17.15){
-      return streetVehicleModelFeatures(vehicle,sample);
-    }
+
+    // Animated fill-extrusion GeoJSON is rebuilt every paint. The previous full
+    // multi-part model at z17.15+ created many polygons per vehicle and made motion
+    // visibly step even though the simulation itself was requestAnimationFrame based.
+    // Use the medium compact 3D model at close zooms so 50–60 fps publishing is practical.
     if(zoom>=15.25){
       return streetVehicleCompactFeatures(vehicle,sample,true);
     }
@@ -3097,8 +3099,11 @@
 
   function publishStreetVehicles(){
     if(!osmMap||!osmStyleReady)return;
-    ensureStreetVehicleLayer();
-    const source=osmMap.getSource(STREET_VEHICLE_SOURCE);
+    let source=osmMap.getSource(STREET_VEHICLE_SOURCE);
+    if(!source){
+      ensureStreetVehicleLayer();
+      source=osmMap.getSource(STREET_VEHICLE_SOURCE);
+    }
     if(!source)return;
 
     const features=[];
@@ -5642,8 +5647,9 @@
           ?STREET_VEHICLE_RENDER_MOVING_MS
           :STREET_VEHICLE_RENDER_INTERVAL_MS;
 
-      // Vehicle geometry paints at ~25 fps while the camera is still. The expensive
-      // simulation is throttled separately, so motion is smoother without multiplying AI cost.
+      // Vehicle geometry paints at ~60 fps while the camera is still. AI decisions
+      // remain independently throttled, so visual motion is smooth without running
+      // the expensive decision system at display refresh rate.
       if(time-streetVehicleLastPaint>=renderInterval){
         streetVehicleLastPaint=time;
         publishStreetVehicles();
@@ -5835,7 +5841,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.44)
+     * DISPLAY STABILITY ONLY (v3.21.45)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
