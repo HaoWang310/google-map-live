@@ -348,7 +348,7 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>等高线 · OS Terrain 50</strong>
-              <small>真实高程数据 · 10 m 等高距 · Ordnance Survey OpenData</small>
+              <small id="contourSubtitle">真实高程数据 · 10 m 等高距 · Ordnance Survey OpenData</small>
             </span>
             <input id="contourToggle" type="checkbox" autocomplete="off" disabled>
           </label>
@@ -357,8 +357,18 @@
             <input id="contourOpacity" aria-label="等高线透明度" type="range" min="0" max="1" step="0.05" value="0.72">
             <span id="contourOpacityValue">72%</span>
           </div>
+          <div class="layerOptions">
+            <label for="contourInterval">等高距</label>
+            <select id="contourInterval" aria-label="等高线等高距">
+              <option value="5">5 m</option>
+              <option value="10" selected>10 m</option>
+              <option value="25">25 m</option>
+              <option value="50">50 m</option>
+              <option value="100">100 m</option>
+            </select>
+          </div>
           <div class="layerMeta">
-            从本站保存的 OS Terrain 50 · 50 m 数值高程网格实时生成 10 m 等高线；每 50 m 为主等高线。真实 DEM 派生，不是手绘示意。
+            基于 OS Terrain 50 · 50 m 数值高程网格实时生成等高线；可选择 5 / 10 / 25 / 50 / 100 m 垂直等高距。5 m 等高线为基于 50 m DEM 网格插值生成，不代表原始数据具有 5 m 水平空间分辨率。
           </div>
           <div id="contourStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
@@ -803,8 +813,18 @@
   const CONTOUR_SOURCE='os-terrain50-contours-source';
   const CONTOUR_LINE_LAYER='os-terrain50-contours-line';
   const CONTOUR_LABEL_LAYER='os-terrain50-contours-label';
-  const CONTOUR_INTERVAL_M=10;
-  const CONTOUR_MAJOR_INTERVAL_M=50;
+  const CONTOUR_DEFAULT_INTERVAL_M=10;
+  const CONTOUR_DEFAULT_MAJOR_INTERVAL_M=50;
+
+  function contourMajorIntervalFor(interval){
+    interval=Number(interval)||10;
+    if(interval===5)return 25;
+    if(interval===10)return 50;
+    if(interval===25)return 50;
+    if(interval===50)return 100;
+    if(interval===100)return 200;
+    return 50;
+  }
   // 25 m display: twice the base hydrology dimensions, split below 4096 px.
   // Outer bounds and every image coordinate share the existing EPSG:3857 grid.
   const FLOOD_GRID_SIZE=2;
@@ -873,6 +893,7 @@
 
   let contourEnabled=false;
   let contourOpacity=0.72;
+  let contourIntervalM=CONTOUR_DEFAULT_INTERVAL_M;
   let contourWorker=null;
   let contourWorkerRequestId=0;
   let contourPendingTimer=null;
@@ -1149,7 +1170,13 @@
         ]);
       }
 
-      function buildContours(bounds,zoom){
+      function buildContours(bounds,zoom,interval,majorInterval){
+        interval=Math.max(1,Number(interval)||cfg.interval||10);
+        majorInterval=Math.max(
+          interval,
+          Number(majorInterval)||cfg.majorInterval||50
+        );
+
         const dx=(cfg.bounds.right-cfg.bounds.left)/cfg.width;
         const dy=(cfg.bounds.top-cfg.bounds.bottom)/cfg.height;
 
@@ -1200,9 +1227,9 @@
             const tl=[x0,y0],tr=[x1,y0],br=[x1,y1],bl=[x0,y1];
 
             for(
-              let level=Math.ceil(minZ/cfg.interval)*cfg.interval;
+              let level=Math.ceil(minZ/interval)*interval;
               level<=maxZ;
-              level+=cfg.interval
+              level+=interval
             ){
               const pts=[];
               if(crossed(z00,z10,level))pts.push(interp(tl,tr,z00,z10,level));
@@ -1234,7 +1261,7 @@
             properties:{
               elevation:level,
               label:String(Math.round(level))+' m',
-              major:Math.abs(level%cfg.majorInterval)<1e-6?1:0
+              major:Math.abs(level%majorInterval)<1e-6?1:0
             },
             geometry:{type:'MultiLineString',coordinates:lines}
           });
@@ -1255,10 +1282,27 @@
 
           if(data.type==='contours'){
             await loadDem();
+
+            const interval=Math.max(
+              1,
+              Number(data.interval)||cfg.interval||10
+            );
+            const majorInterval=Math.max(
+              interval,
+              Number(data.majorInterval)||cfg.majorInterval||50
+            );
+
             self.postMessage({
               type:'contours',
               requestId:data.requestId,
-              geojson:buildContours(data.bounds,data.zoom)
+              interval,
+              majorInterval,
+              geojson:buildContours(
+                data.bounds,
+                data.zoom,
+                interval,
+                majorInterval
+              )
             });
           }
         }catch(error){
@@ -1309,8 +1353,8 @@
         bounds:DRAINAGE_3857,
         minimum:-100,
         step:0.1,
-        interval:CONTOUR_INTERVAL_M,
-        majorInterval:CONTOUR_MAJOR_INTERVAL_M,
+        interval:CONTOUR_DEFAULT_INTERVAL_M,
+        majorInterval:CONTOUR_DEFAULT_MAJOR_INTERVAL_M,
         study:{
           x:center3857.x,
           y:center3857.y,
@@ -1344,8 +1388,9 @@
       if(source)source.setData(data.geojson);
 
       const count=data.geojson?.features?.length||0;
+      const interval=Number(data.interval)||contourIntervalM;
       $('contourStatus').textContent=
-        '已显示 · 10 m 等高距 · '+count+' 个高程级';
+        '已显示 · '+interval+' m 等高距 · '+count+' 个高程级';
       $('contourStatus').className='layerStatus';
     };
 
@@ -1470,7 +1515,9 @@
         type:'contours',
         requestId,
         bounds,
-        zoom:osmMap.getZoom()
+        zoom:osmMap.getZoom(),
+        interval:contourIntervalM,
+        majorInterval:contourMajorIntervalFor(contourIntervalM)
       });
     },delay);
   }
@@ -7608,6 +7655,32 @@
     contourOpacity=Number(e.target.value);
     $('contourOpacityValue').textContent=Math.round(contourOpacity*100)+'%';
     applyContourOpacity();
+  });
+
+  $('contourInterval').addEventListener('change',e=>{
+    const next=Number(e.target.value);
+    if(![5,10,25,50,100].includes(next))return;
+
+    contourIntervalM=next;
+
+    const subtitle=$('contourSubtitle');
+    if(subtitle){
+      subtitle.textContent=
+        '真实高程数据 · '+contourIntervalM+
+        ' m 等高距 · Ordnance Survey OpenData';
+    }
+
+    if(!contourEnabled){
+      $('contourStatus').textContent=
+        '已设置 · '+contourIntervalM+' m 等高距';
+      $('contourStatus').className='layerStatus';
+      return;
+    }
+
+    $('contourStatus').textContent=
+      '正在生成 '+contourIntervalM+' m 等高线…';
+    $('contourStatus').className='layerStatus';
+    refreshContourLayer(0);
   });
 
   $('floodToggle').addEventListener('change',e=>{
