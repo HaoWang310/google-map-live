@@ -262,7 +262,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.47</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.48</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -562,7 +562,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.23';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.47';
+  const APP_VERSION='3.21.48';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -663,8 +663,10 @@
   const STREET_VEHICLE_RENDER_INTERVAL_MS=16;
   const STREET_VEHICLE_RENDER_MOVING_MS=20;
   const STREET_SIGNAL_RENDER_INTERVAL_MS=420;
-  const STREET_VEHICLE_DETAIL_BUDGET_NEAR=6;
-  const STREET_VEHICLE_DETAIL_BUDGET_CLOSE=10;
+  const STREET_VEHICLE_DETAIL_BUDGET_NEAR=4;
+  const STREET_VEHICLE_DETAIL_BUDGET_CLOSE=6;
+  const STREET_VEHICLE_DETAIL_REFRESH_MS=420;
+  const STREET_VEHICLE_SAFETY_INTERVAL_MS=120;
   const STREET_VEHICLE_PLAN_LOOKAHEAD_M=34;
   const STREET_VEHICLE_LANE_CHANGE_DURATION_MS=950;
   const STREET_VEHICLE_LANE_CHANGE_COOLDOWN_MS=2600;
@@ -863,6 +865,8 @@
   let streetBuildingObstacles=[];
   let streetSignalLastPaint=0;
   let streetVehicleLastFlowRebalance=0;
+  let streetVehicleDetailIds=new Set();
+  let streetVehicleDetailRefreshAt=0;
 
   let focus70Enabled=false;
   let googleFocusCircle=null;
@@ -2117,30 +2121,38 @@
 
     const features=[lowerBody,upperBody,roof];
 
-    // Side windows are segmented instead of one giant rectangle.
+    // Keep the segmented London-bus window appearance, but group all panes
+    // in one band into one MultiPolygon. This preserves detail while avoiding
+    // 10–12 separate GeoJSON features per window band on every animation frame.
     const sideOffset=spec.width/2-0.055;
     const addWindowBand=(z0,z1,count,startF,endF)=>{
       const span=endF-startF;
       const segment=span/count;
+      const panes=[];
+
       for(const left of [sideOffset,-sideOffset]){
         for(let i=0;i<count;i++){
           const centerF=startF+segment*(i+0.5);
           const forward=(centerF-0.5)*spec.length;
-          features.push({
-            type:'Feature',
-            properties:{
-              vehicleId:id,vehicleType:spec.id,part:'window',
-              minHeight:z0,height:z1,color:glass
-            },
-            geometry:streetVehicleRect(
+          panes.push(
+            streetVehicleRect(
               origin,bearing,
               spec.length*segment*0.82,
               0.105,
               forward,left
             )
-          });
+          );
         }
       }
+
+      features.push({
+        type:'Feature',
+        properties:{
+          vehicleId:id,vehicleType:spec.id,part:'windows',
+          minHeight:z0,height:z1,color:glass
+        },
+        geometry:streetVehicleMultiPolygon(panes)
+      });
     };
 
     addWindowBand(
@@ -3144,6 +3156,58 @@
     });
   }
 
+  function refreshStreetVehicleDetailSelection(time=performance.now()){
+    if(
+      !osmMap||
+      time-streetVehicleDetailRefreshAt<STREET_VEHICLE_DETAIL_REFRESH_MS
+    )return;
+
+    streetVehicleDetailRefreshAt=time;
+    const zoom=osmMap.getZoom();
+    const is3D=osmMap.getPitch()>.5;
+
+    if(!is3D||zoom<16.8){
+      streetVehicleDetailIds=new Set();
+      return;
+    }
+
+    const canvas=osmMap.getCanvas();
+    const cx=canvas.clientWidth*0.5;
+    const cy=canvas.clientHeight*0.5;
+    const ranked=[];
+
+    for(const vehicle of streetVehicles){
+      if(vehicle.active===false)continue;
+      const sample=streetVehicleSample(vehicle);
+      if(!sample)continue;
+
+      const p=osmMap.project(sample.point);
+      if(
+        p.x<-180||p.y<-180||
+        p.x>canvas.clientWidth+180||
+        p.y>canvas.clientHeight+180
+      )continue;
+
+      const spec=streetVehicleSpec(vehicle);
+      const sizeBias=Math.max(1,Number(spec.length||4.5)/4.5);
+      const dx=p.x-cx;
+      const dy=p.y-cy;
+      ranked.push({
+        id:vehicle.id,
+        score:(dx*dx+dy*dy)/(sizeBias*sizeBias)
+      });
+    }
+
+    ranked.sort((a,b)=>a.score-b.score);
+    const budget=zoom>=18
+      ?STREET_VEHICLE_DETAIL_BUDGET_CLOSE
+      :STREET_VEHICLE_DETAIL_BUDGET_NEAR;
+
+    streetVehicleDetailIds=new Set(
+      ranked.slice(0,budget).map(item=>item.id)
+    );
+  }
+
   function publishStreetVehicles(){
     if(!osmMap||!osmStyleReady)return;
     let source=osmMap.getSource(STREET_VEHICLE_SOURCE);
@@ -3153,12 +3217,10 @@
     }
     if(!source)return;
 
+    refreshStreetVehicleDetailSelection();
+
     const canvas=osmMap.getCanvas();
-    const cx=canvas.clientWidth*0.5;
-    const cy=canvas.clientHeight*0.5;
-    const zoom=osmMap.getZoom();
-    const is3D=osmMap.getPitch()>.5;
-    const entries=[];
+    const features=[];
 
     for(const vehicle of streetVehicles){
       if(vehicle.active===false)continue;
@@ -3169,36 +3231,20 @@
       vehicle.lat=sample.point[1];
       vehicle.bearing=sample.bearing;
 
+      // Do not send far-offscreen vehicle geometry through GeoJSON triangulation.
+      // These vehicles continue simulating, but render only when they approach the view.
       const p=osmMap.project(sample.point);
-      const spec=streetVehicleSpec(vehicle);
+      if(
+        p.x<-140||p.y<-140||
+        p.x>canvas.clientWidth+140||
+        p.y>canvas.clientHeight+140
+      )continue;
 
-      // Larger vehicles remain detailed slightly farther from screen centre, while
-      // very close cars still rank ahead. This keeps buses, black cabs and cars readable.
-      const sizeBias=Math.max(1,Number(spec.length||4.5)/4.5);
-      const dx=p.x-cx;
-      const dy=p.y-cy;
-      const detailScore=(dx*dx+dy*dy)/(sizeBias*sizeBias);
-
-      entries.push({vehicle,sample,detailScore});
-    }
-
-    entries.sort((a,b)=>a.detailScore-b.detailScore);
-
-    const detailBudget=
-      !is3D||zoom<16.8
-        ?0
-        :zoom>=18
-          ?STREET_VEHICLE_DETAIL_BUDGET_CLOSE
-          :STREET_VEHICLE_DETAIL_BUDGET_NEAR;
-
-    const features=[];
-    for(let i=0;i<entries.length;i++){
-      const {vehicle,sample}=entries[i];
       features.push(
         ...streetVehicleFeaturesForCurrentZoom(
           vehicle,
           sample,
-          i<detailBudget
+          streetVehicleDetailIds.has(vehicle.id)
         )
       );
     }
@@ -5103,6 +5149,8 @@
     vehicle.lanePosition=vehicle.laneIndex;
     vehicle.laneTarget=vehicle.laneIndex;
     vehicle.distanceM=chosen.distanceM;
+    vehicle.nextSafetyAt=0;
+    vehicle.safetyBlocked=false;
     vehicle.plannedConnection=null;
     clearStreetVehicleRouteEndWait(vehicle);
     vehicle.state='junction_exit';
@@ -5556,6 +5604,7 @@
       }
     }
 
+    streetVehicleDetailRefreshAt=0;
     publishStreetVehicles();
     startStreetVehicleAnimation();
   }
@@ -5666,38 +5715,62 @@
         );
         if(!nextSample)continue;
 
-        // Building is a hard obstacle. If the current lane would enter a building,
-        // try another valid lane on the SAME road; otherwise brake and stay put.
-        if(streetVehicleIntersectsBuilding(nextSample,vehicle)){
-          const safeLane=streetVehicleSafeLaneSample(
-            vehicle,
-            vehicle.route,
-            vehicle.direction,
-            nextDistance,
-            vehicle.laneIndex||0
-          );
-          if(safeLane){
-            vehicle.laneIndex=safeLane.laneIndex;
-            nextSample=safeLane.sample;
+        // Exact building/SAT collision checks are a safety net, not the visual
+        // animation clock. Run them at a fixed safety cadence and reuse the result
+        // between checks; lead-car AI already maintains normal following distance.
+        if(
+          !Number.isFinite(vehicle.nextSafetyAt)||
+          time>=vehicle.nextSafetyAt
+        ){
+          vehicle.nextSafetyAt=
+            time+
+            STREET_VEHICLE_SAFETY_INTERVAL_MS*
+            (0.90+Math.random()*0.20);
+
+          let blocked=false;
+
+          if(streetVehicleIntersectsBuilding(nextSample,vehicle)){
+            const safeLane=streetVehicleSafeLaneSample(
+              vehicle,
+              vehicle.route,
+              vehicle.direction,
+              nextDistance,
+              vehicle.laneIndex||0
+            );
+            if(safeLane){
+              vehicle.laneIndex=safeLane.laneIndex;
+              nextSample=safeLane.sample;
+            }else{
+              blocked=true;
+            }
           }
+
+          if(
+            !blocked&&
+            streetVehicleConflicts(
+              nextSample,
+              vehicle.route,
+              vehicle.direction,
+              vehicle,
+              false,
+              true
+            )
+          ){
+            blocked=true;
+          }
+
+          vehicle.safetyBlocked=blocked;
         }
 
-        if(
-          !streetVehicleConflicts(
-            nextSample,
-            vehicle.route,
-            vehicle.direction,
-            vehicle,
-            false,
-            true
-          )
-        ){
+        if(!vehicle.safetyBlocked){
           vehicle.distanceM=nextDistance;
         }else{
           const changed=streetVehicleTryLaneChange(
             vehicle,time,'blocked'
           );
-          if(!changed){
+          if(changed){
+            vehicle.safetyBlocked=false;
+          }else{
             const driver=ensureStreetVehicleDriver(vehicle);
             vehicle.speedMps=Math.max(
               0,
@@ -5924,7 +5997,7 @@
     if(!osmMap||!osmMap.getSource(CITY_BUILDINGS_SOURCE))return;
 
     /*
-     * DISPLAY STABILITY ONLY (v3.21.47)
+     * DISPLAY STABILITY ONLY (v3.21.48)
      *
      * The building source contains reliable detailed geometry at z13/z14. At high pitch
      * MapLibre may normally decay vector-tile LOD toward the horizon; rotating the camera
