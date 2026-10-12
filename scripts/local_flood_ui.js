@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.18.9';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.19.0';
 
 const SEL_SOURCE='local-flood-selection-source';
 const SEL_FILL='local-flood-selection-fill';
@@ -6,6 +6,9 @@ const SEL_LINE='local-flood-selection-line';
 const SEL_POINTS='local-flood-selection-points';
 const WATER_SOURCE='local-flood-water-source';
 const WATER_LAYER='local-flood-water-layer';
+const BUILDING_SCENE_SOURCE='local-flood-building-scene-source';
+const BUILDING_SCENE_FILL='local-flood-building-scene-fill';
+const BUILDING_SCENE_3D='local-flood-building-scene-3d';
 const R=6378137;
 
 const $=id=>document.getElementById(id);
@@ -186,6 +189,7 @@ export function createLocalFloodUI({
   let impactedStateIds=new Set();
   let buildingSourceId=null;
   let buildingSourceLayer='building';
+  let sceneFeatures=new Map();
   let canvas=null;
   let canvasContext=null;
   let simulator=null;
@@ -243,6 +247,67 @@ export function createLocalFloodUI({
     $('localFloodRun').disabled=!prepared;
     $('localFloodPause').disabled=!prepared;
     $('localFloodReset').disabled=!prepared;
+  }
+
+  function buildingColourExpression(){
+    return [
+      'case',
+      ['boolean',['get','impacted'],false],'#ff3b30',
+      ['boolean',['get','selected'],false],'#33b8ff',
+      '#c6ced5'
+    ];
+  }
+
+  function ensureBuildingSceneLayers(){
+    if(!map.getSource(BUILDING_SCENE_SOURCE)){
+      map.addSource(BUILDING_SCENE_SOURCE,{
+        type:'geojson',data:{type:'FeatureCollection',features:[]}
+      });
+    }
+    if(!map.getLayer(BUILDING_SCENE_FILL)){
+      map.addLayer({
+        id:BUILDING_SCENE_FILL,type:'fill',source:BUILDING_SCENE_SOURCE,minzoom:14,
+        layout:{visibility:map.getPitch()>.5?'none':'visible'},
+        paint:{'fill-color':buildingColourExpression(),'fill-opacity':0.92}
+      },getFirstSymbolLayerId());
+    }
+    if(!map.getLayer(BUILDING_SCENE_3D)){
+      map.addLayer({
+        id:BUILDING_SCENE_3D,type:'fill-extrusion',source:BUILDING_SCENE_SOURCE,minzoom:14,
+        layout:{visibility:map.getPitch()>.5?'visible':'none'},
+        paint:{
+          'fill-extrusion-color':buildingColourExpression(),
+          'fill-extrusion-height':['get','simHeight'],
+          'fill-extrusion-base':['get','simBase'],
+          'fill-extrusion-opacity':1
+        }
+      },getFirstSymbolLayerId());
+    }
+  }
+
+  function syncBuildingSceneView(){
+    const is3D=map.getPitch()>.5;
+    if(map.getLayer(BUILDING_SCENE_3D)){
+      map.setLayoutProperty(BUILDING_SCENE_3D,'visibility',is3D?'visible':'none');
+    }
+    if(map.getLayer(BUILDING_SCENE_FILL)){
+      map.setLayoutProperty(BUILDING_SCENE_FILL,'visibility',is3D?'none':'visible');
+    }
+  }
+
+  function publishBuildingScene(){
+    ensureBuildingSceneLayers();
+    map.getSource(BUILDING_SCENE_SOURCE)?.setData({
+      type:'FeatureCollection',features:[...sceneFeatures.values()]
+    });
+    syncBuildingSceneView();
+  }
+
+  function removeBuildingScene(){
+    if(map.getLayer(BUILDING_SCENE_3D))map.removeLayer(BUILDING_SCENE_3D);
+    if(map.getLayer(BUILDING_SCENE_FILL))map.removeLayer(BUILDING_SCENE_FILL);
+    if(map.getSource(BUILDING_SCENE_SOURCE))map.removeSource(BUILDING_SCENE_SOURCE);
+    sceneFeatures.clear();
   }
 
   function setBuildingImpactState(entry,impacted){
