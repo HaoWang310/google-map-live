@@ -269,7 +269,8 @@ function onceIdle(map,timeout=2200){
 export function createLocalFloodUI({
   map,maplibregl,assetUrl,demBounds,demWidth,demHeight,
   ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId,
-  setCityBuildingFloodSelection,setCityIsolateMode
+  setCityBuildingFloodSelection,setCityIsolateMode,
+  getFocusAnalysisSettings,getFocusReferenceTile
 }){
   let drawing=false;
   let editingSelection=false;
@@ -294,6 +295,10 @@ export function createLocalFloodUI({
   let isolateCamera=null;
   let isolateViewer=null;
   let isolateViewerElement=null;
+  let focusWaterBounds=null;
+  let focusSiteSerial=0;
+  let focusAppliedThreshold=null;
+  let focusThresholdTimer=null;
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -391,6 +396,144 @@ export function createLocalFloodUI({
   const FOCUS_WATER='focus-water-source';
   const FOCUS_2D='focus-building-fill';
   const FOCUS_3D='focus-building-extrusion';
+  const FOCUS_EA_SOURCE='focus-ea-risk-source';
+  const FOCUS_DRAINAGE_SOURCE='focus-drainage-network-source';
+  const FOCUS_EA_LAYER='focus-ea-risk-context';
+  const FOCUS_DRAINAGE_LAYER='focus-drainage-context';
+  const FOCUS_RAIN_SOURCE='focus-dynamic-rain-source';
+  const FOCUS_RAIN_LAYER='focus-dynamic-rain-layer';
+
+
+  const focusReferenceTileSize=512;
+  const HALF_WORLD=Math.PI*6378137;
+  const focusEmptyTile=async()=>{
+    const blank=new OffscreenCanvas(focusReferenceTileSize,focusReferenceTileSize);
+    return (await (await blank.convertToBlob({type:'image/png'})).arrayBuffer());
+  };
+
+  function siteTileBounds(z,x,y){
+    const side=2*HALF_WORLD/2**z;
+    return {
+      west:-HALF_WORLD+x*side,
+      east:-HALF_WORLD+(x+1)*side,
+      north:HALF_WORLD-y*side,
+      south:HALF_WORLD-(y+1)*side
+    };
+  }
+
+  function maskSiteContextTile(sourceData,z,x,y,siteRing){
+    // Returned overlay pixels are constrained to geographic polygon coordinates,
+    // rather than a camera-dependent CSS clip (which previously broke 3D views).
+    return (async()=>{
+      const image=await createImageBitmap(new Blob([sourceData],{type:'image/png'}));
+      try{
+        const output=new OffscreenCanvas(focusReferenceTileSize,focusReferenceTileSize);
+        const ctx=output.getContext('2d',{willReadFrequently:true});
+        ctx.drawImage(image,0,0,focusReferenceTileSize,focusReferenceTileSize);
+        const data=ctx.getImageData(0,0,focusReferenceTileSize,focusReferenceTileSize);
+        const bounds=siteTileBounds(z,x,y);
+        const siteBox=bboxLngLat(siteRing);
+        const x0=mercator(siteBox.west,siteBox.south)[0];
+        const x1=mercator(siteBox.east,siteBox.north)[0];
+        const y0=mercator(siteBox.west,siteBox.south)[1];
+        const y1=mercator(siteBox.east,siteBox.north)[1];
+        const w=focusReferenceTileSize,h=focusReferenceTileSize;
+        if(bounds.east<=x0||bounds.west>=x1||bounds.north<=y0||bounds.south>=y1){
+          data.data.fill(0);
+        }else{
+          const c0=clamp(Math.floor((x0-bounds.west)/(bounds.east-bounds.west)*w)-1,0,w);
+          const c1=clamp(Math.ceil((x1-bounds.west)/(bounds.east-bounds.west)*w)+1,0,w);
+          const r0=clamp(Math.floor((bounds.north-y1)/(bounds.north-bounds.south)*h)-1,0,h);
+          const r1=clamp(Math.ceil((bounds.north-y0)/(bounds.north-bounds.south)*h)+1,0,h);
+          for(let row=0;row<h;row++){
+            const yy=bounds.north-(row+.5)*(bounds.north-bounds.south)/h;
+            const lat=(2*Math.atan(Math.exp(yy/6378137))-Math.PI/2)*180/Math.PI;
+            for(let col=0;col<w;col++){
+              const p=(row*w+col)*4;
+              if(data.data[p+3]===0)continue;
+              if(row<r0||row>=r1||col<c0||col>=c1){
+                data.data[p+3]=0;continue;
+              }
+              const xx=bounds.west+(col+.5)*(bounds.east-bounds.west)/w;
+              const lng=xx/6378137*180/Math.PI;
+              if(!pointInRingLngLat([lng,lat],siteRing))data.data[p+3]=0;
+            }
+          }
+        }
+        ctx.putImageData(data,0,0);
+        return (await (await output.convertToBlob({type:'image/png'})).arrayBuffer());
+      }finally{image.close();}
+    })();
+  }
+
+  // Both datasets are already loaded by the app through verified protocols.
+  // We reuse the same official EA risk and single authoritative drainage raster,
+  // then mask them to the parcel before MapLibre receives the tile.
+  maplibregl.addProtocol('site-context',async(request,controller)=>{
+    const m=/^site-context:\/\/(ea|drainage)\/(\d+)\/([0-9.]+)\/(\d+)\/(\d+)\/(\d+)$/
+      .exec(request.url);
+    if(!m)throw new Error('Invalid isolated site context URL');
+    const [,type,serial,thresholdText,zText,xText,yText]=m;
+    const z=Number(zText),x=Number(xText),y=Number(yText);
+    if(Number(serial)!==focusSiteSerial||!isolatedSelection||!polygon?.[0]){
+      return {data:await focusEmptyTile()};
+    }
+    const ring=polygon[0].map(p=>[p[0],p[1]]);
+    const bbox=siteTileBounds(z,x,y);
+    const polygonBBox=bboxLngLat(ring);
+    const sw=mercator(polygonBBox.west,polygonBBox.south);
+    const ne=mercator(polygonBBox.east,polygonBBox.north);
+    if(bbox.east<sw[0]||bbox.west>ne[0]||bbox.north<sw[1]||bbox.south>ne[1]){
+      return {data:await focusEmptyTile()};
+    }
+    const url=type==='ea'
+      ?'ea-flood://tiles/'+z+'/'+x+'/'+y
+      :'drainage-network://tiles/'+thresholdText+'/'+z+'/'+x+'/'+y;
+    const raw=await getFocusReferenceTile(type,{...request,url},controller);
+    if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
+    const result=await maskSiteContextTile(raw.data,z,x,y,ring);
+    if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
+    return {data:result,cacheControl:'max-age=1800'};
+  });
+
+  function focusContextSettings(){
+    const ctx=getFocusAnalysisSettings?.()||{};
+    return {
+      ea:ctx.ea!==false,
+      drainage:ctx.drainage!==false,
+      threshold:clamp(Number(ctx.threshold)||0,0,50).toFixed(3)
+    };
+  }
+
+  function focusContextUrl(type,threshold){
+    return 'site-context://'+type+'/'+focusSiteSerial+'/'+threshold+'/{z}/{x}/{y}';
+  }
+
+  function updateFocusAnalysisLayers(){
+    const viewer=isolateViewer;
+    if(!viewer||!viewer.getLayer(FOCUS_EA_LAYER))return;
+    const ctx=focusContextSettings();
+    for(const [id,on] of [[FOCUS_EA_LAYER,ctx.ea],[FOCUS_DRAINAGE_LAYER,ctx.drainage]]){
+      if(viewer.getLayoutProperty(id,'visibility')!==(on?'visible':'none')){
+        viewer.setLayoutProperty(id,'visibility',on?'visible':'none');
+      }
+    }
+    if(ctx.threshold!==focusAppliedThreshold){
+      focusAppliedThreshold=ctx.threshold;
+      viewer.getSource(FOCUS_DRAINAGE_SOURCE)?.setTiles([
+        focusContextUrl('drainage',ctx.threshold)
+      ]);
+    }
+  }
+
+  function scheduleFocusContextRefresh(){
+    if(!isolatedSelection)return;
+    if(focusThresholdTimer)clearTimeout(focusThresholdTimer);
+    focusThresholdTimer=setTimeout(()=>{
+      focusThresholdTimer=null;
+      updateFocusAnalysisLayers();
+    },130);
+  }
 
   function focusBuildingData(){
     return {
@@ -635,6 +778,7 @@ export function createLocalFloodUI({
   }
 
   function focusStyle(details){
+    const analysis=focusContextSettings();
     const parcel={
       type:'FeatureCollection',
       features:[{
@@ -649,7 +793,21 @@ export function createLocalFloodUI({
         [FOCUS_BUILDINGS]:{type:'geojson',data:focusBuildingData()},
         [FOCUS_GREEN]:{type:'geojson',data:details.greens},
         [FOCUS_WATER]:{type:'geojson',data:details.waters},
-        [FOCUS_ROADS]:{type:'geojson',data:details.roads}
+        [FOCUS_ROADS]:{type:'geojson',data:details.roads},
+        [FOCUS_EA_SOURCE]:{
+          type:'raster',tiles:[focusContextUrl('ea',analysis.threshold)],
+          tileSize:512,minzoom:13,maxzoom:17
+        },
+        [FOCUS_DRAINAGE_SOURCE]:{
+          type:'raster',tiles:[focusContextUrl('drainage',analysis.threshold)],
+          tileSize:512,minzoom:8,maxzoom:18
+        },
+        ...(canvas&&focusWaterBounds?{
+          [FOCUS_RAIN_SOURCE]:{
+            type:'canvas',canvas:canvas.id,animate:true,
+            coordinates:focusWaterBounds
+          }
+        }:{})
       },
       layers:[
         {id:'focus-background',type:'background',
@@ -660,6 +818,12 @@ export function createLocalFloodUI({
           paint:{'fill-color':'#bfd9b1','fill-opacity':0.95}},
         {id:'focus-water-ground',type:'fill',source:FOCUS_WATER,
           paint:{'fill-color':'#a8d5ec','fill-opacity':0.95}},
+        {id:FOCUS_EA_LAYER,type:'raster',source:FOCUS_EA_SOURCE,
+          layout:{visibility:analysis.ea?'visible':'none'},
+          paint:{'raster-opacity':0.30,'raster-resampling':'nearest','raster-fade-duration':0}},
+        {id:FOCUS_DRAINAGE_LAYER,type:'raster',source:FOCUS_DRAINAGE_SOURCE,
+          layout:{visibility:analysis.drainage?'visible':'none'},
+          paint:{'raster-opacity':0.52,'raster-resampling':'linear','raster-fade-duration':0}},
         {id:'focus-road-casing',type:'fill',source:FOCUS_ROADS,
           filter:['==',['get','part'],'casing'],
           paint:{
@@ -673,6 +837,10 @@ export function createLocalFloodUI({
               'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff'],
             'fill-opacity':1
           }},
+        ...(canvas&&focusWaterBounds?[{
+          id:FOCUS_RAIN_LAYER,type:'raster',source:FOCUS_RAIN_SOURCE,
+          paint:{'raster-opacity':0.94,'raster-resampling':'linear','raster-fade-duration':0}
+        }]:[]),
         // The dashed red boundary is a ground-level graphic, not an overlay
         // painted across roofs/walls. Extruded buildings must draw after it
         // for physically correct occlusion from every camera bearing.
@@ -709,6 +877,8 @@ export function createLocalFloodUI({
   }
 
   function destroyFocusViewer(){
+    if(focusThresholdTimer)clearTimeout(focusThresholdTimer);
+    focusThresholdTimer=null;
     const viewer=isolateViewer;
     isolateViewer=null;
     if(viewer){
@@ -743,10 +913,12 @@ export function createLocalFloodUI({
       throw error;
     }
     isolateViewer=viewer;
+    focusAppliedThreshold=focusContextSettings().threshold;
     viewer.on('pitch',setFocusPitchMode);
     viewer.once('load',()=>{
       if(isolateViewer!==viewer||!isolatedSelection)return;
       setFocusPitchMode();
+      updateFocusAnalysisLayers();
       const bounds=selectionBounds(polygon[0]);
       if(!bounds)return;
       viewer.fitBounds(bounds,{
@@ -770,6 +942,7 @@ export function createLocalFloodUI({
       pitch:map.getPitch(),bearing:map.getBearing()
     };
     isolatedSelection=true;
+    focusSiteSerial++;
     try{
       createFocusViewer();
     }catch(error){
@@ -937,6 +1110,7 @@ export function createLocalFloodUI({
   function removeWaterLayers(){
     if(map.getLayer(WATER_LAYER))map.removeLayer(WATER_LAYER);
     if(map.getSource(WATER_SOURCE))map.removeSource(WATER_SOURCE);
+    focusWaterBounds=null;
     if(canvas){canvas.remove();canvas=null;canvasContext=null;}
   }
 
@@ -1243,6 +1417,7 @@ export function createLocalFloodUI({
     canvas=document.createElement('canvas');
     canvas.id='localFloodCanvas';
     canvas.width=info.cols;canvas.height=info.rows;
+    focusWaterBounds=info.boundsLngLat;
     canvas.style.cssText='position:absolute;left:-10000px;top:-10000px;width:1px;height:1px;pointer-events:none';
     document.body.appendChild(canvas);
     canvasContext=canvas.getContext('2d');
@@ -1380,6 +1555,9 @@ export function createLocalFloodUI({
     }
     canvasContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
     map.triggerRepaint();
+    // The independent 3D viewer shares this very same simulation canvas.
+    // Water is painted before buildings so roofs/facades stay unobscured.
+    isolateViewer?.triggerRepaint();
 
     const nextImpacted=new Set(data.impactedIds||[]);
 
@@ -1770,6 +1948,9 @@ export function createLocalFloodUI({
     }
     if(changed)publishBuildingScene();
   });
+  for(const id of ['localFloodFocusEA','localFloodFocusDrainage','networkThreshold','networkThresholdInput']){
+    $(id)?.addEventListener('change',scheduleFocusContextRefresh);
+  }
   for(const id of ['localFloodRain','localFloodInfil','localFloodDuration']){
     $(id).addEventListener('input',updateParamLabels);
   }
