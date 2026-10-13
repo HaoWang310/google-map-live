@@ -10,7 +10,7 @@ export function createLocalFloodSimulator(config){
 
   function ensureWorker(){
     if(worker)return;
-    worker=new Worker(new URL('./local_flood_worker.js?v=3.17.2',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./local_flood_worker.js?v=3.21.77',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>{
       if(data.type==='setup-complete'){
         const request=pending.get(data.requestId);
@@ -42,7 +42,8 @@ export function createLocalFloodSimulator(config){
       demBounds:config.demBounds,
       demWidth:config.demWidth,
       demHeight:config.demHeight,
-      demEncoding:config.demEncoding
+      demEncoding:config.demEncoding,
+      drainageUrl:config.drainageUrl||null
     });
   }
 
