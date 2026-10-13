@@ -515,6 +515,22 @@
             <input id="localFloodDuration" type="range" min="15" max="180" step="15" value="60">
             <span id="localFloodDurationValue">60 min</span>
           </div>
+          <div class="layerOptions" style="padding-bottom:6px">
+            <label style="margin-bottom:6px">独立地块 · 联合洪涝分析</label>
+            <label style="display:flex;gap:7px;align-items:center;margin-bottom:5px">
+              <input id="localFloodFocusEA" type="checkbox" checked style="width:15px;height:15px">
+              EA 现状洪水风险参考（不代表实时水深）
+            </label>
+            <label style="display:flex;gap:7px;align-items:center;margin-bottom:5px">
+              <input id="localFloodFocusDrainage" type="checkbox" checked style="width:15px;height:15px">
+              地形推导排水网络参考（使用上方阈值）
+            </label>
+            <label style="display:flex;gap:7px;align-items:center">
+              <input id="localFloodDrainageGuide" type="checkbox" checked style="width:15px;height:15px">
+              模拟中参考汇水路径引导下坡水流
+            </label>
+            <div class="terrainMeta">蓝色动态积水由降雨、50 m DEM 和建筑障碍计算；EA 风险为长期概率分类，排水网络是地形推导路径。两者不等于水深或地下管网。</div>
+          </div>
           <div class="simButtonRow">
             <button id="localFloodRun" type="button" disabled>运行</button>
             <button id="localFloodPause" class="secondary" type="button" disabled>暂停</button>
@@ -7517,7 +7533,15 @@
           ensureCityBuildings,setCityView,getFirstSymbolLayerId,
           cityBuildingsLayerId:CITY_BUILDINGS_LAYER,
           setCityBuildingFloodSelection,
-          setCityIsolateMode
+          setCityIsolateMode,
+          getFocusAnalysisSettings:()=>({
+            ea:$('localFloodFocusEA').checked,
+            drainage:$('localFloodFocusDrainage').checked,
+            guide:$('localFloodDrainageGuide').checked,
+            threshold:networkThreshold
+          }),
+          getFocusReferenceTile:(type,request,controller)=>
+            type==='ea'?detailLoader(request,controller):hydrologyLoader(request,controller)
         });
       }
       $('localFloodDraw').disabled=false;
