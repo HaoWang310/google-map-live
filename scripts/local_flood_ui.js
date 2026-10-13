@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.14';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.21.77';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -952,7 +952,7 @@ export function createLocalFloodUI({
       return false;
     }
     hideAreaPopup();
-    status('独立视图：显示选区内建筑、道路、绿地与水面；按 Esc 返回原地图。');
+    status('独立视图已包含地块水深模拟、EA 官方风险参考和地形汇水网络。点击“运行”开始动态积水，Esc 返回。');
     return true;
   }
 
@@ -1397,6 +1397,7 @@ export function createLocalFloodUI({
     if(simulator)return simulator;
     simulator=createLocalFloodSimulator({
       demUrl:new URL(assetUrl('assets/drainage_area/dem50_log16.webp'),location.href).href,
+      drainageUrl:new URL(assetUrl('assets/drainage_area/area_log16.webp'),location.href).href,
       demBounds,
       demWidth,
       demHeight,
@@ -1534,7 +1535,8 @@ export function createLocalFloodUI({
       ensureWaterLayer(info);
       publishBuildingScene();
       $('localFloodGridInfo').textContent=
-        info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑';
+        info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑 · '+
+        (info.drainageAvailable?'汇水路径数据就绪':'地形独立计算（汇水数据不可用）');
       $('localFloodStats').textContent=
         '范围 '+(area/1e6).toFixed(2)+' km² · '+info.cellSizeM+' m 网格 · 圈内建筑 '+info.buildingCount+' 栋';
       setButtons();
@@ -1604,7 +1606,9 @@ export function createLocalFloodUI({
       rainfall:Number($('localFloodRain').value),
       infiltration:Number($('localFloodInfil').value),
       duration:Number($('localFloodDuration').value),
-      openBoundary:true
+      openBoundary:true,
+      drainageGuide:$('localFloodDrainageGuide')?.checked!==false,
+      drainageThreshold:Number($('networkThreshold')?.value)||0
     };
   }
 
@@ -1949,8 +1953,14 @@ export function createLocalFloodUI({
     if(changed)publishBuildingScene();
   });
   for(const id of ['localFloodFocusEA','localFloodFocusDrainage','networkThreshold','networkThresholdInput']){
-    $(id)?.addEventListener('change',scheduleFocusContextRefresh);
+    $(id)?.addEventListener('change',()=>{
+      scheduleFocusContextRefresh();
+      simulator?.setParams(currentParams());
+    });
   }
+  $('localFloodDrainageGuide')?.addEventListener('change',()=>{
+    simulator?.setParams(currentParams());
+  });
   for(const id of ['localFloodRain','localFloodInfil','localFloodDuration']){
     $(id).addEventListener('input',updateParamLabels);
   }
