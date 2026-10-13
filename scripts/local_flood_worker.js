@@ -8,7 +8,7 @@ let running=false;
 let timer=null;
 let params={
   rainfall:50,infiltration:5,duration:60,openBoundary:true,
-  drainageGuide:true,drainageThreshold:1
+  drainageGuide:true,drainageThreshold:1,rainSeriesMm15:null
 };
 
 function mercator(lng,lat){
@@ -292,7 +292,16 @@ function simulationStep(dt=5){
   const {cols,rows,terrain,inside,obstacle,water,delta,boundary,accumulation}=sim;
   const useDrainage=Boolean(params.drainageGuide&&sim.drainageAvailable);
   const threshold=accumulationCode(params.drainageThreshold);
-  const rain=Math.max(0,Number(params.rainfall)||0)/1000/3600*dt;
+  // EA tipping-bucket readings are accumulated mm per quarter hour.
+  // When a verified, complete 16-bin 4h record is selected, drive the solver
+  // by its actual measured temporal profile instead of inventing a uniform storm.
+  const series=Array.isArray(params.rainSeriesMm15)&&params.rainSeriesMm15.length===16
+    ?params.rainSeriesMm15:null;
+  const slot=Math.min(15,Math.max(0,Math.floor(sim.timeSec/900)));
+  const observed=series&&sim.timeSec<4*3600?Number(series[slot]):NaN;
+  const rain=Number.isFinite(observed)&&observed>=0
+    ?observed/1000/900*dt
+    :Math.max(0,Number(params.rainfall)||0)/1000/3600*dt;
   const infil=Math.max(0,Number(params.infiltration)||0)/1000/3600*dt;
 
   for(let i=0;i<water.length;i++){
@@ -433,9 +442,16 @@ function sendFrame(){
     }
   }
 
+  const activeSeries=Array.isArray(params.rainSeriesMm15)&&params.rainSeriesMm15.length===16?
+    params.rainSeriesMm15:null;
+  const seriesSlot=Math.max(0,Math.min(15,Math.floor(Math.max(0,sim.timeSec-0.01)/900)));
+  const currentRainMmH=activeSeries?
+    Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
+    Math.max(0,Number(params.rainfall)||0);
   postMessage({
     type:'frame',width:cols,height:rows,pixels:pixels.buffer,
     stats:{
+      currentRainMmH,
       timeMin:sim.timeSec/60,
       maxDepthM:maxDepth,
       wetAreaM2:wetCells*cell*cell,
