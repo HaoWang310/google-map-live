@@ -2,10 +2,14 @@ const R=6378137;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 let demConfig=null;
 let demPromise=null;
+let drainagePromise=null;
 let sim=null;
 let running=false;
 let timer=null;
-let params={rainfall:50,infiltration:5,duration:60,openBoundary:true};
+let params={
+  rainfall:50,infiltration:5,duration:60,openBoundary:true,
+  drainageGuide:true,drainageThreshold:1
+};
 
 function mercator(lng,lat){
   const lon=lng*Math.PI/180;
@@ -102,6 +106,52 @@ function sampleDem(codes,x,y){
   return a*(1-ty)+btm*ty;
 }
 
+
+const DRAINAGE_MIN_KM2=0.0025;
+const DRAINAGE_MAX_KM2=20000;
+function accumulationCode(areaKm2){
+  const clamped=clamp(Number(areaKm2)||0,DRAINAGE_MIN_KM2,DRAINAGE_MAX_KM2);
+  return 1+Math.round(
+    Math.log(clamped/DRAINAGE_MIN_KM2)/
+    Math.log(DRAINAGE_MAX_KM2/DRAINAGE_MIN_KM2)*65534
+  );
+}
+
+async function loadDrainageCodes(){
+  if(!demConfig?.drainageUrl)return null;
+  if(drainagePromise)return drainagePromise;
+  drainagePromise=(async()=>{
+    const response=await fetch(demConfig.drainageUrl,{cache:'force-cache'});
+    if(!response.ok)throw new Error('50 m 汇水栅格不可用');
+    const bitmap=await createImageBitmap(await response.blob());
+    try{
+      if(bitmap.width!==demConfig.demWidth||bitmap.height!==demConfig.demHeight){
+        throw new Error('汇水栅格与地形栅格尺寸不匹配');
+      }
+      const cv=new OffscreenCanvas(bitmap.width,bitmap.height);
+      const ctx=cv.getContext('2d',{willReadFrequently:true});
+      ctx.drawImage(bitmap,0,0);
+      const rgba=ctx.getImageData(0,0,bitmap.width,bitmap.height).data;
+      const codes=new Uint16Array(bitmap.width*bitmap.height);
+      for(let i=0;i<codes.length;i++)codes[i]=(rgba[i*4]<<8)|rgba[i*4+1];
+      cv.width=1;cv.height=1;
+      return codes;
+    }finally{bitmap.close();}
+  })().catch(error=>{drainagePromise=null;throw error;});
+  return drainagePromise;
+}
+
+function sampleDrainageCode(codes,x,y){
+  if(!codes)return 0;
+  const b=demConfig.demBounds;
+  if(x<b.left||x>b.right||y<b.bottom||y>b.top)return 0;
+  const sx=Math.floor((x-b.left)/(b.right-b.left)*demConfig.demWidth);
+  const sy=Math.floor((b.top-y)/(b.top-b.bottom)*demConfig.demHeight);
+  const col=clamp(sx,0,demConfig.demWidth-1);
+  const row=clamp(sy,0,demConfig.demHeight-1);
+  return codes[row*demConfig.demWidth+col];
+}
+
 function chooseCellSize(width,height){
   const target=Math.max(width/240,height/240,10);
   return clamp(Math.ceil(target/5)*5,10,50);
@@ -145,6 +195,13 @@ function rasterizeBuilding(simulation,building){
 
 async function setup(data){
   const codes=await loadDem();
+  // Derived accumulation is advisory, not a pipe system or rainfall-water depth.
+  // Failure is non-fatal: the original DEM-only simulation still works.
+  let upstreamCodes=null;
+  if(demConfig.drainageUrl){
+    try{upstreamCodes=await loadDrainageCodes();}
+    catch(error){console.warn('Using DEM-only fallback:',error);}
+  }
   const selectionRings=toMercatorRings(data.polygon);
   const box=bboxOfRings(selectionRings);
   const width=box.right-box.left,height=box.top-box.bottom;
@@ -161,6 +218,7 @@ async function setup(data){
   const obstacle=new Uint8Array(cols*rows);
   const buildingIds=new Uint32Array(cols*rows);
   const boundary=new Uint8Array(cols*rows);
+  const accumulation=new Uint16Array(cols*rows);
   terrain.fill(NaN);
 
   for(let row=0;row<rows;row++){
@@ -173,12 +231,14 @@ async function setup(data){
       if(!Number.isFinite(z))continue;
       inside[i]=1;
       terrain[i]=z;
+      if(upstreamCodes)accumulation[i]=sampleDrainageCode(upstreamCodes,x,y);
     }
   }
 
   sim={
     left:box.left,right:box.right,bottom:box.bottom,top:box.top,
     cols,rows,cell,terrain,inside,obstacle,buildingIds,boundary,
+    accumulation,drainageAvailable:Boolean(upstreamCodes),
     water:new Float32Array(cols*rows),
     delta:new Float32Array(cols*rows),
     timeSec:0,
@@ -216,6 +276,7 @@ async function setup(data){
     buildingCount:sim.buildings.length,
     terrainMinM:Number.isFinite(minZ)?minZ:null,
     terrainMaxM:Number.isFinite(maxZ)?maxZ:null,
+    drainageAvailable:Boolean(upstreamCodes),
     boundsLngLat:[
       lngLat(box.left,box.top),
       lngLat(box.right,box.top),
@@ -228,7 +289,9 @@ async function setup(data){
 
 function simulationStep(dt=5){
   if(!sim)return;
-  const {cols,rows,terrain,inside,obstacle,water,delta,boundary}=sim;
+  const {cols,rows,terrain,inside,obstacle,water,delta,boundary,accumulation}=sim;
+  const useDrainage=Boolean(params.drainageGuide&&sim.drainageAvailable);
+  const threshold=accumulationCode(params.drainageThreshold);
   const rain=Math.max(0,Number(params.rainfall)||0)/1000/3600*dt;
   const infil=Math.max(0,Number(params.infiltration)||0)/1000/3600*dt;
 
@@ -250,20 +313,27 @@ function simulationStep(dt=5){
       if(row<rows-1)neigh.push(i+cols);
       if(col>0)neigh.push(i-1);
 
-      let sumDrop=0;
-      const drops=[];
+      let sumDrop=0,sumWeight=0;
+      const weights=[];
       for(const j of neigh){
-        if(!inside[j]||obstacle[j]){drops.push(0);continue;}
+        if(!inside[j]||obstacle[j]){weights.push(0);continue;}
         const drop=Math.max(0,head-(terrain[j]+water[j]));
-        drops.push(drop);sumDrop+=drop;
+        sumDrop+=drop;
+        // Preserve strictly downhill transfer. A mapped D8 accumulation
+        // corridor only biases the distribution of EXISTING downhill flow;
+        // it never creates water or imposes a fictitious hydraulic head.
+        const preferCorridor=useDrainage&&accumulation[j]>=threshold&&
+          accumulation[j]>accumulation[i];
+        const weight=drop*(preferCorridor?1.5:1);
+        weights.push(weight);
+        sumWeight+=weight;
       }
 
-      if(sumDrop>0){
+      if(sumDrop>0&&sumWeight>0){
         const transferable=Math.min(h*0.36,sumDrop*0.08);
         for(let k=0;k<neigh.length;k++){
-          const drop=drops[k];
-          if(drop<=0)continue;
-          const q=transferable*drop/sumDrop;
+          if(weights[k]<=0)continue;
+          const q=transferable*weights[k]/sumWeight;
           delta[i]-=q;
           delta[neigh[k]]+=q;
         }
@@ -398,7 +468,8 @@ onmessage=async({data})=>{
         demBounds:data.demBounds,
         demWidth:data.demWidth,
         demHeight:data.demHeight,
-        demEncoding:data.demEncoding
+        demEncoding:data.demEncoding,
+        drainageUrl:data.drainageUrl||null
       };
       return;
     }
