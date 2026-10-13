@@ -7882,7 +7882,7 @@
     // Allow intermediate empty/incomplete edits without forcing them to zero.
     // Values outside the permitted range are clamped only on confirmation.
     if(!raw||!Number.isFinite(Number(raw)))return;
-    if(!/^(?:\\d+(?:\\.\\d*)?|\\.\\d+)$/.test(raw))return;
+    if(!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw))return;
     const value=Number(raw);
     if(value<0||value>50)return;
     setNetworkThresholdValue(value,false);
