@@ -282,7 +282,6 @@ export function createLocalFloodUI({
   let prepared=false;
   let buildingById=new Map();
   let sceneFeatures=new Map();
-  let isolateFullSceneFeatures=new Map();
   let canvas=null;
   let canvasContext=null;
   let simulator=null;
@@ -293,13 +292,10 @@ export function createLocalFloodUI({
   let hideSelectedBuildings=false;
   let isolatedSelection=false;
   let isolateCamera=null;
-  let isolateSceneFilters=new Map();
-  let isolateClipTargets=[];
-  let isolateClipLastCss='';
-  let isolateClipFrame=0;
-  let isolateClipLastAt=0;
+  let isolateLayerVisibility=new Map();
   let isolateOrderFrame=0;
-  let isolateBackgroundOriginal=null;
+  let isolateOriginalFillPaint=null;
+  let isolateHiddenOverlays=[];
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -450,234 +446,88 @@ export function createLocalFloodUI({
     return [[west,south],[east,north]];
   }
 
-  function isolateClipPolygonCss(){
-    if(!polygon?.[0]?.length)return '';
 
-    const groundPts=polygon[0]
-      .slice(0,-1)
-      .map(point=>map.project(point))
-      .filter(p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y));
+  // Only the selected parcel and its geo-clipped buildings are drawn in isolate mode.
+  // No full-city canvas clipping or generated outside-world mask is necessary.
+  const isolateSceneLayerOrder=[
+    SEL_FILL,BUILDING_SCENE_FILL,BUILDING_SCENE_3D,SEL_LINE
+  ];
 
-    if(groundPts.length<3)return '';
-
-    /*
-     * 3D IMPORTANT:
-     * A screen-space clip built only from the ground polygon cuts off the upper
-     * parts of extruded buildings, because their roofs project above the site's
-     * ground footprint. Build an extrusion-aware screen silhouette instead:
-     * ground polygon + upward-shifted copies sized from the tallest selected
-     * building and the current pixels-per-metre scale, then take the convex hull.
-     */
-    let maxHeightM=0;
-    for(const feature of sceneFeatures.values()){
-      if(feature?.properties?.selected!==true)continue;
-      maxHeightM=Math.max(
-        maxHeightM,
-        Number(feature.properties?.simHeight)||0
-      );
-    }
-    maxHeightM=Math.max(12,Math.min(180,maxHeightM));
-
-    const ring=polygon[0];
-    let cx=0,cy=0,count=0;
-    for(const p of ring.slice(0,-1)){
-      const [x,y]=mercator(p[0],p[1]);
-      cx+=x; cy+=y; count++;
-    }
-    cx/=Math.max(1,count); cy/=Math.max(1,count);
-
-    const c0=unmercator(cx,cy);
-    const c1=unmercator(cx+10,cy);
-    const p0=map.project(c0);
-    const p1=map.project(c1);
-    const pxPerM=Math.max(0.05,Math.hypot(p1.x-p0.x,p1.y-p0.y)/10);
-
-    const pitchRad=(Number(map.getPitch())||0)*Math.PI/180;
-    const verticalPx=Math.min(
-      420,
-      Math.max(30,maxHeightM*pxPerM*Math.sin(pitchRad)*1.25+18)
-    );
-
-    const candidates=[];
-    for(const p of groundPts){
-      candidates.push([p.x,p.y]);
-      candidates.push([p.x,p.y-verticalPx]);
-    }
-
-    // Monotonic-chain convex hull in screen coordinates.
-    const pts=[...candidates].sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
-    const cross=(o,a,b)=>
-      (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
-
-    const lower=[];
-    for(const p of pts){
-      while(lower.length>=2&&cross(lower[lower.length-2],lower[lower.length-1],p)<=0){
-        lower.pop();
-      }
-      lower.push(p);
-    }
-
-    const upper=[];
-    for(let i=pts.length-1;i>=0;i--){
-      const p=pts[i];
-      while(upper.length>=2&&cross(upper[upper.length-2],upper[upper.length-1],p)<=0){
-        upper.pop();
-      }
-      upper.push(p);
-    }
-
-    lower.pop();
-    upper.pop();
-    const hull=lower.concat(upper);
-    if(hull.length<3)return '';
-
-    const canvas=map.getCanvas();
-    const w=canvas.clientWidth||canvas.width||1;
-    const h=canvas.clientHeight||canvas.height||1;
-
-    // Small screen-space breathing room prevents antialiasing from shaving edges.
-    const centroid=hull.reduce(
-      (acc,p)=>[acc[0]+p[0]/hull.length,acc[1]+p[1]/hull.length],
-      [0,0]
-    );
-    const margin=10;
-    const expanded=hull.map(([x,y])=>{
-      const dx=x-centroid[0],dy=y-centroid[1];
-      const len=Math.hypot(dx,dy)||1;
-      return [
-        Math.max(0,Math.min(w,x+dx/len*margin)),
-        Math.max(0,Math.min(h,y+dy/len*margin))
-      ];
-    });
-
-    return 'polygon('+expanded
-      .map(p=>p[0].toFixed(1)+'px '+p[1].toFixed(1)+'px')
-      .join(',')+')';
+  function isolateRequiredVisibility(layer){
+    if(layer.type==='background')return null;
+    if(layer.id===SEL_FILL||layer.id===SEL_LINE)return 'visible';
+    if(layer.id===BUILDING_SCENE_3D)return map.getPitch()>.5?'visible':'none';
+    if(layer.id===BUILDING_SCENE_FILL)return map.getPitch()>.5?'none':'visible';
+    return 'none';
   }
 
-  function applyIsolateCanvasClip(){
+  function enforceIsolatedLayers(){
     if(!isolatedSelection)return;
-    const clip=isolateClipPolygonCss();
-    if(!clip)return;
-
-    const canvas=map.getCanvas();
-    const canvasContainer=canvas?.parentElement;
-    const mapContainer=map.getContainer?.();
-
-    // CSS clip-path invalidates a GPU-composited region. Do not write the same
-    // value multiple times for the same camera position.
-    if(clip===isolateClipLastCss)return;
-    isolateClipLastCss=clip;
-
-    if(!isolateClipTargets.length){
-      isolateClipTargets=[canvas,canvasContainer].filter(Boolean);
-      if(mapContainer){
-        isolateBackgroundOriginal=mapContainer.style.background;
-        mapContainer.style.background='#f4f2ed';
+    for(const layer of map.getStyle()?.layers||[]){
+      if(!layer?.id)continue;
+      const visibility=map.getLayoutProperty(layer.id,'visibility')??'visible';
+      if(!isolateLayerVisibility.has(layer.id)){
+        isolateLayerVisibility.set(layer.id,visibility);
+      }
+      const desired=isolateRequiredVisibility(layer);
+      if(desired!==null&&visibility!==desired){
+        map.setLayoutProperty(layer.id,'visibility',desired);
       }
     }
-
-    // All currently enabled map layers stay clipped together, including 3D.
-    for(const el of isolateClipTargets){
-      el.style.clipPath=clip;
-      el.style.webkitClipPath=clip;
+    const ids=isolateSceneLayerOrder.filter(id=>map.getLayer(id));
+    const last=(map.getStyle()?.layers||[]).slice(-ids.length).map(layer=>layer.id);
+    if(ids.some((id,index)=>id!==last[index])){
+      for(const id of ids)map.moveLayer(id);
     }
-  }
-
-  function scheduleIsolateCanvasClip(force=false){
-    if(!isolatedSelection)return;
-    if(force){
-      if(isolateClipFrame)cancelAnimationFrame(isolateClipFrame);
-      isolateClipFrame=0;
-      isolateClipLastAt=performance.now();
-      applyIsolateCanvasClip();
-      return;
-    }
-    if(isolateClipFrame)return;
-    isolateClipFrame=requestAnimationFrame(time=>{
-      isolateClipFrame=0;
-      // During camera animation, 30fps clipping avoids excessive CSS/GPU
-      // invalidations. MapLibre continues to render its own camera at full speed.
-      if(time-isolateClipLastAt<30)return;
-      isolateClipLastAt=time;
-      applyIsolateCanvasClip();
-    });
-  }
-
-  function clearIsolateCanvasClip(){
-    if(isolateClipFrame)cancelAnimationFrame(isolateClipFrame);
-    isolateClipFrame=0;
-    isolateClipLastCss='';
-    for(const el of isolateClipTargets){
-      if(!el)continue;
-      el.style.clipPath='';
-      el.style.webkitClipPath='';
-    }
-    isolateClipTargets=[];
-    const container=map.getContainer?.();
-    if(container&&isolateBackgroundOriginal!==null){
-      container.style.background=isolateBackgroundOriginal;
-    }
-    isolateBackgroundOriginal=null;
-  }
-
-  function raiseIsolatedSiteLayers(){
-    // Reorder only if a newly enabled thematic layer has changed stacking.
-    // Moving four layers on every camera frame was a major render bottleneck.
-    const ids=[BUILDING_SCENE_3D,BUILDING_SCENE_FILL,SEL_FILL,SEL_LINE]
-      .filter(id=>Boolean(map.getLayer(id)));
-    const layers=map.getStyle()?.layers||[];
-    const tail=layers.slice(-ids.length).map(layer=>layer.id);
-    if(ids.length===tail.length&&ids.every((id,i)=>id===tail[i]))return;
-    for(const id of ids)map.moveLayer(id);
   }
 
   const onIsolateStyleData=()=>{
     if(!isolatedSelection||isolateOrderFrame)return;
     isolateOrderFrame=requestAnimationFrame(()=>{
       isolateOrderFrame=0;
-      if(isolatedSelection)raiseIsolatedSiteLayers();
+      enforceIsolatedLayers();
     });
   };
 
   function enterIsolateLayerMode(){
-    isolateSceneFilters=new Map();
-
-    // Keep every layer's own visibility state exactly as the user set it.
-    // The common canvas clip below limits ALL currently visible layers to the site.
-    for(const id of [BUILDING_SCENE_FILL,BUILDING_SCENE_3D]){
-      if(!map.getLayer(id))continue;
-      const oldFilter=map.getFilter(id);
-      isolateSceneFilters.set(id,oldFilter===undefined?null:oldFilter);
-      map.setFilter(id,[
-        '==',
-        ['boolean',['get','selected'],false],
-        true
-      ]);
+    isolateLayerVisibility.clear();
+    isolateOriginalFillPaint=map.getLayer(SEL_FILL)?{
+      color:map.getPaintProperty(SEL_FILL,'fill-color'),
+      opacity:map.getPaintProperty(SEL_FILL,'fill-opacity')
+    }:null;
+    if(map.getLayer(SEL_FILL)){
+      map.setPaintProperty(SEL_FILL,'fill-color','#e8e7e2');
+      map.setPaintProperty(SEL_FILL,'fill-opacity',1);
     }
-
-    if(map.getLayer(SEL_FILL))map.setLayoutProperty(SEL_FILL,'visibility','visible');
-    if(map.getLayer(SEL_LINE))map.setLayoutProperty(SEL_LINE,'visibility','visible');
-
-    raiseIsolatedSiteLayers();
-    scheduleIsolateCanvasClip(true);
+    isolateHiddenOverlays=[];
+    for(const el of map.getContainer().querySelectorAll(
+      '.maplibregl-marker,.maplibregl-popup'
+    )){
+      isolateHiddenOverlays.push({el,display:el.style.display});
+      el.style.display='none';
+    }
+    enforceIsolatedLayers();
   }
 
   function exitIsolateLayerMode(){
     if(isolateOrderFrame)cancelAnimationFrame(isolateOrderFrame);
     isolateOrderFrame=0;
-    clearIsolateCanvasClip();
-
-    for(const [id,filter] of isolateSceneFilters){
+    for(const [id,visibility] of isolateLayerVisibility){
       if(!map.getLayer(id))continue;
-      if(filter===null){
-        map.setFilter(id,null);
-      }else{
-        map.setFilter(id,filter);
+      if((map.getLayoutProperty(id,'visibility')??'visible')!==visibility){
+        map.setLayoutProperty(id,'visibility',visibility);
       }
     }
-
-    isolateSceneFilters.clear();
+    isolateLayerVisibility.clear();
+    if(isolateOriginalFillPaint&&map.getLayer(SEL_FILL)){
+      map.setPaintProperty(SEL_FILL,'fill-color',isolateOriginalFillPaint.color);
+      map.setPaintProperty(SEL_FILL,'fill-opacity',isolateOriginalFillPaint.opacity);
+    }
+    isolateOriginalFillPaint=null;
+    for(const {el,display} of isolateHiddenOverlays){
+      if(el.isConnected)el.style.display=display;
+    }
+    isolateHiddenOverlays=[];
   }
 
   function enterSelectionIsolate(){
@@ -710,8 +560,8 @@ export function createLocalFloodUI({
 
     isolatedSelection=true;
     publishBuildingScene();
-    enterIsolateLayerMode();
     setCityIsolateMode?.(true);
+    enterIsolateLayerMode();
 
     // Keep the red boundary, but hide editing handles / edge dimensions in focus mode.
     setSelectionEditVisibility(false);
@@ -744,7 +594,7 @@ export function createLocalFloodUI({
       });
     }
 
-    status('已进入选区独立视图：所有当前开启的地图图层都只显示在红线范围内；按 Esc 返回完整地图。');
+    status('选区独立视图：仅显示地块与地块内建筑。按 Esc 返回完整地图。');
     return true;
   }
 
@@ -761,8 +611,8 @@ export function createLocalFloodUI({
       features:[]
     });
 
-    setCityIsolateMode?.(false);
     exitIsolateLayerMode();
+    setCityIsolateMode?.(false);
     setSelectionEditVisibility(true);
 
     if(restoreCamera&&isolateCamera){
@@ -893,23 +743,18 @@ export function createLocalFloodUI({
   function publishBuildingScene(){
     ensureBuildingSceneLayers();
 
-    const sourceMap=isolatedSelection
-      ?isolateFullSceneFeatures
-      :sceneFeatures;
-
-    const features=[...sourceMap.values()].filter(feature=>{
-      // In normal mode, sceneFeatures contains clipped inside/outside geometry.
-      // In isolated mode, isolateFullSceneFeatures contains complete intersecting
-      // buildings and the common canvas clip restricts them to the selected site.
-      return !hideSelectedBuildings||feature.properties?.selected!==true;
-    });
+    // Only pre-clipped inside geometry is visible in site-only mode.
+    // Complete source multipolygons caused external false walls/giant roofs.
+    const features=[...sceneFeatures.values()].filter(feature=>
+      (!isolatedSelection||feature.properties?.selected===true)&&
+      (!hideSelectedBuildings||feature.properties?.selected!==true)
+    );
 
     map.getSource(BUILDING_SCENE_SOURCE)?.setData({
       type:'FeatureCollection',
       features
     });
     syncBuildingSceneView();
-    if(isolatedSelection)raiseIsolatedSiteLayers();
   }
 
   function removeBuildingScene(){
@@ -917,7 +762,6 @@ export function createLocalFloodUI({
     if(map.getLayer(BUILDING_SCENE_FILL))map.removeLayer(BUILDING_SCENE_FILL);
     if(map.getSource(BUILDING_SCENE_SOURCE))map.removeSource(BUILDING_SCENE_SOURCE);
     sceneFeatures.clear();
-    isolateFullSceneFeatures.clear();
   }
 
   function clearSelectedBuildingStates(){
@@ -1136,7 +980,6 @@ export function createLocalFloodUI({
     }
 
     sceneFeatures.clear();
-    isolateFullSceneFeatures.clear();
     const selected=[];
     let clippedCount=0;
 
@@ -1190,22 +1033,6 @@ export function createLocalFloodUI({
       // fragment. This is essential for OpenMapTiles features that are grouped,
       // fragmented by tile boundaries, or not reliably classified by "within".
       sceneFeatures.set(insideKey,insideScene);
-
-      // Separate visual geometry for isolated-site mode:
-      // keep the ORIGINAL complete building footprint. The screen-space site clip
-      // already limits what the user sees to the red polygon, so geometrically
-      // cutting the footprint again creates false vertical "cut walls" and long
-      // slab-like artefacts in 3D.
-      isolateFullSceneFeatures.set(insideKey,{
-        type:'Feature',
-        properties:{
-          simHeight:height,
-          simBase:base,
-          selected:true,
-          impacted:false
-        },
-        geometry:merged.geometry
-      });
 
       selected.push({
         feature:insideScene,
@@ -1415,10 +1242,6 @@ export function createLocalFloodUI({
 
       if(Boolean(scene.properties.impacted)!==shouldBeImpacted){
         scene.properties.impacted=shouldBeImpacted;
-        const fullScene=isolateFullSceneFeatures.get(sceneKey);
-        if(fullScene?.properties){
-          fullScene.properties.impacted=shouldBeImpacted;
-        }
         buildingColourChanged=true;
       }
     }
@@ -1718,20 +1541,24 @@ export function createLocalFloodUI({
   map.on('mousemove',onMapMouseMove);
 
   const syncSceneOnCamera=()=>{
-    // MapLibre already repaints when the camera changes. No forced repaint,
-    // repeated city-mode sync or layer reorder is needed on every move.
-    syncBuildingSceneView();
-    if(isolatedSelection)scheduleIsolateCanvasClip();
+    if(isolatedSelection){
+      const is3D=map.getPitch()>.5;
+      const expected=is3D?'visible':'none';
+      if(map.getLayer(BUILDING_SCENE_3D)&&
+        map.getLayoutProperty(BUILDING_SCENE_3D,'visibility')!==expected){
+        enforceIsolatedLayers();
+      }
+    }else{
+      syncBuildingSceneView();
+    }
   };
   const syncSceneOnCameraEnd=()=>{
-    syncBuildingSceneView();
-    if(isolatedSelection)scheduleIsolateCanvasClip(true);
+    if(isolatedSelection)enforceIsolatedLayers();
+    else syncBuildingSceneView();
   };
 
-  // Camera movement must not rebuild buildings or their geographic selection.
   map.on('move',syncSceneOnCamera);
   map.on('moveend',syncSceneOnCameraEnd);
-  map.on('resize',syncSceneOnCameraEnd);
   map.on('styledata',onIsolateStyleData);
 
   const cancelSelectionEdit=()=>{
@@ -1831,10 +1658,8 @@ export function createLocalFloodUI({
       map.off('mousemove',onMapMouseMove);
       map.off('move',syncSceneOnCamera);
       map.off('moveend',syncSceneOnCameraEnd);
-      map.off('resize',syncSceneOnCameraEnd);
       map.off('styledata',onIsolateStyleData);
       if(isolateOrderFrame)cancelAnimationFrame(isolateOrderFrame);
-      if(isolateClipFrame)cancelAnimationFrame(isolateClipFrame);
       document.removeEventListener('keydown',keydown);
     }
   };
