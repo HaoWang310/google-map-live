@@ -950,6 +950,9 @@ export function createLocalFloodUI({
     }
     const elapsed=v?.timeMin||0,duration=Number($('localFloodDuration')?.value)||60;
     setSiteHud('siteHudClock',simulationClock(elapsed)+' / '+simulationClock(duration));
+    if(v&&Number.isFinite(v.currentRainMmH)){
+      setSiteHud('siteHudLiveRain',v.currentRainMmH.toFixed(1)+' mm/h');
+    }
     const progress=siteHud('siteHudProgress');
     if(progress)progress.style.width=Math.max(0,Math.min(100,elapsed/duration*100)).toFixed(1)+'%';
     setSiteHud('siteHudRunState',{
@@ -1169,6 +1172,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
       '<div class="site-hydro-metric"><small>IMPACTED BUILDINGS · 受影响建筑</small><b id="siteHudImpacted">0 栋</b></div>',
       '<div class="site-hydro-metric"><small>SURFACE WATER · 地表积水体积</small><b id="siteHudVolume">0 m³</b></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">LIVE RAINFALL · 当前计算雨强</div>',
+      '<div class="site-hydro-value" id="siteHudLiveRain">— mm/h</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAX DEPTH · 水深变化</div>',
       '<div id="siteHudChart" class="site-hydro-chart"></div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">DATA PROVENANCE</div>',
@@ -1191,15 +1196,22 @@ export function createLocalFloodUI({
     syncSiteControls();
     updateSiteHydroDashboard();
 
+    const resetForNewRain=()=>{
+      if(simulator){simulator.pause();simulator.reset();}
+      hydroState='reset';siteHydroHistory.length=0;lastHydroFrame=null;
+      updateSiteHydroDashboard();
+    };
     siteHud('siteHudExit').onclick=()=>exitSelectionIsolate();
     siteHud('siteHudRefresh').onclick=lookupSiteRainForSelection;
     siteHud('siteHudUseManual').onclick=()=>{
       rainfallMode='manual';manualFourHourMm=null;setSiteRainMode();
+      resetForNewRain();
     };
     siteHud('siteHudUseEA').onclick=()=>{
       if(!siteRainData?.complete||!siteRainData?.recent)return;
       rainfallMode='ea-observed';manualFourHourMm=null;
-      copyHudControl('localFloodDuration',240);syncSiteControls();updateSiteHydroDashboard();
+      copyHudControl('localFloodDuration',240);
+      resetForNewRain();syncSiteControls();updateSiteHydroDashboard();
     };
     siteHud('siteHudUseFeh').onclick=()=>{
       const mm=Number(siteHud('siteHudFeh').value);
@@ -1207,7 +1219,8 @@ export function createLocalFloodUI({
         setSiteHud('siteHudRainTime','设计暴雨请输入 0–500 mm 的有效 4h 总量。');return;
       }
       rainfallMode='feh-manual';manualFourHourMm=mm;
-      copyHudControl('localFloodDuration',240);syncSiteControls();updateSiteHydroDashboard();
+      copyHudControl('localFloodDuration',240);
+      resetForNewRain();syncSiteControls();updateSiteHydroDashboard();
       setSiteHud('siteHudRainTime','FEH22 手动输入情景：4h 总量，均匀分配至 15min（时程假设）。');
     };
     for(const [hudId,actual] of [
@@ -1226,6 +1239,7 @@ export function createLocalFloodUI({
       copyHudControl(actual,e.target.value);
       if(actual!=='localFloodInfil'){
         rainfallMode='manual';manualFourHourMm=null;
+        resetForNewRain();
       }
       syncSiteControls();updateSiteHydroDashboard();
     };
