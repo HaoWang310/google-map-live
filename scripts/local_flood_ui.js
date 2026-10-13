@@ -1134,6 +1134,8 @@ export function createLocalFloodUI({
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
       '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
+      '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
+      '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
       '<button id="siteHudExit" class="site-hydro-close" type="button">✕ 返回城市地图 · Esc</button></header>',
       '<section class="site-hydro-side site-hydro-left">',
       '<div class="site-hydro-eyebrow">SCENARIO BUILDER</div>',
@@ -1176,6 +1178,12 @@ export function createLocalFloodUI({
       '<div class="site-hydro-value" id="siteHudLiveRain">— mm/h</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAX DEPTH · 水深变化</div>',
       '<div id="siteHudChart" class="site-hydro-chart"></div></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">EA RISK · 官方长期概率分类</div>',
+      '<div class="site-hydro-mini" style="line-height:1.9">',
+      '<span style="color:#9cdeea">■</span> 极低 &lt;0.1% · ',
+      '<span style="color:#f7d359">■</span> 低 0.1–&lt;1%<br>',
+      '<span style="color:#f29d38">■</span> 中 1–&lt;3.3% · ',
+      '<span style="color:#d73731">■</span> 高 ≥3.3%</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">DATA PROVENANCE</div>',
       '<div class="site-hydro-mini">EA 风险等级 = 长期概率，不是水深；地形网络 = 汇水路径，不是地下管网；',
       '动态水深 = 输入降雨、地形和建筑障碍的概念模拟。此工具不能替代工程级洪水模型。</div></div></aside>',
@@ -1202,6 +1210,12 @@ export function createLocalFloodUI({
       updateSiteHydroDashboard();
     };
     siteHud('siteHudExit').onclick=()=>exitSelectionIsolate();
+    siteHud('siteHudTop').onclick=()=>isolateViewer?.easeTo({
+      pitch:0,bearing:0,duration:450
+    });
+    siteHud('siteHudIso').onclick=()=>isolateViewer?.easeTo({
+      pitch:52,bearing:isolateViewer?.getBearing()||-24,duration:500
+    });
     siteHud('siteHudRefresh').onclick=lookupSiteRainForSelection;
     siteHud('siteHudUseManual').onclick=()=>{
       rainfallMode='manual';manualFourHourMm=null;setSiteRainMode();
@@ -1256,9 +1270,11 @@ export function createLocalFloodUI({
     destroyFocusViewer();
     const el=document.createElement('div');
     el.id='local-flood-focus-viewer';
-    el.style.cssText='position:absolute;inset:0;z-index:12;'+
+    // Full-browser independent analysis workspace. The original geographic
+    // map stays intact underneath and is restored instantly on Esc.
+    el.style.cssText='position:fixed;inset:0;z-index:2147483000;'+
       'background:#f4f2ed;overflow:hidden;pointer-events:auto;';
-    map.getContainer().appendChild(el);
+    document.body.appendChild(el);
     isolateViewerElement=el;
 
     let viewer;
@@ -1267,7 +1283,8 @@ export function createLocalFloodUI({
       viewer=new maplibregl.Map({
         container:el,style:focusStyle(details),
         center:map.getCenter().toArray(),zoom:map.getZoom(),
-        pitch:0,bearing:0,antialias:true,attributionControl:false
+        pitch:0,bearing:0,antialias:true,attributionControl:false,
+        maxPitch:70
       });
     }catch(error){
       el.remove();
