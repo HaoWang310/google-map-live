@@ -299,6 +299,9 @@ export function createLocalFloodUI({
   let focusSiteSerial=0;
   let focusAppliedThreshold=null;
   let focusThresholdTimer=null;
+  let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
+  let lastHydroFrame=null,hydroState='ready';
+  const siteHydroHistory=[];
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -913,6 +916,7 @@ export function createLocalFloodUI({
       throw error;
     }
     isolateViewer=viewer;
+    mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
     viewer.on('pitch',setFocusPitchMode);
     viewer.once('load',()=>{
@@ -945,6 +949,8 @@ export function createLocalFloodUI({
       pitch:map.getPitch(),bearing:map.getBearing()
     };
     isolatedSelection=true;
+    rainfallMode='manual';manualFourHourMm=null;
+    lastHydroFrame=null;siteHydroHistory.length=0;hydroState='ready';siteRainData=null;
     focusSiteSerial++;
     try{
       createFocusViewer();
@@ -962,6 +968,7 @@ export function createLocalFloodUI({
   function exitSelectionIsolate(restoreCamera=true){
     if(!isolatedSelection)return false;
     isolatedSelection=false;
+    siteRainRequest++;
     destroyFocusViewer();
     // The underlying map's style, layers, data and camera never changed.
     isolateCamera=null;
@@ -1126,6 +1133,7 @@ export function createLocalFloodUI({
       if(hideToggle)hideToggle.checked=false;
     }
     simulator?.pause();
+    siteRainRequest++;siteRainData=null;
     prepared=false;
     clearSelectedBuildingStates();
     removeWaterLayers();
@@ -1407,6 +1415,8 @@ export function createLocalFloodUI({
       demEncoding:{minimum:-100,step:0.1},
       onFrame:handleFrame,
       onStatus:data=>{
+        hydroState=data.state;
+        updateSiteHydroDashboard();
         if(data.state==='running')status('模拟运行中：雨水沿 50 m 地形势能流动，OSM 建筑作为不可穿透障碍。');
         else if(data.state==='paused')status('模拟已暂停。');
         else if(data.state==='complete')status('模拟完成。可调整降雨参数后“重置水体”再运行。');
@@ -1599,6 +1609,12 @@ export function createLocalFloodUI({
     }
 
     const s=data.stats;
+    lastHydroFrame=data;
+    if(!siteHydroHistory.length||s.timeMin-siteHydroHistory[siteHydroHistory.length-1][0]>=2){
+      siteHydroHistory.push([s.timeMin,s.maxDepthM]);
+      if(siteHydroHistory.length>32)siteHydroHistory.shift();
+    }
+    updateSiteHydroDashboard(data);
     $('localFloodStats').textContent=
       't '+s.timeMin.toFixed(1)+' min · 最大水深 '+s.maxDepthM.toFixed(2)+' m · '+
       '积水 '+(s.wetAreaM2/10000).toFixed(2)+' ha · 影响建筑 '+s.impactedCount;
@@ -1607,6 +1623,10 @@ export function createLocalFloodUI({
   function currentParams(){
     return {
       rainfall:Number($('localFloodRain').value),
+      rainSeriesMm15:rainfallMode==='ea-observed'&&siteRainData?.complete&&siteRainData?.recent
+        ?siteRainData.series15
+        :rainfallMode==='feh-manual'&&Number.isFinite(manualFourHourMm)
+          ?Array(16).fill(manualFourHourMm/16):null,
       infiltration:Number($('localFloodInfil').value),
       duration:Number($('localFloodDuration').value),
       openBoundary:true,
