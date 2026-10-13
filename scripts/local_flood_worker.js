@@ -221,18 +221,27 @@ async function setup(data){
   const accumulation=new Uint16Array(cols*rows);
   terrain.fill(NaN);
 
+  let siteGridCells=0,validTerrainCells=0;
   for(let row=0;row<rows;row++){
     const y=box.top-(row+.5)*cell;
     for(let col=0;col<cols;col++){
       const x=box.left+(col+.5)*cell;
       const i=row*cols+col;
       if(!pointInPolygon(x,y,selectionRings))continue;
+      siteGridCells++;
       const z=sampleDem(codes,x,y);
       if(!Number.isFinite(z))continue;
+      validTerrainCells++;
       inside[i]=1;
       terrain[i]=z;
       if(upstreamCodes)accumulation[i]=sampleDrainageCode(upstreamCodes,x,y);
     }
+  }
+
+  // Do not silently extrapolate the London 50 m DEM to unrelated locations.
+  // An incomplete/missing DEM would falsely suggest zero hazard.
+  if(!siteGridCells||validTerrainCells/siteGridCells<0.9){
+    throw new Error('所选区域缺少足够的真实 OS Terrain 50 高程数据。目前计算范围限于伦敦研究区有效 DEM 覆盖，不生成虚假洪水结果。');
   }
 
   sim={
