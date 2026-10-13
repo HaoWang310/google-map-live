@@ -275,7 +275,83 @@
       .panelResizeHandle{display:none}
       .panel.collapsed{width:210px!important;padding:9px 10px}
     }
-  </style>
+  
+    /* The city sidebar is only the selection step; all simulation controls live
+       in the independent site view. Source inputs stay mounted for backward
+       compatibility with the existing simulation and 3D building pipeline. */
+    #localFloodSimItem > :not(#localFloodSelectHeader):not(#localFloodSelectActions):not(#localFloodStatus){
+      display:none!important;
+    }
+    #localFloodSelectActions{padding:3px 9px 10px}
+    .site-hydro-ui{position:absolute;inset:0;z-index:25;pointer-events:none;
+      font:12px/1.5 Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+      color:#e5eff9;--hc:#6cdee6;--hborder:#324659;--hbg:#111e2deF}
+    .site-hydro-ui *{box-sizing:border-box}
+    .site-hydro-header{position:absolute;top:10px;left:12px;right:12px;height:53px;
+      border:1px solid var(--hborder);border-radius:12px;background:#111b29ef;
+      display:flex;align-items:center;gap:12px;padding:8px 13px;pointer-events:auto;
+      box-shadow:0 8px 25px #030b1666}
+    .site-hydro-brand{font-weight:800;letter-spacing:.04em;font-size:14px;line-height:1.3}
+    .site-hydro-brand small{display:block;font-size:9px;font-weight:500;color:#87a6ba;letter-spacing:.08em}
+    .site-hydro-chip{border:1px solid #35586b;color:#a3dce7;background:#1b3443;
+      padding:5px 9px;border-radius:30px;font-size:10px}
+    .site-hydro-close{margin-left:auto;border:1px solid #4c6073;border-radius:8px;
+      background:#263a4c;color:#edf6fc;padding:8px 11px;cursor:pointer}
+    .site-hydro-side{position:absolute;top:72px;bottom:95px;width:294px;
+      border:1px solid var(--hborder);background:var(--hbg);border-radius:12px;
+      padding:14px;overflow-y:auto;scrollbar-width:thin;pointer-events:auto;
+      box-shadow:0 9px 25px #020a1466}
+    .site-hydro-left{left:12px}
+    .site-hydro-right{right:12px;width:258px}
+    .site-hydro-eyebrow{font-size:10px;letter-spacing:.12em;color:#79cedb;font-weight:750}
+    .site-hydro-title{font-size:15px;margin:3px 0 9px;font-weight:750}
+    .site-hydro-section{margin:12px 0 0;border-top:1px solid #334555;padding-top:12px}
+    .site-hydro-section-title{font-size:11px;color:#a7d7e1;font-weight:750;margin-bottom:8px}
+    .site-hydro-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;color:#b9c9d8}
+    .site-hydro-row input[type="range"]{flex:1;min-width:60px;accent-color:#54c5df}
+    .site-hydro-row output{font-size:10px;color:#9de4ee;min-width:52px;text-align:right;font-variant-numeric:tabular-nums}
+    .site-hydro-ui input[type=number],.site-hydro-ui select{background:#1b2b3c;color:#ebf4fc;
+      border:1px solid #405569;border-radius:7px;padding:7px;min-width:0}
+    .site-hydro-check{display:flex;align-items:flex-start;gap:8px;margin:9px 0;color:#cbdee9;cursor:pointer;font-size:11px}
+    .site-hydro-check input{accent-color:#50c4de;flex-shrink:0;margin-top:3px}
+    .site-hydro-mini{font-size:10px;color:#93aabc;line-height:1.55}
+    .site-hydro-pill{background:#18374a;border:1px solid #356277;padding:8px;border-radius:8px;color:#d6e9f4;line-height:1.6}
+    .site-hydro-value{font-size:21px;font-weight:800;color:#e8f6ff;font-variant-numeric:tabular-nums}
+    .site-hydro-metric{border:1px solid #304556;border-radius:8px;background:#182b3c;
+      padding:10px;margin:8px 0}
+    .site-hydro-metric small{display:block;font-size:10px;color:#91b0c2}
+    .site-hydro-metric b{display:block;font-size:23px;font-variant-numeric:tabular-nums;margin-top:2px}
+    .site-hydro-actions{display:flex;gap:7px;margin-top:10px}
+    .site-hydro-btn{flex:1;background:#24485a;border:1px solid #3d6576;
+      border-radius:7px;color:#ecf9ff;padding:8px 5px;cursor:pointer;font-size:11px}
+    .site-hydro-btn.primary{background:#177f92;border-color:#46adc0}
+    .site-hydro-btn:disabled{opacity:.4;cursor:not-allowed}
+    .site-hydro-footer{position:absolute;left:12px;right:12px;bottom:10px;height:73px;
+      background:#101d2def;border:1px solid var(--hborder);border-radius:12px;
+      pointer-events:auto;display:flex;align-items:center;gap:14px;padding:10px 14px}
+    .site-hydro-timeline{flex:1;min-width:100px}
+    .site-hydro-track{height:8px;background:#2b4256;border-radius:6px;overflow:hidden;margin:9px 0 4px}
+    .site-hydro-progress{height:100%;background:linear-gradient(90deg,#2e9cce,#66d9cf);width:0}
+    .site-hydro-chart{height:50px;display:flex;align-items:flex-end;gap:3px}
+    .site-hydro-chart span{flex:1;background:#4a9db7;border-radius:2px 2px 0 0;min-height:2px}
+    .site-hydro-zoom{position:absolute;top:74px;left:50%;transform:translateX(-50%);
+      background:#132739e3;border:1px solid #4b687a;border-radius:8px;padding:6px 10px;
+      color:#add2df;font-size:10px;pointer-events:none;text-align:center}
+    @media(max-width:1100px){
+      .site-hydro-side{width:235px;padding:10px}
+      .site-hydro-right{width:225px}
+    }
+    @media(max-width:750px){
+      .site-hydro-header{left:5px;right:5px;top:5px}
+      .site-hydro-chip{display:none}
+      .site-hydro-side{top:65px;bottom:94px;width:min(43vw,245px);left:5px;padding:8px}
+      .site-hydro-right{left:auto;right:5px;width:min(41vw,210px)}
+      .site-hydro-footer{left:5px;right:5px;bottom:5px;padding:6px;gap:5px}
+      .site-hydro-title{font-size:12px}
+      .site-hydro-metric b{font-size:16px}
+      .site-hydro-zoom{display:none}
+    }
+</style>
 </head>
 <body>
   <div id="googleMap"></div>
@@ -489,13 +565,13 @@
       </button>
       <div class="layerList sectionCollapsed" id="floodSimTaskList" role="group" aria-labelledby="floodSimTaskTitle">
         <div class="layerItem" id="localFloodSimItem">
-          <div class="layerRow">
+          <div class="layerRow" id="localFloodSelectHeader">
             <span class="layerName">
-              <strong>局部洪涝模拟 · Building Collision</strong>
+              <strong>① 选择城市研究地块</strong>
               <small>圈选范围 · OS Terrain 50 地形 · OSM 实体建筑障碍</small>
             </span>
           </div>
-          <div class="simButtonRow">
+          <div class="simButtonRow" id="localFloodSelectActions">
             <button id="localFloodDraw" type="button" disabled>圈选区域</button>
             <button id="localFloodFinish" class="secondary" type="button" disabled title="完成当前边界并立即生成橙色建筑；生成后可继续拖动锚点并按 Enter 重新生成">确定范围</button>
             <button id="localFloodClear" class="secondary" type="button" disabled>清除</button>
@@ -512,7 +588,7 @@
           </div>
           <div class="simParamRow">
             <span>模拟时长</span>
-            <input id="localFloodDuration" type="range" min="15" max="180" step="15" value="60">
+            <input id="localFloodDuration" type="range" min="15" max="240" step="15" value="60">
             <span id="localFloodDurationValue">60 min</span>
           </div>
           <div class="layerOptions" style="padding-bottom:6px">
