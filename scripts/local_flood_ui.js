@@ -292,10 +292,8 @@ export function createLocalFloodUI({
   let hideSelectedBuildings=false;
   let isolatedSelection=false;
   let isolateCamera=null;
-  let isolateLayerVisibility=new Map();
-  let isolateOrderFrame=0;
-  let isolateOriginalFillPaint=null;
-  let isolateHiddenOverlays=[];
+  let isolateViewer=null;
+  let isolateViewerElement=null;
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -362,70 +360,6 @@ export function createLocalFloodUI({
     }
   }
 
-  function ensureIsolateLayer(){
-    if(!map.getSource(ISOLATE_SOURCE)){
-      map.addSource(ISOLATE_SOURCE,{
-        type:'geojson',
-        data:{type:'FeatureCollection',features:[]}
-      });
-    }
-    if(!map.getLayer(ISOLATE_MASK)){
-      map.addLayer({
-        id:ISOLATE_MASK,
-        type:'fill',
-        source:ISOLATE_SOURCE,
-        paint:{
-          'fill-color':'#f4f2ed',
-          'fill-opacity':1
-        }
-      });
-    }
-  }
-
-  function isolateMaskGeoJson(ring){
-    const closed=closeRing(ring);
-    if(closed.length<4){
-      return {type:'FeatureCollection',features:[]};
-    }
-
-    // Build the mask locally around the site instead of using a near-world-size
-    // polygon. A global outer ring becomes unstable in a pitched 3D camera and can
-    // triangulate into the large white wedge seen in the previous isolate view.
-    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
-    for(const [lng,lat] of closed){
-      const [x,y]=mercator(lng,lat);
-      minX=Math.min(minX,x); maxX=Math.max(maxX,x);
-      minY=Math.min(minY,y); maxY=Math.max(maxY,y);
-    }
-
-    const width=Math.max(1,maxX-minX);
-    const height=Math.max(1,maxY-minY);
-    const pad=Math.max(12000,Math.max(width,height)*60);
-
-    const outer=[
-      unmercator(minX-pad,minY-pad),
-      unmercator(maxX+pad,minY-pad),
-      unmercator(maxX+pad,maxY+pad),
-      unmercator(minX-pad,maxY+pad),
-      unmercator(minX-pad,minY-pad)
-    ];
-
-    // Turf/GeoJSON hole winding: outer and inner rings use opposite directions.
-    const hole=closed.slice().reverse();
-
-    return {
-      type:'FeatureCollection',
-      features:[{
-        type:'Feature',
-        properties:{},
-        geometry:{
-          type:'Polygon',
-          coordinates:[outer,hole]
-        }
-      }]
-    };
-  }
-
   function setSelectionEditVisibility(visible){
     const value=visible?'visible':'none';
     for(const id of [SEL_POINTS,SEL_DISTANCE]){
@@ -447,185 +381,159 @@ export function createLocalFloodUI({
   }
 
 
-  // Only the selected parcel and its geo-clipped buildings are drawn in isolate mode.
-  // No full-city canvas clipping or generated outside-world mask is necessary.
-  const isolateSceneLayerOrder=[
-    SEL_FILL,BUILDING_SCENE_FILL,BUILDING_SCENE_3D,SEL_LINE
-  ];
 
-  function isolateRequiredVisibility(layer){
-    if(layer.type==='background')return null;
-    if(layer.id===SEL_FILL||layer.id===SEL_LINE)return 'visible';
-    if(layer.id===BUILDING_SCENE_3D)return map.getPitch()>.5?'visible':'none';
-    if(layer.id===BUILDING_SCENE_FILL)return map.getPitch()>.5?'none':'visible';
-    return 'none';
+  // The focus map owns an independent canvas and only two GeoJSON sources.
+  // Unlike hiding OpenFreeMap style layers, there are no city tiles to leak.
+  const FOCUS_SITE='focus-site-source';
+  const FOCUS_BUILDINGS='focus-building-source';
+  const FOCUS_2D='focus-building-fill';
+  const FOCUS_3D='focus-building-extrusion';
+
+  function focusBuildingData(){
+    return {
+      type:'FeatureCollection',
+      features:hideSelectedBuildings?[]:[...sceneFeatures.values()].filter(f=>
+        f?.properties?.selected===true
+      )
+    };
   }
 
-  function enforceIsolatedLayers(){
-    if(!isolatedSelection)return;
-    for(const layer of map.getStyle()?.layers||[]){
-      if(!layer?.id)continue;
-      const visibility=map.getLayoutProperty(layer.id,'visibility')??'visible';
-      if(!isolateLayerVisibility.has(layer.id)){
-        isolateLayerVisibility.set(layer.id,visibility);
+  function updateFocusBuildings(){
+    isolateViewer?.getSource(FOCUS_BUILDINGS)?.setData(focusBuildingData());
+  }
+
+  function focusStyle(){
+    const parcel={
+      type:'FeatureCollection',
+      features:[{
+        type:'Feature',properties:{},
+        geometry:{type:'Polygon',coordinates:[closeRing(polygon[0])]}
+      }]
+    };
+    return {
+      version:8,
+      sources:{
+        [FOCUS_SITE]:{type:'geojson',data:parcel},
+        [FOCUS_BUILDINGS]:{type:'geojson',data:focusBuildingData()}
+      },
+      layers:[
+        {id:'focus-background',type:'background',
+          paint:{'background-color':'#f4f2ed'}},
+        {id:'focus-parcel-ground',type:'fill',source:FOCUS_SITE,
+          paint:{'fill-color':'#e8e7e2','fill-opacity':1}},
+        {id:FOCUS_2D,type:'fill',source:FOCUS_BUILDINGS,
+          layout:{visibility:'none'},
+          paint:{'fill-color':buildingColourExpression(),'fill-opacity':1}},
+        {id:FOCUS_3D,type:'fill-extrusion',source:FOCUS_BUILDINGS,
+          layout:{visibility:'visible'},
+          paint:{
+            'fill-extrusion-color':buildingColourExpression(),
+            'fill-extrusion-height':['get','simHeight'],
+            'fill-extrusion-base':['get','simBase'],
+            'fill-extrusion-opacity':1,
+            'fill-extrusion-vertical-gradient':false
+          }},
+        {id:'focus-parcel-border',type:'line',source:FOCUS_SITE,
+          paint:{'line-color':'#ef4444','line-width':2.6,'line-dasharray':[2,1]}}
+      ]
+    };
+  }
+
+  function setFocusPitchMode(){
+    const viewer=isolateViewer;
+    if(!viewer||!viewer.isStyleLoaded())return;
+    const is3D=viewer.getPitch()>.5;
+    for(const [id,v] of [
+      [FOCUS_2D,is3D?'none':'visible'],
+      [FOCUS_3D,is3D?'visible':'none']
+    ]){
+      if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!==v){
+        viewer.setLayoutProperty(id,'visibility',v);
       }
-      const desired=isolateRequiredVisibility(layer);
-      if(desired!==null&&visibility!==desired){
-        map.setLayoutProperty(layer.id,'visibility',desired);
-      }
-    }
-    const ids=isolateSceneLayerOrder.filter(id=>map.getLayer(id));
-    const last=(map.getStyle()?.layers||[]).slice(-ids.length).map(layer=>layer.id);
-    if(ids.some((id,index)=>id!==last[index])){
-      for(const id of ids)map.moveLayer(id);
     }
   }
 
-  const onIsolateStyleData=()=>{
-    if(!isolatedSelection||isolateOrderFrame)return;
-    isolateOrderFrame=requestAnimationFrame(()=>{
-      isolateOrderFrame=0;
-      enforceIsolatedLayers();
+  function destroyFocusViewer(){
+    const viewer=isolateViewer;
+    isolateViewer=null;
+    if(viewer){
+      try{viewer.remove();}catch(error){
+        console.warn('Isolated viewer removal failed',error);
+      }
+    }
+    isolateViewerElement?.remove();
+    isolateViewerElement=null;
+  }
+
+  function createFocusViewer(){
+    destroyFocusViewer();
+    const el=document.createElement('div');
+    el.id='local-flood-focus-viewer';
+    el.style.cssText='position:absolute;inset:0;z-index:12;'+
+      'background:#f4f2ed;overflow:hidden;pointer-events:auto;';
+    map.getContainer().appendChild(el);
+    isolateViewerElement=el;
+
+    let viewer;
+    try{
+      viewer=new maplibregl.Map({
+        container:el,style:focusStyle(),
+        center:map.getCenter().toArray(),zoom:map.getZoom(),
+        pitch:0,bearing:0,antialias:true,attributionControl:false
+      });
+    }catch(error){
+      el.remove();
+      isolateViewerElement=null;
+      throw error;
+    }
+    isolateViewer=viewer;
+    viewer.on('pitch',setFocusPitchMode);
+    viewer.once('load',()=>{
+      if(isolateViewer!==viewer||!isolatedSelection)return;
+      setFocusPitchMode();
+      const bounds=selectionBounds(polygon[0]);
+      if(!bounds)return;
+      viewer.fitBounds(bounds,{
+        padding:{top:90,bottom:90,left:90,right:90},
+        duration:0,maxZoom:18,pitch:0,bearing:0
+      });
+      const fittedZoom=viewer.getZoom();
+      viewer.easeTo({
+        center:viewer.getCenter(),
+        zoom:Math.max(15.2,Math.min(18,fittedZoom-0.3)),
+        pitch:42,bearing:isolateCamera?.bearing||0,duration:550
+      });
     });
-  };
-
-  function enterIsolateLayerMode(){
-    isolateLayerVisibility.clear();
-    isolateOriginalFillPaint=map.getLayer(SEL_FILL)?{
-      color:map.getPaintProperty(SEL_FILL,'fill-color'),
-      opacity:map.getPaintProperty(SEL_FILL,'fill-opacity')
-    }:null;
-    if(map.getLayer(SEL_FILL)){
-      map.setPaintProperty(SEL_FILL,'fill-color','#e8e7e2');
-      map.setPaintProperty(SEL_FILL,'fill-opacity',1);
-    }
-    isolateHiddenOverlays=[];
-    for(const el of map.getContainer().querySelectorAll(
-      '.maplibregl-marker,.maplibregl-popup'
-    )){
-      isolateHiddenOverlays.push({el,display:el.style.display});
-      el.style.display='none';
-    }
-    enforceIsolatedLayers();
-  }
-
-  function exitIsolateLayerMode(){
-    if(isolateOrderFrame)cancelAnimationFrame(isolateOrderFrame);
-    isolateOrderFrame=0;
-    for(const [id,visibility] of isolateLayerVisibility){
-      if(!map.getLayer(id))continue;
-      if((map.getLayoutProperty(id,'visibility')??'visible')!==visibility){
-        map.setLayoutProperty(id,'visibility',visibility);
-      }
-    }
-    isolateLayerVisibility.clear();
-    if(isolateOriginalFillPaint&&map.getLayer(SEL_FILL)){
-      map.setPaintProperty(SEL_FILL,'fill-color',isolateOriginalFillPaint.color);
-      map.setPaintProperty(SEL_FILL,'fill-opacity',isolateOriginalFillPaint.opacity);
-    }
-    isolateOriginalFillPaint=null;
-    for(const {el,display} of isolateHiddenOverlays){
-      if(el.isConnected)el.style.display=display;
-    }
-    isolateHiddenOverlays=[];
   }
 
   function enterSelectionIsolate(){
-    if(
-      isolatedSelection||
-      !prepared||
-      selectionDirty||
-      !polygon?.[0]||
-      polygon[0].length<4
-    )return false;
-
-    ensureIsolateLayer();
-
+    if(isolatedSelection||!prepared||selectionDirty||
+      !polygon?.[0]||polygon[0].length<4)return false;
     isolateCamera={
-      center:map.getCenter().toArray(),
-      zoom:map.getZoom(),
-      pitch:map.getPitch(),
-      bearing:map.getBearing()
+      center:map.getCenter().toArray(),zoom:map.getZoom(),
+      pitch:map.getPitch(),bearing:map.getBearing()
     };
-
-    // Do not use the old outside polygon mask in 3D. It behaves like a real
-    // horizontal surface and can occlude the isolated site at pitched camera angles.
-    map.getSource(ISOLATE_SOURCE)?.setData({
-      type:'FeatureCollection',
-      features:[]
-    });
-    if(map.getLayer(ISOLATE_MASK)){
-      map.setLayoutProperty(ISOLATE_MASK,'visibility','none');
-    }
-
     isolatedSelection=true;
-    publishBuildingScene();
-    setCityIsolateMode?.(true);
-    enterIsolateLayerMode();
-
-    // Keep the red boundary, but hide editing handles / edge dimensions in focus mode.
-    setSelectionEditVisibility(false);
-    hideAreaPopup();
-
-    const bounds=selectionBounds(polygon[0]);
-    if(bounds){
-      // First fit the site in a stable plan view. Fitting while keeping the previous
-      // steep 3D pitch made a 150–250 m site collapse into a tiny wedge on screen.
-      map.fitBounds(bounds,{
-        padding:{top:90,bottom:90,left:90,right:90},
-        duration:0,
-        maxZoom:18,
-        pitch:0,
-        bearing:0
-      });
-
-      // Then restore a readable architectural 3D angle without changing the fitted
-      // centre/zoom, so the selected site occupies the viewport.
-      const fittedCenter=map.getCenter().toArray();
-      const fittedZoom=map.getZoom();
-      map.easeTo({
-        center:fittedCenter,
-        // Pull back slightly more so roofs and tall façades remain comfortably
-        // inside the isolated viewport after the 3D silhouette clip is applied.
-        zoom:Math.max(15.2,Math.min(18,fittedZoom-0.35)),
-        pitch:42,
-        bearing:isolateCamera?.bearing||0,
-        duration:650
-      });
+    try{
+      createFocusViewer();
+    }catch(error){
+      isolatedSelection=false;
+      isolateCamera=null;
+      status('独立视图创建失败：'+(error?.message||String(error)),true);
+      return false;
     }
-
-    status('选区独立视图：仅显示地块与地块内建筑。按 Esc 返回完整地图。');
+    hideAreaPopup();
+    status('独立视图：仅显示地块与内部建筑，可旋转缩放；按 Esc 返回原地图。');
     return true;
   }
 
   function exitSelectionIsolate(restoreCamera=true){
     if(!isolatedSelection)return false;
-
     isolatedSelection=false;
-    publishBuildingScene();
-    if(map.getLayer(ISOLATE_MASK)){
-      map.setLayoutProperty(ISOLATE_MASK,'visibility','none');
-    }
-    map.getSource(ISOLATE_SOURCE)?.setData({
-      type:'FeatureCollection',
-      features:[]
-    });
-
-    exitIsolateLayerMode();
-    setCityIsolateMode?.(false);
-    setSelectionEditVisibility(true);
-
-    if(restoreCamera&&isolateCamera){
-      map.easeTo({
-        center:isolateCamera.center,
-        zoom:isolateCamera.zoom,
-        pitch:isolateCamera.pitch,
-        bearing:isolateCamera.bearing,
-        duration:500
-      });
-    }
+    destroyFocusViewer();
+    // The underlying map's style, layers, data and camera never changed.
     isolateCamera=null;
-    status('已退出选区独立视图，可继续编辑红色范围。');
+    status('已退出独立视图，可继续编辑选区。');
     return true;
   }
 
@@ -755,6 +663,7 @@ export function createLocalFloodUI({
       features
     });
     syncBuildingSceneView();
+    if(isolatedSelection)updateFocusBuildings();
   }
 
   function removeBuildingScene(){
@@ -1540,26 +1449,9 @@ export function createLocalFloodUI({
   window.addEventListener('mouseup',onAnchorMouseUpWindow);
   map.on('mousemove',onMapMouseMove);
 
-  const syncSceneOnCamera=()=>{
-    if(isolatedSelection){
-      const is3D=map.getPitch()>.5;
-      const expected=is3D?'visible':'none';
-      if(map.getLayer(BUILDING_SCENE_3D)&&
-        map.getLayoutProperty(BUILDING_SCENE_3D,'visibility')!==expected){
-        enforceIsolatedLayers();
-      }
-    }else{
-      syncBuildingSceneView();
-    }
-  };
-  const syncSceneOnCameraEnd=()=>{
-    if(isolatedSelection)enforceIsolatedLayers();
-    else syncBuildingSceneView();
-  };
-
-  map.on('move',syncSceneOnCamera);
-  map.on('moveend',syncSceneOnCameraEnd);
-  map.on('styledata',onIsolateStyleData);
+  // Focus view is independent; no city layer/mask updates on focus rotation.
+  const syncSceneOnCamera=()=>syncBuildingSceneView();
+  map.on('pitch',syncSceneOnCamera);
 
   const cancelSelectionEdit=()=>{
     drawing=false;
@@ -1656,10 +1548,8 @@ export function createLocalFloodUI({
       window.removeEventListener('mousemove',onAnchorMouseMoveWindow);
       window.removeEventListener('mouseup',onAnchorMouseUpWindow);
       map.off('mousemove',onMapMouseMove);
-      map.off('move',syncSceneOnCamera);
-      map.off('moveend',syncSceneOnCameraEnd);
-      map.off('styledata',onIsolateStyleData);
-      if(isolateOrderFrame)cancelAnimationFrame(isolateOrderFrame);
+      map.off('pitch',syncSceneOnCamera);
+      destroyFocusViewer();
       document.removeEventListener('keydown',keydown);
     }
   };
