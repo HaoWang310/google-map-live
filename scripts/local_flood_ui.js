@@ -893,6 +893,196 @@ export function createLocalFloodUI({
     isolateViewerElement=null;
   }
 
+
+  // All elements belong to the independent site map, never the city selection panel.
+  const siteHud=id=>isolateViewerElement?.querySelector('#'+id);
+  function setSiteHud(id,value){
+    const el=siteHud(id);if(el)el.textContent=String(value);
+  }
+  function copyHudControl(target,value,event='input'){
+    const el=$(target);if(!el)return;
+    if(el.type==='checkbox')el.checked=Boolean(value);
+    else el.value=String(value);
+    el.dispatchEvent(new Event(event,{bubbles:true}));
+  }
+  function simulationClock(m){
+    m=Math.max(0,Math.round(m||0));
+    return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+  }
+  function setSiteRainMode(){
+    const names={
+      manual:'情景：手动输入降雨强度',
+      'ea-observed':'情景：EA 实测雨量站 4h 回放',
+      'feh-manual':'情景：手动 FEH 4h 设计量（均匀时程假设）'
+    };
+    setSiteHud('siteHudRainMode',names[rainfallMode]||names.manual);
+    if(siteHud('siteHudUseEA'))siteHud('siteHudUseEA').disabled=
+      !(siteRainData?.complete&&siteRainData?.recent);
+  }
+  function syncSiteControls(){
+    const ids=[
+      ['siteHudRain','localFloodRain'],
+      ['siteHudInfil','localFloodInfil'],
+      ['siteHudDuration','localFloodDuration']
+    ];
+    for(const [a,b] of ids)if(siteHud(a)&&$(b))siteHud(a).value=$(b).value;
+    for(const [a,b] of [
+      ['siteHudEA','localFloodFocusEA'],
+      ['siteHudDrainage','localFloodFocusDrainage'],
+      ['siteHudGuide','localFloodDrainageGuide']
+    ])if(siteHud(a)&&$(b))siteHud(a).checked=$(b).checked;
+    if(siteHud('siteHudThreshold'))siteHud('siteHudThreshold').value=
+      Number($('networkThreshold')?.value||1).toFixed(3);
+    setSiteHud('siteHudRainValue',$('localFloodRain')?.value+' mm/h');
+    setSiteHud('siteHudInfilValue',$('localFloodInfil')?.value+' mm/h');
+    setSiteHud('siteHudDurationValue',$('localFloodDuration')?.value+' min');
+    setSiteHud('siteHudGrid',$('localFloodGridInfo')?.textContent||'');
+    setSiteRainMode();
+  }
+  function updateSiteHydroDashboard(frame=lastHydroFrame){
+    if(!isolatedSelection)return;
+    const v=frame?.stats;
+    if(v){
+      setSiteHud('siteHudDepth',v.maxDepthM.toFixed(2)+' m');
+      setSiteHud('siteHudArea',(v.wetAreaM2/1e4).toFixed(2)+' ha');
+      setSiteHud('siteHudImpacted',v.impactedCount+' 栋');
+      setSiteHud('siteHudVolume',Math.round(v.volumeM3).toLocaleString('en-GB')+' m³');
+    }
+    const elapsed=v?.timeMin||0,duration=Number($('localFloodDuration')?.value)||60;
+    setSiteHud('siteHudClock',simulationClock(elapsed)+' / '+simulationClock(duration));
+    const progress=siteHud('siteHudProgress');
+    if(progress)progress.style.width=Math.max(0,Math.min(100,elapsed/duration*100)).toFixed(1)+'%';
+    setSiteHud('siteHudRunState',{
+      ready:'准备就绪',running:'模拟运行中',paused:'已暂停',complete:'模拟完成',reset:'已重置'
+    }[hydroState]||'等待模拟');
+    if(siteHud('siteHudRun'))siteHud('siteHudRun').disabled=!prepared||hydroState==='running';
+    if(siteHud('siteHudPause'))siteHud('siteHudPause').disabled=!prepared||hydroState!=='running';
+    const chart=siteHud('siteHudChart');
+    if(chart&&siteHydroHistory.length){
+      chart.replaceChildren();
+      const mx=Math.max(.02,...siteHydroHistory.map(r=>r[1]));
+      for(const [t,depth] of siteHydroHistory){
+        const bar=document.createElement('span');
+        bar.style.height=Math.max(2,Math.round(depth/mx*48))+'px';
+        bar.title=simulationClock(t)+' / '+depth.toFixed(2)+'m';
+        chart.appendChild(bar);
+      }
+    }
+  }
+  function mountSiteHydroDashboard(container){
+    const shell=document.createElement('div');
+    shell.className='site-hydro-ui';
+    shell.innerHTML=[
+      '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50</small></div>',
+      '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
+      '<button id="siteHudExit" class="site-hydro-close" type="button">✕ 返回城市地图 · Esc</button></header>',
+      '<section class="site-hydro-side site-hydro-left">',
+      '<div class="site-hydro-eyebrow">SCENARIO BUILDER</div>',
+      '<div class="site-hydro-title">真实场地洪涝模拟</div>',
+      '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">01 · 位置降雨数据</div>',
+      '<div class="site-hydro-mini" id="siteHudRainStation">查找 EA 雨量站中…</div>',
+      '<div class="site-hydro-value" id="siteHudRainTotal">— mm / 4h</div>',
+      '<div class="site-hydro-mini" id="siteHudRainTime">等待测站时间和数据完整性</div>',
+      '<div class="site-hydro-actions">',
+      '<button type="button" class="site-hydro-btn" id="siteHudRefresh">重新查询 EA</button>',
+      '<button type="button" class="site-hydro-btn primary" id="siteHudUseEA" disabled>使用实测回放</button></div>',
+      '<div class="site-hydro-mini" style="margin-top:6px" id="siteHudRainMode">手动降雨强度情景</div>',
+      '<div class="site-hydro-row"><span>FEH22 4h 设计量</span><input id="siteHudFeh" type="number" min="0.1" max="500" step="0.1" placeholder="mm" style="width:94px"></div>',
+      '<div class="site-hydro-actions"><button type="button" id="siteHudUseFeh" class="site-hydro-btn">手动应用设计量</button>',
+      '<button type="button" id="siteHudUseManual" class="site-hydro-btn">手动雨强</button></div>',
+      '<div class="site-hydro-mini">FEH22 需在 ',
+      '<a href="https://fehweb.ceh.ac.uk/" target="_blank" rel="noopener noreferrer" style="color:#8ce5ea">FEH 官网 ↗</a>',
+      ' 查询后填入；EA 数据为附近测站实测，不能视为场地实测。</div></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">02 · 三因素联合分析</div>',
+      '<label class="site-hydro-check"><input type="checkbox" id="siteHudEA" checked> EA 现状洪水风险等级（参考）</label>',
+      '<label class="site-hydro-check"><input type="checkbox" id="siteHudDrainage" checked> DEM 推导排水网络（参考）</label>',
+      '<label class="site-hydro-check"><input type="checkbox" id="siteHudGuide" checked> 汇水路径引导下坡流动</label>',
+      '<div class="site-hydro-row">汇水阈值 <input id="siteHudThreshold" type="number" min="0" max="50" step="0.001" style="width:85px"> km²</div></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 模拟参数</div>',
+      '<div class="site-hydro-row"><span>雨强</span><input id="siteHudRain" type="range" min="0" max="150" step="5">',
+      '<output id="siteHudRainValue">50 mm/h</output></div>',
+      '<div class="site-hydro-row"><span>下渗</span><input id="siteHudInfil" type="range" min="0" max="30" step="1">',
+      '<output id="siteHudInfilValue">5 mm/h</output></div>',
+      '<div class="site-hydro-row"><span>时长</span><input id="siteHudDuration" type="range" min="15" max="240" step="15">',
+      '<output id="siteHudDurationValue">60 min</output></div>',
+      '<div class="site-hydro-mini">50 m DEM + OSM 建筑障碍。无法反映局部排水管网、路缘石等微地形。</div></div></section>',
+      '<aside class="site-hydro-side site-hydro-right">',
+      '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
+      '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.00 m</b></div>',
+      '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
+      '<div class="site-hydro-metric"><small>IMPACTED BUILDINGS · 受影响建筑</small><b id="siteHudImpacted">0 栋</b></div>',
+      '<div class="site-hydro-metric"><small>SURFACE WATER · 地表积水体积</small><b id="siteHudVolume">0 m³</b></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">MAX DEPTH · 水深变化</div>',
+      '<div id="siteHudChart" class="site-hydro-chart"></div></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">DATA PROVENANCE</div>',
+      '<div class="site-hydro-mini">EA 风险等级 = 长期概率，不是水深；地形网络 = 汇水路径，不是地下管网；',
+      '动态水深 = 输入降雨、地形和建筑障碍的概念模拟。此工具不能替代工程级洪水模型。</div></div></aside>',
+      '<div class="site-hydro-zoom">独立地块 3D · 拖动平移 / 右键旋转 / 滚轮缩放</div>',
+      '<footer class="site-hydro-footer">',
+      '<button id="siteHudRun" class="site-hydro-btn primary" style="flex:0 0 85px" type="button">▶ 运行</button>',
+      '<button id="siteHudPause" class="site-hydro-btn" style="flex:0 0 70px" type="button">Ⅱ 暂停</button>',
+      '<button id="siteHudReset" class="site-hydro-btn" style="flex:0 0 75px" type="button">↺ 重置</button>',
+      '<div class="site-hydro-timeline"><div style="display:flex;justify-content:space-between">',
+      '<strong id="siteHudClock">00:00 / 01:00</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
+      '</div><div class="site-hydro-track"><div id="siteHudProgress" class="site-hydro-progress"></div></div>',
+      '<div class="site-hydro-mini">计算时间轴 · 不支持回放拖动</div></div></footer>'
+    ].join('');
+    container.appendChild(shell);
+    const bounds=bboxLngLat(polygon[0]);
+    setSiteHud('siteHudLocation','Lat '+((bounds.south+bounds.north)/2).toFixed(5)+
+      ' · Lon '+((bounds.west+bounds.east)/2).toFixed(5));
+    syncSiteControls();
+    updateSiteHydroDashboard();
+
+    siteHud('siteHudExit').onclick=()=>exitSelectionIsolate();
+    siteHud('siteHudRefresh').onclick=lookupSiteRainForSelection;
+    siteHud('siteHudUseManual').onclick=()=>{
+      rainfallMode='manual';manualFourHourMm=null;setSiteRainMode();
+    };
+    siteHud('siteHudUseEA').onclick=()=>{
+      if(!siteRainData?.complete||!siteRainData?.recent)return;
+      rainfallMode='ea-observed';manualFourHourMm=null;
+      copyHudControl('localFloodDuration',240);syncSiteControls();updateSiteHydroDashboard();
+    };
+    siteHud('siteHudUseFeh').onclick=()=>{
+      const mm=Number(siteHud('siteHudFeh').value);
+      if(!Number.isFinite(mm)||mm<=0||mm>500){
+        setSiteHud('siteHudRainTime','设计暴雨请输入 0–500 mm 的有效 4h 总量。');return;
+      }
+      rainfallMode='feh-manual';manualFourHourMm=mm;
+      copyHudControl('localFloodDuration',240);syncSiteControls();updateSiteHydroDashboard();
+      setSiteHud('siteHudRainTime','FEH22 手动输入情景：4h 总量，均匀分配至 15min（时程假设）。');
+    };
+    for(const [hudId,actual] of [
+      ['siteHudEA','localFloodFocusEA'],['siteHudDrainage','localFloodFocusDrainage'],
+      ['siteHudGuide','localFloodDrainageGuide']
+    ])siteHud(hudId).onchange=e=>copyHudControl(actual,e.target.checked,'change');
+    siteHud('siteHudThreshold').onchange=e=>{
+      const n=Number(e.target.value);
+      copyHudControl('networkThresholdInput',Math.max(0,Math.min(50,Number.isFinite(n)?n:1)).toFixed(3),'change');
+      syncSiteControls();
+    };
+    for(const [hudId,actual] of [
+      ['siteHudRain','localFloodRain'],['siteHudInfil','localFloodInfil'],
+      ['siteHudDuration','localFloodDuration']
+    ])siteHud(hudId).oninput=e=>{
+      copyHudControl(actual,e.target.value);
+      if(actual!=='localFloodInfil'){
+        rainfallMode='manual';manualFourHourMm=null;
+      }
+      syncSiteControls();updateSiteHydroDashboard();
+    };
+    siteHud('siteHudRun').onclick=()=>$('localFloodRun').click();
+    siteHud('siteHudPause').onclick=()=>$('localFloodPause').click();
+    siteHud('siteHudReset').onclick=()=>{
+      $('localFloodReset').click();
+      siteHydroHistory.length=0;hydroState='reset';updateSiteHydroDashboard();
+    };
+    lookupSiteRainForSelection();
+  }
+
   function createFocusViewer(){
     destroyFocusViewer();
     const el=document.createElement('div');
