@@ -448,9 +448,87 @@ export function createLocalFloodUI({
     return outputs;
   }
 
+
+  // Widths below are design-scale estimates in ground metres where OSM does not
+  // provide a measured "width" tag. A MapLibre line-width is in screen pixels
+  // and stays physically incorrect when zooming or tilting the 3D view.
+  function focusRoadWidthMetres(p,cls){
+    const raw=String(p.width??p.est_width??'').trim().toLowerCase();
+    const matched=raw.match(/^(\d+(?:\.\d+)?)\s*(m|meters?|metres?|ft|feet|')?$/);
+    if(matched){
+      const value=Number(matched[1])*(matched[2]==='ft'||matched[2]==='feet'||matched[2]==="'"?0.3048:1);
+      if(value>=1&&value<=45)return value;
+    }
+    const lanes=Number(p.lanes);
+    if(Number.isFinite(lanes)&&lanes>=1&&lanes<=10 &&
+       !/footway|pedestrian|steps|path|cycleway/.test(cls)){
+      return Math.min(36,Math.max(3.8,lanes*3.1+1.0));
+    }
+    if(/steps/.test(cls))return 1.6;
+    if(/footway|path|pedestrian|bridleway/.test(cls))return 2.6;
+    if(/cycleway/.test(cls))return 3;
+    if(/motorway/.test(cls))return 22;
+    if(/trunk/.test(cls))return 14;
+    if(/primary/.test(cls))return 11;
+    if(/secondary/.test(cls))return 9;
+    if(/tertiary/.test(cls))return 7.5;
+    if(/residential|unclassified/.test(cls))return 6;
+    if(/service|track/.test(cls))return 4.5;
+    if(/living_street/.test(cls))return 5;
+    return 6;
+  }
+
+  function focusRoadCapsule(a,b,widthMetres){
+    const p=mercator(a[0],a[1]),q=mercator(b[0],b[1]);
+    const dx=q[0]-p[0],dy=q[1]-p[1];
+    if(Math.hypot(dx,dy)<0.01)return null;
+
+    // Web Mercator is conformal but its metre values are enlarged by sec(lat).
+    // Correct the width so, e.g., an 8 m street stays 8 m at London latitude.
+    const midLat=(a[1]+b[1])*0.5*Math.PI/180;
+    const metresPerProjectedMetre=Math.max(0.15,Math.cos(midLat));
+    const radius=widthMetres/(2*metresPerProjectedMetre);
+    const heading=Math.atan2(dy,dx);
+    const segments=6;
+    const ring=[];
+    for(let k=0;k<=segments;k++){
+      const angle=heading-Math.PI/2+Math.PI*k/segments;
+      ring.push(unmercator(q[0]+radius*Math.cos(angle),q[1]+radius*Math.sin(angle)));
+    }
+    for(let k=0;k<=segments;k++){
+      const angle=heading+Math.PI/2+Math.PI*k/segments;
+      ring.push(unmercator(p[0]+radius*Math.cos(angle),p[1]+radius*Math.sin(angle)));
+    }
+    ring.push(ring[0]);
+    return {type:'Polygon',coordinates:[ring]};
+  }
+
+  function clipFocusRoadSurface(geometry,ring){
+    const origin=mercator(ring[0][0],ring[0][1]);
+    const subject=geometryToLocalClipInput(geometry,origin);
+    const target=selectionToLocalClipInput(ring,origin);
+    if(!subject?.length||!target?.length)return null;
+    try{
+      return clipOutputToGeometry(polygonClipping.intersection(subject,target),origin);
+    }catch(error){
+      console.warn('Focus road clipping failed',error);
+      return null;
+    }
+  }
+
   function collectFocusMapDetails(){
     const siteRing=polygon?.[0]||[];
     const selectionBox=bboxLngLat(siteRing);
+    // Include roads whose centreline is just OUTSIDE the boundary while their
+    // real-width carriageway still intersects the parcel.
+    const latMid=(selectionBox.south+selectionBox.north)/2*Math.PI/180;
+    const roadPaddingM=40;
+    const roadSelectionBox={
+      west:selectionBox.west-roadPaddingM/(111320*Math.max(0.15,Math.cos(latMid))),
+      east:selectionBox.east+roadPaddingM/(111320*Math.max(0.15,Math.cos(latMid))),
+      south:selectionBox.south-roadPaddingM/111320,
+      north:selectionBox.north+roadPaddingM/111320
+    };
     const roads=[],greens=[],waters=[];
     const seen=new Set();
     const primarySource=map.getLayer(cityBuildingsLayerId)?.source;
@@ -481,7 +559,10 @@ export function createLocalFloodUI({
       const maxItems=layerName==='transportation'?9000:3000;
       for(const feature of items.slice(0,maxItems)){
         if(!feature?.geometry)continue;
-        if(!boxesIntersect(selectionBox,geometryBBox(feature.geometry)))continue;
+        if(!boxesIntersect(
+          layerName==='transportation'?roadSelectionBox:selectionBox,
+          geometryBBox(feature.geometry)
+        ))continue;
         const p=feature.properties||{};
         const cls=String(p.class||p.subclass||p.type||'').toLowerCase();
         const kind=feature.geometry.type;
@@ -494,16 +575,35 @@ export function createLocalFloodUI({
           if(/rail|subway|tram|ferry|aerialway|construction/i.test(cls))continue;
           const pedestrian=/footway|pedestrian|steps|path|cycleway|bridleway/i.test(cls);
           const major=/motorway|trunk|primary|secondary/i.test(cls);
-          for(const coordinates of clipRoadToSite(feature.geometry,siteRing)){
-            if(roads.length>=12000)break;
-            roads.push({
-              type:'Feature',
-              properties:{
-                class:cls,
-                kind:pedestrian?'pedestrian':major?'major':'street'
-              },
-              geometry:{type:'LineString',coordinates}
-            });
+          const kind=pedestrian?'pedestrian':major?'major':'street';
+          const width=focusRoadWidthMetres(p,cls);
+          // Build ground footprints in metres before clipping. Pixel-width
+          // centerlines are not a scaled representation of carriageway area.
+          const lines=kind&&feature.geometry.type==='LineString'
+            ?[feature.geometry.coordinates]:feature.geometry.coordinates;
+          for(const line of lines){
+            if(!Array.isArray(line)||line.length<2)continue;
+            for(let i=1;i<line.length;i++){
+              if(roads.length>=8000)break;
+              const a=line[i-1],b=line[i];
+              // Casing is +0.8 m total width; both polygons are geo-clipped
+              // to the red site, including roads along an outside boundary.
+              for(const [part,roadWidth] of [
+                ['casing',width+0.8],['surface',width]
+              ]){
+                const corridor=focusRoadCapsule(a,b,roadWidth);
+                if(!corridor)continue;
+                if(!boxesIntersect(selectionBox,geometryBBox(corridor)))continue;
+                const inside=clipFocusRoadSurface(corridor,siteRing);
+                if(!inside)continue;
+                roads.push({
+                  type:'Feature',
+                  properties:{class:cls,kind,part,widthMetres:width},
+                  geometry:inside
+                });
+              }
+            }
+            if(roads.length>=8000)break;
           }
         }else if(
           (kind==='Polygon'||kind==='MultiPolygon')&&
@@ -560,17 +660,18 @@ export function createLocalFloodUI({
           paint:{'fill-color':'#bfd9b1','fill-opacity':0.95}},
         {id:'focus-water-ground',type:'fill',source:FOCUS_WATER,
           paint:{'fill-color':'#a8d5ec','fill-opacity':0.95}},
-        {id:'focus-road-casing',type:'line',source:FOCUS_ROADS,
+        {id:'focus-road-casing',type:'fill',source:FOCUS_ROADS,
+          filter:['==',['get','part'],'casing'],
           paint:{
-            'line-color':'#c4c2bd',
-            'line-width':['match',['get','kind'],'major',8,'pedestrian',2.5,5],
-            'line-opacity':0.9
+            'fill-color':'#c4c2bd',
+            'fill-opacity':0.92
           }},
-        {id:'focus-road-surface',type:'line',source:FOCUS_ROADS,
+        {id:'focus-road-surface',type:'fill',source:FOCUS_ROADS,
+          filter:['==',['get','part'],'surface'],
           paint:{
-            'line-color':['match',['get','kind'],
+            'fill-color':['match',['get','kind'],
               'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff'],
-            'line-width':['match',['get','kind'],'major',6,'pedestrian',1.5,3.5]
+            'fill-opacity':1
           }},
         // The dashed red boundary is a ground-level graphic, not an overlay
         // painted across roofs/walls. Extruded buildings must draw after it
