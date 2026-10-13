@@ -969,6 +969,161 @@ export function createLocalFloodUI({
       }
     }
   }
+
+  async function rainfallJSON(url,timeout=11500){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),timeout);
+    try{
+      const response=await fetch(url,{
+        signal:controller.signal,headers:{Accept:'application/json'},
+        cache:'no-store'
+      });
+      if(!response.ok)throw new Error('EA HTTP '+response.status);
+      return await response.json();
+    }finally{clearTimeout(timer);}
+  }
+  function rainfallDistanceKm(a,b,c,d){
+    const deg=Math.PI/180,R=6371;
+    const h=Math.sin((c-a)*deg/2)**2+
+      Math.cos(a*deg)*Math.cos(c*deg)*Math.sin((d-b)*deg/2)**2;
+    return 2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+  }
+  function rainfallMeasureFromStation(st){
+    const measures=Array.isArray(st.measures)?st.measures:
+      (st.measures?[st.measures]:[]);
+    const selected=measures.find(m=>{
+      if(!m||typeof m==='string')return false;
+      const param=String(m.parameter||m.parameterName||'').toLowerCase();
+      return param.includes('rain')&&
+        (!m.period||Number(m.period)===900)&&
+        (!m.unitName||String(m.unitName).toLowerCase()==='mm');
+    });
+    return selected||null;
+  }
+  function rainMeasureUri(m){
+    if(!m)return null;
+    const value=String(m['@id']||m.id||m.uri||'');
+    if(!value)return null;
+    try{
+      const path=new URL(value.replace(/^http:\/\//,'https://')).pathname;
+      const name=path.split('/').filter(Boolean).pop().replace(/\.(json|html)$/,'');
+      if(!name)return null;
+      return 'https://environment.data.gov.uk/flood-monitoring/id/measures/'+encodeURIComponent(name);
+    }catch{return null;}
+  }
+  function parseEa15MinuteSeries(items){
+    // EA tipping-bucket readings are 15-minute accumulated totals, NOT mm/h.
+    const records=(Array.isArray(items)?items:[]).map(row=>({
+      t:new Date(row.dateTime||row.date||'').getTime(),
+      v:row.value===null||row.value===undefined?NaN:Number(row.value)
+    })).filter(row=>Number.isFinite(row.t)&&Number.isFinite(row.v)&&
+      row.v>=0&&row.v<=250).sort((a,b)=>a.t-b.t);
+    const unique=new Map();
+    for(const row of records)unique.set(row.t,row.v);
+    const ordered=[...unique].sort((a,b)=>a[0]-b[0]).map(([t,v])=>({t,v}));
+    if(!ordered.length)return null;
+    // Use the last 16 QUARTER-HOUR slots only if their spacing is genuinely
+    // contiguous; do not hide missing observations by inventing interpolation.
+    const recent=ordered.slice(-16);
+    const complete=recent.length===16 &&
+      recent.every((row,i)=>i===0||Math.abs(row.t-recent[i-1].t-900000)<=90000);
+    const latest=ordered.at(-1).t;
+    const ageHours=Math.max(0,(Date.now()-latest)/3600000);
+    return {
+      latestTime:new Date(latest).toISOString(),
+      readingCount:recent.length,
+      series15:complete?recent.map(row=>row.v):null,
+      total4h:complete?recent.reduce((total,row)=>total+row.v,0):null,
+      complete,recent:ageHours<=24,ageHours
+    };
+  }
+  async function lookupSiteRainForSelection(){
+    if(!isolatedSelection||!polygon?.[0])return;
+    const request=++siteRainRequest;
+    const b=bboxLngLat(polygon[0]);
+    const lat=(b.south+b.north)/2,lon=(b.west+b.east)/2;
+    setSiteHud('siteHudRainStation','正在以场地中心经纬度查找 EA 附近雨量站…');
+    setSiteHud('siteHudRainTime','最近可用 4h 观测 · 官方 EA Rainfall API（Beta）');
+    setSiteHud('siteHudRainTotal','— mm / 4h');
+    siteRainData=null;setSiteRainMode();
+    const root='https://environment.data.gov.uk/flood-monitoring';
+    try{
+      let stations=[];
+      for(const radius of [10,25,50]){
+        const url=root+'/id/stations?parameter=rainfall&lat='+lat+
+          '&long='+lon+'&dist='+radius+'&_view=full&_limit=160';
+        const data=await rainfallJSON(url);
+        if(request!==siteRainRequest||!isolatedSelection)return;
+        if(Array.isArray(data.items)&&data.items.length){
+          stations=data.items;break;
+        }
+      }
+      if(!stations.length)throw new Error('场地 50 km 内没有可查询的雨量站');
+      const candidates=stations.map(st=>{
+        const a=Number(st.lat),b=Number(st.long);
+        return {st,d:Number.isFinite(a)&&Number.isFinite(b)?
+          rainfallDistanceKm(lat,lon,a,b):Infinity};
+      }).filter(r=>Number.isFinite(r.d)).sort((a,b)=>a.d-b.d);
+      let bestPartial=null,lastError=null;
+      for(const {st,d} of candidates.slice(0,8)){
+        if(request!==siteRainRequest||!isolatedSelection)return;
+        try{
+          const ref=String(st.stationReference||st.notation||
+            String(st['@id']||'').split('/').pop()).trim();
+          if(!ref)continue;
+          const measure=rainfallMeasureFromStation(st);
+          // Query a known 15-minute mm rainfall measure, not all station
+          // measurements (which can contain temperatures and other quantities).
+          let measureUrl=rainMeasureUri(measure);
+          if(!measureUrl){
+            const data=await rainfallJSON(root+'/id/stations/'+
+              encodeURIComponent(ref)+'/measures');
+            const list=Array.isArray(data.items)?data.items:[];
+            measureUrl=rainMeasureUri(rainfallMeasureFromStation({measures:list}));
+          }
+          if(!measureUrl)continue;
+          const since=new Date(Date.now()-72*3600*1000).toISOString();
+          const json=await rainfallJSON(measureUrl+'/readings?since='+
+            encodeURIComponent(since)+'&_limit=1000&_sorted');
+          const record=parseEa15MinuteSeries(json.items);
+          if(!record)continue;
+          const payload={
+            ...record,stationRef:ref,distanceKm:d,
+            name:String(st.label||st.name||ref),
+            siteLat:lat,siteLon:lon,
+            source:'Environment Agency rainfall real-time data API (Beta)'
+          };
+          if(!bestPartial)bestPartial=payload;
+          if(payload.complete){
+            bestPartial=payload;
+            // Nearest reporting station with a complete four-hour window.
+            break;
+          }
+        }catch(error){lastError=error;}
+      }
+      if(request!==siteRainRequest||!isolatedSelection)return;
+      if(!bestPartial)throw lastError||new Error('附近雨量站没有有效 15 分钟雨量记录');
+      siteRainData=bestPartial;
+      setSiteHud('siteHudRainStation','测站 '+bestPartial.name+
+        ' ('+bestPartial.stationRef+') · 距地块中心 '+bestPartial.distanceKm.toFixed(1)+' km');
+      setSiteHud('siteHudRainTotal',bestPartial.complete?
+        bestPartial.total4h.toFixed(1)+' mm / 4h':'4h 记录不完整');
+      const stamp=new Date(bestPartial.latestTime).toLocaleString('en-GB',{
+        year:'numeric',month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'
+      });
+      setSiteHud('siteHudRainTime','数据截至 '+stamp+' · '+bestPartial.readingCount+
+        ' 条 15min 记录'+(!bestPartial.complete?' · 有缺测，无法回放':
+          !bestPartial.recent?' · 非最近 24h，禁用实时回放':' · 可以回放'));
+      setSiteRainMode();
+    }catch(error){
+      if(request!==siteRainRequest||!isolatedSelection)return;
+      setSiteHud('siteHudRainStation','EA 实测降雨不可用');
+      setSiteHud('siteHudRainTime','官方查询失败：'+String(error?.message||error)+
+        '。仍可手动测试；未使用虚构雨量。');
+      setSiteRainMode();
+    }
+  }
+
   function mountSiteHydroDashboard(container){
     const shell=document.createElement('div');
     shell.className='site-hydro-ui';
