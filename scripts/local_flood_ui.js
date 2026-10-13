@@ -441,7 +441,7 @@ export function createLocalFloodUI({
 
   function setFocusPitchMode(){
     const viewer=isolateViewer;
-    if(!viewer||!viewer.isStyleLoaded())return;
+    if(!viewer)return;
     const is3D=viewer.getPitch()>.5;
     for(const [id,v] of [
       [FOCUS_2D,is3D?'none':'visible'],
@@ -651,11 +651,10 @@ export function createLocalFloodUI({
   function publishBuildingScene(){
     ensureBuildingSceneLayers();
 
-    // Only pre-clipped inside geometry is visible in site-only mode.
-    // Complete source multipolygons caused external false walls/giant roofs.
+    // Preserve the original city map's building scene when focus is open.
+    // The separate focus viewer has its own selected-only GeoJSON source.
     const features=[...sceneFeatures.values()].filter(feature=>
-      (!isolatedSelection||feature.properties?.selected===true)&&
-      (!hideSelectedBuildings||feature.properties?.selected!==true)
+      !hideSelectedBuildings||feature.properties?.selected!==true
     );
 
     map.getSource(BUILDING_SCENE_SOURCE)?.setData({
