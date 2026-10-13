@@ -386,6 +386,9 @@ export function createLocalFloodUI({
   // Unlike hiding OpenFreeMap style layers, there are no city tiles to leak.
   const FOCUS_SITE='focus-site-source';
   const FOCUS_BUILDINGS='focus-building-source';
+  const FOCUS_ROADS='focus-roads-source';
+  const FOCUS_GREEN='focus-green-source';
+  const FOCUS_WATER='focus-water-source';
   const FOCUS_2D='focus-building-fill';
   const FOCUS_3D='focus-building-extrusion';
 
@@ -402,7 +405,136 @@ export function createLocalFloodUI({
     isolateViewer?.getSource(FOCUS_BUILDINGS)?.setData(focusBuildingData());
   }
 
-  function focusStyle(){
+
+  function clipRoadToSite(geometry,siteRing){
+    const lines=geometry?.type==='LineString'
+      ?[geometry.coordinates]
+      :geometry?.type==='MultiLineString'
+        ?geometry.coordinates:[];
+    const outputs=[];
+    const sides=closeRing(siteRing);
+    const EPS=1e-9;
+    for(const line of lines){
+      if(!Array.isArray(line)||line.length<2)continue;
+      for(let i=1;i<line.length;i++){
+        const p=line[i-1],q=line[i];
+        if(!Array.isArray(p)||!Array.isArray(q))continue;
+        const dx=q[0]-p[0],dy=q[1]-p[1];
+        if(Math.abs(dx)+Math.abs(dy)<1e-12)continue;
+        const ts=[0,1];
+        for(let j=1;j<sides.length;j++){
+          const a=sides[j-1],b=sides[j];
+          const ex=b[0]-a[0],ey=b[1]-a[1];
+          const cross=dx*ey-dy*ex;
+          if(Math.abs(cross)<1e-14)continue;
+          const apx=a[0]-p[0],apy=a[1]-p[1];
+          const t=(apx*ey-apy*ex)/cross;
+          const u=(apx*dy-apy*dx)/cross;
+          if(t>EPS&&t<1-EPS&&u>=-EPS&&u<=1+EPS)ts.push(t);
+        }
+        ts.sort((a,b)=>a-b);
+        for(let j=1;j<ts.length;j++){
+          const t0=ts[j-1],t1=ts[j];
+          if(t1-t0<EPS)continue;
+          const mid=(t0+t1)/2;
+          if(!pointInRingLngLat([p[0]+dx*mid,p[1]+dy*mid],sides))continue;
+          outputs.push([
+            [p[0]+dx*t0,p[1]+dy*t0],
+            [p[0]+dx*t1,p[1]+dy*t1]
+          ]);
+        }
+      }
+    }
+    return outputs;
+  }
+
+  function collectFocusMapDetails(){
+    const siteRing=polygon?.[0]||[];
+    const selectionBox=bboxLngLat(siteRing);
+    const roads=[],greens=[],waters=[];
+    const seen=new Set();
+    const primarySource=map.getLayer(cityBuildingsLayerId)?.source;
+    const descriptors=new Map();
+
+    // Use the same real OpenFreeMap vector tiles as the original 3D buildings.
+    // Source-layer names follow the OpenMapTiles schema. Querying already loaded
+    // tiles avoids a second external data service or invented land-use geometry.
+    for(const layerName of ['transportation','landuse','landcover','park','water']){
+      if(primarySource)descriptors.set(primarySource+'|'+layerName,{
+        source:primarySource,layerName
+      });
+    }
+    // Additional style sources may provide features missing from the dedicated
+    // building tile source. Deduplication keeps geometry from appearing twice.
+    for(const layer of map.getStyle()?.layers||[]){
+      const layerName=String(layer['source-layer']||'');
+      if(!['transportation','landuse','landcover','park','water'].includes(layerName))continue;
+      if(!layer.source)continue;
+      const key=layer.source+'|'+layerName;
+      if(!descriptors.has(key))descriptors.set(key,{source:layer.source,layerName});
+    }
+
+    for(const {source,layerName} of descriptors.values()){
+      let items=[];
+      try{items=map.querySourceFeatures(source,{sourceLayer:layerName})||[];}
+      catch(error){continue;}
+      const maxItems=layerName==='transportation'?9000:3000;
+      for(const feature of items.slice(0,maxItems)){
+        if(!feature?.geometry)continue;
+        if(!boxesIntersect(selectionBox,geometryBBox(feature.geometry)))continue;
+        const p=feature.properties||{};
+        const cls=String(p.class||p.subclass||p.type||'').toLowerCase();
+        const kind=feature.geometry.type;
+        const dedupe=layerName+'|'+geometryIdentity(feature);
+        if(seen.has(dedupe))continue;
+        seen.add(dedupe);
+
+        if(layerName==='transportation'&&
+          (kind==='LineString'||kind==='MultiLineString')){
+          if(/rail|subway|tram|ferry|aerialway|construction/i.test(cls))continue;
+          const pedestrian=/footway|pedestrian|steps|path|cycleway|bridleway/i.test(cls);
+          const major=/motorway|trunk|primary|secondary/i.test(cls);
+          for(const coordinates of clipRoadToSite(feature.geometry,siteRing)){
+            if(roads.length>=12000)break;
+            roads.push({
+              type:'Feature',
+              properties:{
+                class:cls,
+                kind:pedestrian?'pedestrian':major?'major':'street'
+              },
+              geometry:{type:'LineString',coordinates}
+            });
+          }
+        }else if(
+          (kind==='Polygon'||kind==='MultiPolygon')&&
+          ['landuse','landcover','park','water'].includes(layerName)
+        ){
+          const isWater=layerName==='water';
+          const isGreen=layerName==='park'||
+            (layerName==='landcover'&&/grass|wood|forest|scrub|wetland|farmland|orchard/i.test(cls))||
+            (layerName==='landuse'&&/park|grass|forest|garden|cemetery|recreation|pitch|playground|village_green|meadow|allotment|farmland/i.test(cls));
+          if(!isWater&&!isGreen)continue;
+          const output=isWater?waters:greens;
+          if(output.length>=2500)continue;
+          const inside=splitBuildingBySelection(feature.geometry,siteRing).inside;
+          if(!inside)continue;
+          output.push({
+            type:'Feature',
+            properties:{class:cls},
+            geometry:inside
+          });
+        }
+      }
+    }
+    const collection=features=>({type:'FeatureCollection',features});
+    return {
+      roads:collection(roads),
+      greens:collection(greens),
+      waters:collection(waters)
+    };
+  }
+
+  function focusStyle(details){
     const parcel={
       type:'FeatureCollection',
       features:[{
@@ -414,13 +546,32 @@ export function createLocalFloodUI({
       version:8,
       sources:{
         [FOCUS_SITE]:{type:'geojson',data:parcel},
-        [FOCUS_BUILDINGS]:{type:'geojson',data:focusBuildingData()}
+        [FOCUS_BUILDINGS]:{type:'geojson',data:focusBuildingData()},
+        [FOCUS_GREEN]:{type:'geojson',data:details.greens},
+        [FOCUS_WATER]:{type:'geojson',data:details.waters},
+        [FOCUS_ROADS]:{type:'geojson',data:details.roads}
       },
       layers:[
         {id:'focus-background',type:'background',
           paint:{'background-color':'#f4f2ed'}},
         {id:'focus-parcel-ground',type:'fill',source:FOCUS_SITE,
           paint:{'fill-color':'#e8e7e2','fill-opacity':1}},
+        {id:'focus-green-ground',type:'fill',source:FOCUS_GREEN,
+          paint:{'fill-color':'#bfd9b1','fill-opacity':0.95}},
+        {id:'focus-water-ground',type:'fill',source:FOCUS_WATER,
+          paint:{'fill-color':'#a8d5ec','fill-opacity':0.95}},
+        {id:'focus-road-casing',type:'line',source:FOCUS_ROADS,
+          paint:{
+            'line-color':'#c4c2bd',
+            'line-width':['match',['get','kind'],'major',8,'pedestrian',2.5,5],
+            'line-opacity':0.9
+          }},
+        {id:'focus-road-surface',type:'line',source:FOCUS_ROADS,
+          paint:{
+            'line-color':['match',['get','kind'],
+              'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff'],
+            'line-width':['match',['get','kind'],'major',6,'pedestrian',1.5,3.5]
+          }},
         // The dashed red boundary is a ground-level graphic, not an overlay
         // painted across roofs/walls. Extruded buildings must draw after it
         // for physically correct occlusion from every camera bearing.
@@ -479,8 +630,9 @@ export function createLocalFloodUI({
 
     let viewer;
     try{
+      const details=collectFocusMapDetails();
       viewer=new maplibregl.Map({
-        container:el,style:focusStyle(),
+        container:el,style:focusStyle(details),
         center:map.getCenter().toArray(),zoom:map.getZoom(),
         pitch:0,bearing:0,antialias:true,attributionControl:false
       });
@@ -526,7 +678,7 @@ export function createLocalFloodUI({
       return false;
     }
     hideAreaPopup();
-    status('独立视图：仅显示地块与内部建筑，可旋转缩放；按 Esc 返回原地图。');
+    status('独立视图：显示选区内建筑、道路、绿地与水面；按 Esc 返回原地图。');
     return true;
   }
 
