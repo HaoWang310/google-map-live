@@ -277,7 +277,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.67</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.68</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -314,7 +314,7 @@
           <strong>显示街道小车</strong>
           <small>独立开关 · 不受 OSM 标注显示状态影响</small>
         </span>
-        <input id="streetVehicleToggle" type="checkbox" autocomplete="off" checked disabled>
+        <input id="streetVehicleToggle" type="checkbox" autocomplete="off" disabled>
       </label>
 
       <div class="row viewButtons" role="group" aria-label="地图视角">
@@ -611,7 +611,7 @@
   import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.33';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.67';
+  const APP_VERSION='3.21.68';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -941,7 +941,7 @@
 
   // Lightweight, viewport-scoped street vehicles. They never participate in flood
   // building selection or simulation geometry.
-  let streetVehiclesEnabled=true;
+  let streetVehiclesEnabled=false;
   let streetVehicles=[];
   let streetVehicleRoutes=[];
   let streetVehicleAnimationFrame=null;
