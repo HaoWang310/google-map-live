@@ -1536,6 +1536,18 @@ export function createLocalFloodUI({
 
   return {
     clear:()=>clearSimulation(false),
+    setFocusView(is3D){
+      if(!isolatedSelection||!isolateViewer)return false;
+      isolateViewer.easeTo(is3D?{
+        zoom:Math.max(isolateViewer.getZoom(),15.5),
+        pitch:55,
+        bearing:isolateViewer.getBearing()||-20,
+        duration:700
+      }:{
+        pitch:0,bearing:0,duration:450
+      });
+      return true;
+    },
     destroy(){
       clearSimulation(false);
       simulator?.destroy();simulator=null;
