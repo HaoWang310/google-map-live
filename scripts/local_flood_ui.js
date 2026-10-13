@@ -1048,7 +1048,13 @@ export function createLocalFloodUI({
     setSiteHud('siteHudRainStation','正在以场地中心经纬度查找 EA 附近雨量站…');
     setSiteHud('siteHudRainTime','最近可用 4h 观测 · 官方 EA Rainfall API（Beta）');
     setSiteHud('siteHudRainTotal','— mm / 4h');
-    siteRainData=null;setSiteRainMode();
+    siteRainData=null;
+    if(rainfallMode==='ea-observed'){
+      rainfallMode='manual';
+      simulator?.pause();simulator?.reset();
+      hydroState='reset';siteHydroHistory.length=0;
+    }
+    setSiteRainMode();
     const root='https://environment.data.gov.uk/flood-monitoring';
     try{
       let stations=[];
@@ -1071,8 +1077,10 @@ export function createLocalFloodUI({
       for(const {st,d} of candidates.slice(0,8)){
         if(request!==siteRainRequest||!isolatedSelection)return;
         try{
-          const ref=String(st.stationReference||st.notation||
-            String(st['@id']||'').split('/').pop()).trim();
+          // Station URI path is the API identifier; stationReference may be a
+          // different telemetry-system reference at some sites.
+          const ref=String(st['@id']||'').split('/').filter(Boolean).pop()||
+            String(st.notation||st.stationReference||'').trim();
           if(!ref)continue;
           const measure=rainfallMeasureFromStation(st);
           // Query a known 15-minute mm rainfall measure, not all station
@@ -1152,7 +1160,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-row"><span>FEH22 4h 设计量</span><input id="siteHudFeh" type="number" min="0.1" max="500" step="0.1" placeholder="mm" style="width:94px"></div>',
       '<div class="site-hydro-actions"><button type="button" id="siteHudUseFeh" class="site-hydro-btn">手动应用设计量</button>',
       '<button type="button" id="siteHudUseManual" class="site-hydro-btn">手动雨强</button></div>',
-      '<div class="site-hydro-mini">FEH22 需在 ',
+      '<div class="site-hydro-mini">EA 雨量为 15 分钟累计观测，测站上传可能延迟；非实时场地雨强。FEH22 需在 ',
       '<a href="https://fehweb.ceh.ac.uk/" target="_blank" rel="noopener noreferrer" style="color:#8ce5ea">FEH 官网 ↗</a>',
       ' 查询后填入；EA 数据为附近测站实测，不能视为场地实测。</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">02 · 三因素联合分析</div>',
