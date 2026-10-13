@@ -421,6 +421,11 @@ export function createLocalFloodUI({
           paint:{'background-color':'#f4f2ed'}},
         {id:'focus-parcel-ground',type:'fill',source:FOCUS_SITE,
           paint:{'fill-color':'#e8e7e2','fill-opacity':1}},
+        // The dashed red boundary is a ground-level graphic, not an overlay
+        // painted across roofs/walls. Extruded buildings must draw after it
+        // for physically correct occlusion from every camera bearing.
+        {id:'focus-parcel-border',type:'line',source:FOCUS_SITE,
+          paint:{'line-color':'#ef4444','line-width':2.6,'line-dasharray':[2,1]}},
         {id:FOCUS_2D,type:'fill',source:FOCUS_BUILDINGS,
           layout:{visibility:'none'},
           paint:{'fill-color':buildingColourExpression(),'fill-opacity':1}},
@@ -432,9 +437,7 @@ export function createLocalFloodUI({
             'fill-extrusion-base':['get','simBase'],
             'fill-extrusion-opacity':1,
             'fill-extrusion-vertical-gradient':false
-          }},
-        {id:'focus-parcel-border',type:'line',source:FOCUS_SITE,
-          paint:{'line-color':'#ef4444','line-width':2.6,'line-dasharray':[2,1]}}
+          }}
       ]
     };
   }
