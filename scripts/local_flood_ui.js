@@ -306,6 +306,11 @@ export function createLocalFloodUI({
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
     $('localFloodStatus').className='layerStatus'+(error?' error':'');
+    const notice=isolateViewerElement?.querySelector('#siteHudNotice');
+    if(notice){
+      notice.textContent=message;
+      notice.style.color=error?'#ffaaaa':'#9ccbd8';
+    }
   };
 
   function ensureSelectionLayers(){
@@ -492,11 +497,22 @@ export function createLocalFloodUI({
     const url=type==='ea'
       ?'ea-flood://tiles/'+z+'/'+x+'/'+y
       :'drainage-network://tiles/'+thresholdText+'/'+z+'/'+x+'/'+y;
-    const raw=await getFocusReferenceTile(type,{...request,url},controller);
-    if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
-    const result=await maskSiteContextTile(raw.data,z,x,y,ring);
-    if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
-    return {data:result,cacheControl:'max-age=1800'};
+    try{
+      const raw=await getFocusReferenceTile(type,{...request,url},controller);
+      if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
+      const result=await maskSiteContextTile(raw.data,z,x,y,ring);
+      if(controller.signal.aborted)throw new DOMException('Aborted','AbortError');
+      setSiteHud(type==='ea'?'siteHudEAStatus':'siteHudDrainStatus',
+        type==='ea'?'EA 官方风险瓦片已获取（空白不代表无风险）':
+          '50 m DEM 汇水网络瓦片已获取（道路不是地下管网）');
+      return {data:result,cacheControl:'max-age=1800'};
+    }catch(error){
+      if(error?.name!=='AbortError'){
+        setSiteHud(type==='ea'?'siteHudEAStatus':'siteHudDrainStatus',
+          (type==='ea'?'EA 风险':'汇水网络')+'数据不可用：'+(error?.message||error));
+      }
+      throw error;
+    }
   });
 
   function focusContextSettings(){
@@ -1192,6 +1208,9 @@ export function createLocalFloodUI({
       '<span style="color:#f7d359">■</span> 低 0.1–&lt;1%<br>',
       '<span style="color:#f29d38">■</span> 中 1–&lt;3.3% · ',
       '<span style="color:#d73731">■</span> 高 ≥3.3%</div></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">MAP DATA STATUS</div>',
+      '<div id="siteHudEAStatus" class="site-hydro-mini">EA 风险：等待瓦片</div>',
+      '<div id="siteHudDrainStatus" class="site-hydro-mini">地形网络：等待瓦片</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">DATA PROVENANCE</div>',
       '<div class="site-hydro-mini">EA 风险等级 = 长期概率，不是水深；地形网络 = 汇水路径，不是地下管网；',
       '动态水深 = 输入降雨、地形和建筑障碍的概念模拟。此工具不能替代工程级洪水模型。</div></div></aside>',
@@ -1203,7 +1222,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-timeline"><div style="display:flex;justify-content:space-between">',
       '<strong id="siteHudClock">00:00 / 01:00</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track"><div id="siteHudProgress" class="site-hydro-progress"></div></div>',
-      '<div class="site-hydro-mini">计算时间轴 · 不支持回放拖动</div></div></footer>'
+      '<div class="site-hydro-mini" id="siteHudNotice">计算时间轴 · 不支持回放拖动</div></div></footer>'
     ].join('');
     container.appendChild(shell);
     const bounds=bboxLngLat(polygon[0]);
