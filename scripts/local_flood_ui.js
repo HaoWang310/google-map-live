@@ -819,10 +819,10 @@ export function createLocalFloodUI({
         {id:'focus-water-ground',type:'fill',source:FOCUS_WATER,
           paint:{'fill-color':'#a8d5ec','fill-opacity':0.95}},
         {id:FOCUS_EA_LAYER,type:'raster',source:FOCUS_EA_SOURCE,
-          layout:{visibility:analysis.ea?'visible':'none'},
+          layout:{visibility:'none'},
           paint:{'raster-opacity':0.30,'raster-resampling':'nearest','raster-fade-duration':0}},
         {id:FOCUS_DRAINAGE_LAYER,type:'raster',source:FOCUS_DRAINAGE_SOURCE,
-          layout:{visibility:analysis.drainage?'visible':'none'},
+          layout:{visibility:'none'},
           paint:{'raster-opacity':0.52,'raster-resampling':'linear','raster-fade-duration':0}},
         {id:'focus-road-casing',type:'fill',source:FOCUS_ROADS,
           filter:['==',['get','part'],'casing'],
@@ -917,6 +917,9 @@ export function createLocalFloodUI({
     viewer.on('pitch',setFocusPitchMode);
     viewer.once('load',()=>{
       if(isolateViewer!==viewer||!isolatedSelection)return;
+      // First fit the parcel from its local geometry, then start the optional
+      // EA/WMS and drainage raster fetches. External references must not delay
+      // the initial independent 3D camera or basic building display.
       setFocusPitchMode();
       updateFocusAnalysisLayers();
       const bounds=selectionBounds(polygon[0]);
