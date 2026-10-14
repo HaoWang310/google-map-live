@@ -618,6 +618,9 @@ export function createLocalFloodUI({
   let sceneFeatures=new Map();
   let canvas=null;
   let canvasContext=null;
+  let lowResWater=null;
+  let lowResWaterContext=null;
+  let waterUpscale=1;
   let simulator=null;
   let areaHoverTimer=null;
   let areaHoverInside=false;
@@ -2185,6 +2188,7 @@ export function createLocalFloodUI({
     if(map.getSource(WATER_SOURCE))map.removeSource(WATER_SOURCE);
     focusWaterBounds=null;
     if(canvas){canvas.remove();canvas=null;canvasContext=null;}
+    lowResWater=null;lowResWaterContext=null;waterUpscale=1;
   }
 
   function clearSimulation(keepSelection=false){
@@ -2497,11 +2501,19 @@ export function createLocalFloodUI({
     removeWaterLayers();
     canvas=document.createElement('canvas');
     canvas.id='localFloodCanvas';
-    canvas.width=info.cols;canvas.height=info.rows;
+    waterUpscale=Math.max(1,Math.min(3,
+      Math.floor(1600/Math.max(1,info.cols,info.rows))));
+    canvas.width=info.cols*waterUpscale;
+    canvas.height=info.rows*waterUpscale;
+    lowResWater=document.createElement('canvas');
+    lowResWater.width=info.cols;lowResWater.height=info.rows;
+    lowResWaterContext=lowResWater.getContext('2d');
     focusWaterBounds=info.boundsLngLat;
     canvas.style.cssText='position:absolute;left:-10000px;top:-10000px;width:1px;height:1px;pointer-events:none';
     document.body.appendChild(canvas);
     canvasContext=canvas.getContext('2d');
+    canvasContext.imageSmoothingEnabled=true;
+    canvasContext.imageSmoothingQuality='high';
 
     map.addSource(WATER_SOURCE,{
       type:'canvas',
@@ -2682,10 +2694,19 @@ export function createLocalFloodUI({
     if(isolatedSelection&&volumetricWater?.ready&&data.depthMm){
       volumetricWater.updateFrame(data);
     }
-    if(canvas.width!==data.width||canvas.height!==data.height){
-      canvas.width=data.width;canvas.height=data.height;
+    if(!lowResWater||!lowResWaterContext)return;
+    if(lowResWater.width!==data.width||lowResWater.height!==data.height){
+      lowResWater.width=data.width;lowResWater.height=data.height;
     }
-    canvasContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
+    const outWidth=data.width*waterUpscale,outHeight=data.height*waterUpscale;
+    if(canvas.width!==outWidth||canvas.height!==outHeight){
+      canvas.width=outWidth;canvas.height=outHeight;
+    }
+    lowResWaterContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
+    canvasContext.clearRect(0,0,outWidth,outHeight);
+    canvasContext.imageSmoothingEnabled=true;
+    canvasContext.imageSmoothingQuality='high';
+    canvasContext.drawImage(lowResWater,0,0,outWidth,outHeight);
     map.triggerRepaint();
     // The independent 3D viewer shares this very same simulation canvas.
     // Water is painted before buildings so roofs/facades stay unobscured.
