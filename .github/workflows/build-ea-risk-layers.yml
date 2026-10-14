@@ -1,0 +1,39 @@
+name: Build EA source-separated flood risk layers
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/build_flood_risk.py
+      - .github/workflows/build-ea-risk-layers.yml
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install geospatial data dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pillow rasterio
+      - name: Download and verify separate EA WMS sources
+        run: python scripts/build_flood_risk.py .cache/ea_source_separation
+      - name: Publish validated source-specific rasters and metadata
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/flood_risk/*.webp assets/flood_risk/*_metadata.json assets/london_flood_risk_metadata.json
+          if git diff --cached --quiet; then
+            echo "No changes in EA source data"
+          else
+            git commit -m "data: publish separately classified EA surface-water and rivers-sea rasters"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
