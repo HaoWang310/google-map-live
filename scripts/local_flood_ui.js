@@ -370,7 +370,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'float depth=max(0.0,a_meta.z);',
           'float shimmer=sin(a_meta.x*0.85+a_meta.y*0.42-u_time*2.3)*0.5+',
           '  sin(a_meta.x*0.31-a_meta.y*1.15+u_time*1.7)*0.5;',
-          'float amplitude=min(0.075,depth*0.07+0.007);',
+          'float amplitude=min(0.048,depth*0.044+0.004);',
           'if(a_meta.w<0.5)p.z+=shimmer*amplitude*u_metres;',
           'gl_Position=u_matrix*vec4(p,1.0);',
           'v_meta=a_meta;',
@@ -386,22 +386,23 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'out vec4 fragColor;',
           'void main(){',
           'float depth=max(v_meta.z,0.0);',
-          'vec3 water=vec3(0.745,0.925,1.000);',
-          'water=mix(water,vec3(0.498,0.812,1.000),smoothstep(0.005,0.05,depth));',
-          'water=mix(water,vec3(0.267,0.635,0.976),smoothstep(0.05,0.15,depth));',
-          'water=mix(water,vec3(0.169,0.427,0.914),smoothstep(0.15,0.30,depth));',
-          'water=mix(water,vec3(0.176,0.275,0.773),smoothstep(0.30,0.60,depth));',
-          'water=mix(water,vec3(0.153,0.176,0.553),smoothstep(0.60,1.20,depth));',
-          'float deep=smoothstep(0.05,1.20,depth);',
-          'float w1=sin(v_meta.x*2.65+v_meta.y*0.86-u_time*2.8);',
-          'float w2=sin(v_meta.x*1.21-v_meta.y*1.72+u_time*2.1);',
-          'float w3=sin((v_meta.x+v_meta.y)*0.71-u_time*1.35);',
-          'float glint=pow(max(0.0,0.45+0.20*w1+0.14*w2+0.10*w3),5.0);',
-          'water=mix(water,vec3(0.88,0.98,1.0),glint*0.20);',
-          'float collisionFoam=clamp(v_contact*(0.22+0.12*(0.5+0.5*w1)),0.0,0.30);',
-          'water=mix(water,vec3(0.87,0.97,0.98),collisionFoam);',
-          'float alpha=mix(0.57,0.95,deep);',
-          'if(v_meta.w>0.5){water*=0.80;alpha=min(0.94,alpha+0.05);}',
+          'vec3 water=vec3(0.58,0.86,1.0);',
+          'water=mix(water,vec3(0.36,0.76,0.98),smoothstep(0.005,0.05,depth));',
+          'water=mix(water,vec3(0.17,0.61,0.91),smoothstep(0.05,0.15,depth));',
+          'water=mix(water,vec3(0.12,0.43,0.84),smoothstep(0.15,0.30,depth));',
+          'water=mix(water,vec3(0.17,0.29,0.73),smoothstep(0.30,0.60,depth));',
+          'water=mix(water,vec3(0.14,0.16,0.53),smoothstep(0.60,1.20,depth));',
+          'float deep=smoothstep(0.04,0.85,depth);',
+          'float ripple=sin(v_meta.x*1.15+v_meta.y*0.35-u_time*1.8)*0.52+',
+          '  sin(v_meta.y*0.62-v_meta.x*0.46+u_time*1.3)*0.32+',
+          '  sin((v_meta.x+v_meta.y)*0.22-u_time*0.8)*0.16;',
+          'float glint=pow(max(0.0,0.5+0.35*ripple),7.0);',
+          'water=mix(water,vec3(0.77,0.94,1.0),glint*(0.09+0.07*deep));',
+          'float contactFoam=clamp(v_contact*0.22*(0.55+0.45*abs(ripple)),0.0,0.22);',
+          'water=mix(water,vec3(0.86,0.98,1.0),contactFoam);',
+          'float edge=smoothstep(0.005,0.028,depth);',
+          'float alpha=(0.72+0.22*deep)*edge;',
+          'if(v_meta.w>0.5){water*=0.91;alpha*=0.82;}',
           'fragColor=vec4(water,alpha);',
           '}'
         ].join('\n');
@@ -527,10 +528,27 @@ function createFloodVolumeLayer(maplibregl,bounds){
         this.displayDepth[i]+=Math.max(-0.06,Math.min(0.06,(sampled[i]-this.displayDepth[i])*.28));
       }
       sampled.set(this.displayDepth);
-      const cutoff=0.008;
+      // A narrow display-only low-pass removes harsh adjacent mesh terraces;
+      // zero-valued solver cells remain dry, preserving isolated structures.
+      const meshSoft=new Float32Array(sampled.length);
+      for(let row=0;row<meshRows;row++)for(let col=0;col<meshCols;col++){
+        const index=row*meshCols+col,value=sampled[index];
+        if(value<=0)continue;
+        let total=value*4,weight=4;
+        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+          const x=col+dx,y=row+dy;
+          if(x<0||y<0||x>=meshCols||y>=meshRows)continue;
+          const n=sampled[y*meshCols+x];
+          if(n<=0)continue;
+          total+=n;weight++;
+        }
+        meshSoft[index]=total/weight;
+      }
+      sampled.set(meshSoft);
+      const cutoff=0.006;
       const metre=this.metreScale;
       const quads=[];
-      const visualHeight=depth=>Math.max(0.025,Math.min(4,depth*2))*metre;
+      const visualHeight=depth=>Math.max(0.008,Math.min(3,depth*1.45))*metre;
       const makeVertex=(point,side,zOverride)=>{
         const z=zOverride===undefined?visualHeight(point.d):zOverride;
         quads.push(point.x,point.y,z,point.u,point.v,point.d,side,point.foam);
@@ -580,11 +598,13 @@ function createFloodVolumeLayer(maplibregl,bounds){
         for(let k=0;k<poly.length;k++){
           const a=poly[k],b=poly[(k+1)%poly.length];
           if(!a.contour||!b.contour)continue;
-          const bottom=.008*metre;
+          // Shorelines are thin softened lips, not deep rectangular walls.
+          const za=Math.max(.005*metre,visualHeight(a.d)-.027*metre);
+          const zb=Math.max(.005*metre,visualHeight(b.d)-.027*metre);
           makeVertex(a,1);makeVertex(b,1);
-          makeVertex(b,1,bottom);
-          makeVertex(a,1);makeVertex(b,1,bottom);
-          makeVertex(a,1,bottom);
+          makeVertex(b,1,zb);
+          makeVertex(a,1);makeVertex(b,1,zb);
+          makeVertex(a,1,za);
         }
       };
       for(let row=-1;row<meshRows;row++){
