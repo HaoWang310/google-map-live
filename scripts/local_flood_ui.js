@@ -1106,6 +1106,9 @@ export function createLocalFloodUI({
     if(siteHud('siteHudThreshold'))siteHud('siteHudThreshold').value=
       Number($('networkThreshold')?.value||1).toFixed(3);
     setSiteHud('siteHudRainValue',$('localFloodRain')?.value+' mm/h');
+    if(siteHud('siteHudManualRain')&&rainfallMode==='manual'){
+      siteHud('siteHudManualRain').value=$('localFloodRain').value;
+    }
     setSiteHud('siteHudInfilValue',$('localFloodInfil')?.value+' mm/h');
     setSiteHud('siteHudDurationValue',$('localFloodDuration')?.value+' min');
     setSiteHud('siteHudGrid',$('localFloodGridInfo')?.textContent||'');
@@ -1332,8 +1335,9 @@ export function createLocalFloodUI({
       '<button type="button" class="site-hydro-btn primary" id="siteHudUseEA" disabled>使用实测回放</button></div>',
       '<div class="site-hydro-mini" style="margin-top:6px" id="siteHudRainMode">手动降雨强度情景</div>',
       '<div class="site-hydro-row"><span>FEH22 4h 设计量</span><input id="siteHudFeh" type="number" min="0.1" max="500" step="0.1" placeholder="mm" style="width:94px"></div>',
+      '<div class="site-hydro-row"><span>手动情景雨强</span><input id="siteHudManualRain" type="number" min="0" max="150" step="5" value="50" style="width:84px"><small>mm/h</small></div>',
       '<div class="site-hydro-actions"><button type="button" id="siteHudUseFeh" class="site-hydro-btn">手动应用设计量</button>',
-      '<button type="button" id="siteHudUseManual" class="site-hydro-btn">手动雨强</button></div>',
+      '<button type="button" id="siteHudUseManual" class="site-hydro-btn">使用手动雨强</button></div>',
       '<div class="site-hydro-mini">EA 雨量为 15 分钟累计观测，测站上传可能延迟；非实时场地雨强。FEH22 需在 ',
       '<a href="https://fehweb.ceh.ac.uk/" target="_blank" rel="noopener noreferrer" style="color:#8ce5ea">FEH 官网 ↗</a>',
       ' 查询后填入；EA 数据为附近测站实测，不能视为场地实测。</div></div>',
@@ -1362,7 +1366,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
       '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox" checked> 水流向量场</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
-      '<div class="site-hydro-mini">显示开关不删除模拟结果。水流纹理是流向示意，不是经过校准的流速矢量。</div>',
+      '<div class="site-hydro-mini">水流箭头依据网格水位梯度计算方向；只是方向示意，不是经过校准的流速或二维水动力解。</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -1419,7 +1423,13 @@ export function createLocalFloodUI({
     });
     siteHud('siteHudRefresh').onclick=lookupSiteRainForSelection;
     siteHud('siteHudUseManual').onclick=()=>{
-      rainfallMode='manual';manualFourHourMm=null;setSiteRainMode();
+      const proposed=Number(siteHud('siteHudManualRain').value);
+      if(!Number.isFinite(proposed)||proposed<0||proposed>150){
+        setSiteHud('siteHudRainTime','请设置 0–150 mm/h 的有效手动情景雨强。');return;
+      }
+      rainfallMode='manual';manualFourHourMm=null;
+      copyHudControl('localFloodRain',Math.round(proposed/5)*5,'input');
+      setSiteRainMode();
       resetForNewRain();
     };
     siteHud('siteHudUseEA').onclick=()=>{
