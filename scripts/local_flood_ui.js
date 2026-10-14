@@ -2569,6 +2569,10 @@ export function createLocalFloodUI({
     focusSiteSerial++;
     try{
       createFocusViewer();
+      // Query EA's official spatial coverage and nearby gauge on site entry.
+      // This is reference data only; never silently converts a gauge value into a boundary condition.
+      siteHud('siteHudQueryEaZones')?.click();
+      siteHud('siteHudQueryEaStage')?.click();
     }catch(error){
       isolatedSelection=false;
       isolateCamera=null;
