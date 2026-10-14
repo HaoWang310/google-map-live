@@ -13,7 +13,31 @@ function signedArea(points){
  points[i][0]*points[i+1][1]-points[i+1][0]*points[i][1];
  return sum/2;
 }
+function validateSimpleBoundary(ring){
+ if(ring.length<4||ring.length>1000)throw Error('地块边界需要 3–999 个有效顶点');
+ const EPS=1e-10;
+ const orient=(p,q,r)=>(q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]);
+ const on=(a,b,p)=>Math.min(a[0],b[0])-EPS<=p[0]&&p[0]<=Math.max(a[0],b[0])+EPS&&
+  Math.min(a[1],b[1])-EPS<=p[1]&&p[1]<=Math.max(a[1],b[1])+EPS;
+ const crosses=(a,b,c,d)=>{
+  const x=orient(a,b,c),y=orient(a,b,d),z=orient(c,d,a),w=orient(c,d,b);
+  if(x*y<0&&z*w<0)return true;
+  return (Math.abs(x)<EPS&&on(a,b,c))||(Math.abs(y)<EPS&&on(a,b,d))||
+    (Math.abs(z)<EPS&&on(c,d,a))||(Math.abs(w)<EPS&&on(c,d,b));
+ };
+ const edges=ring.length-1;
+ for(let i=0;i<edges;i++){
+  const a=ring[i],b=ring[i+1];
+  if(Math.hypot(b[0]-a[0],b[1]-a[1])<1e-9)throw Error('地块边界含有重叠顶点或零长度边');
+  for(let j=i+1;j<edges;j++){
+   if(j===i+1||(i===0&&j===edges-1))continue;
+   if(crosses(a,b,ring[j],ring[j+1]))throw Error('地块边界存在自交，必须返回地图修改控制点');
+  }
+ }
+ if(Math.abs(signedArea(ring))<1e-10)throw Error('所选地块面积接近零或边界退化');
+}
 function bngAudit(ring,proj4){
+ validateSimpleBoundary(ring);
  const pts=ring.map(p=>proj4('EPSG:4326','EPSG:27700',p));
  let perimeterM=0;
  for(let i=0;i<pts.length-1;i++)perimeterM+=Math.hypot(
@@ -207,6 +231,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
   if(!polygon?.[0]||polygon[0].length<4)throw Error('请先闭合红框地块');
   ring=closeRing(polygon[0]);
   if(ring.some(p=>!p.every(Number.isFinite)))throw Error('所选地块地理坐标无效');
+  validateSimpleBoundary(ring);
   root=document.createElement('div');root.className='pg';
   const style=document.createElement('style');style.textContent=STYLE;root.append(style);
   const steps=PIPELINE.map((p,i)=>'<button type="button" class="pg-step '+(i===0?'on':'')+
