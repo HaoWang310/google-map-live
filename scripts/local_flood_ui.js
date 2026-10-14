@@ -2370,6 +2370,11 @@ export function createLocalFloodUI({
     for(const id of ['siteHudFutureStage','siteHudStageHint','siteHudTrialStage','siteHudQueryEaZones','siteHudQueryEaStage','siteHudUseRiskGuide','siteHudShowEARisk','siteHudExternalInlet','siteHudRise','siteHudFall','siteHudEaStageStatus','siteHudEaFloodZoneStatus']){
       const el=siteHud(id);if(el){const parent=el.closest('.site-hydro-row,.site-hydro-actions');(parent||el).style.display='none';}
     }
+    // The source citation is next to the three presets; keep legacy EA gauge
+    // and FEH controls mounted for compatibility but remove the extra
+    // configuration section from this simplified scenario chooser.
+    const legacyRainSection=siteHud('siteHudRainStation')?.closest('.site-hydro-section');
+    if(legacyRainSection)legacyRainSection.style.display='none';
     // Keep older rain data controls mounted for legacy handlers, but offer
     // only the three official-reference event choices in the study UI.
     for(const id of ['siteHudManualRain','siteHudFeh','siteHudUseEA','siteHudUseFeh','siteHudUseManual']){
