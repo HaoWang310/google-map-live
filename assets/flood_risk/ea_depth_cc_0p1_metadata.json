@@ -1,0 +1,112 @@
+{
+  "source_type": "ea_official_surface_water_depth",
+  "not_simulation": true,
+  "aep": 0.1,
+  "aep_percent": 0.1,
+  "epoch": "2070s Upper End (2061-2125)",
+  "climate_scenario": "UKCP18 RCP 8.5, 2070s Upper End",
+  "source_url": "https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change",
+  "wms_url": "https://environment.data.gov.uk/spatialdata/fmfp-surface-water-climate-change-depths/wms",
+  "layer": "Surface_Water_Spatial_Planning_1in1000_Depths_CCP1",
+  "generated_utc": "2026-10-14T20:43:10.150231+00:00",
+  "attribution": "\u00a9 Environment Agency copyright and/or database right 2025. All rights reserved.",
+  "web_grid": {
+    "crs": "EPSG:3857",
+    "bounds_m": [
+      -127813.8696191665,
+      6596204.025752107,
+      102461.98815442335,
+      6827041.923624865
+    ],
+    "width": 5736,
+    "height": 5750
+  },
+  "class_limits_m": [
+    [
+      0,
+      0.15
+    ],
+    [
+      0.15,
+      0.3
+    ],
+    [
+      0.3,
+      0.6
+    ],
+    [
+      0.6,
+      0.9
+    ],
+    [
+      0.9,
+      1.2
+    ],
+    [
+      1.2,
+      2.3
+    ],
+    [
+      2.3,
+      null
+    ]
+  ],
+  "depth_categories": [
+    "<150mm",
+    "150-300mm",
+    "300-600mm",
+    "600-900mm",
+    "900-1200mm",
+    "1200-2300mm",
+    ">2300mm"
+  ],
+  "class_counts": [
+    30039462,
+    1111783,
+    872161,
+    608401,
+    174875,
+    71233,
+    83914,
+    20171
+  ],
+  "products": [
+    {
+      "path": "assets/flood_risk/ea_depth_cc_0p1_0-0.webp",
+      "row": 0,
+      "col": 0,
+      "width": 2868,
+      "height": 2875,
+      "size_bytes": 648130,
+      "sha256": "e3ce47128c9aba8feb8bba57a94893379412503007144dcdccd7da5fb4b8e12c"
+    },
+    {
+      "path": "assets/flood_risk/ea_depth_cc_0p1_0-1.webp",
+      "row": 0,
+      "col": 1,
+      "width": 2868,
+      "height": 2875,
+      "size_bytes": 648776,
+      "sha256": "dc098d7566c88800ea511db77ac097f27afaf6016246edfbd921cd9b15f1b114"
+    },
+    {
+      "path": "assets/flood_risk/ea_depth_cc_0p1_1-0.webp",
+      "row": 1,
+      "col": 0,
+      "width": 2868,
+      "height": 2875,
+      "size_bytes": 543484,
+      "sha256": "9bf284b1c35b9d75f03f0cbbfa802907961bdc7833727f8ae42eacd72fced89b"
+    },
+    {
+      "path": "assets/flood_risk/ea_depth_cc_0p1_1-1.webp",
+      "row": 1,
+      "col": 1,
+      "width": 2868,
+      "height": 2875,
+      "size_bytes": 556450,
+      "sha256": "6e53ad7f1628309ef38f4277bc6596791b227bf060bce2e04442d985c10d2717"
+    }
+  ],
+  "interpretation": "Official EA 0.1% AEP climate change depth classes and extent. NOT a calibration to a user-defined 100 mm/2h storm and NOT an annual 2100 flood forecast."
+}
