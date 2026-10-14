@@ -2068,6 +2068,10 @@ export function createLocalFloodUI({
       '<div id="siteHudRiskFusionNote" class="site-hydro-mini">EA 风险分类反映现状洪涝概率，不代表积水水深。可与 DEM 降雨流动做探索性空间引导。</div>',
       '<div class="site-hydro-actions"><button type="button" id="siteHudShowEARisk" class="site-hydro-btn">显示 EA 官方风险图</button></div>',
       '<div class="site-hydro-mini">EA 现状风险图是概率分级，不提供所选年份的洪水深度；可独立叠加查看。</div>',
+      '<div class="site-hydro-mini" style="margin-top:6px"><strong>EA 官方规划水深来源（2026 发布）</strong>：</div>',
+      '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/b0bbfacf-ccf7-4ed9-a94c-be18d91c258d/flood-map-for-planning-surface-water-spatial-planning-depths-present-day" target="_blank" rel="noopener noreferrer">现状 1% / 3.3% / 0.1% AEP 水深分级</a> · ',
+      '<a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化（2070s Upper End）水深分级</a></div>',
+      '<div class="site-hydro-mini">官方产品深度区间为 ≤0.15、0.15–0.30、0.30–0.60、0.60–0.90、0.90–1.20、1.20–2.30、>2.30 m。此处提供来源链接，尚未将对应 WMS 深度分级下载并解码成场地逐格官方水深；模拟蓝色水面仍使用 DEM 和降雨求解。</div>',
       '<label class="site-hydro-row">假设雨水管网排水能力 <input id="siteHudAssumedDrainage" type="number" min="0" max="100" step="5" value="25" style="width:75px"> mm/h</label>',
       '<div class="site-hydro-mini">25 mm/h 为可调整的研究假设，不是 EA 测量的排水管网能力。仅用于改善缺失地下排水数据时的情景计算。</div>',
       '<label class="site-hydro-row">降雨事件过程 <select id="siteHudStormProfile" style="width:140px"><option value="peak">中段暴雨峰值</option><option value="front">前段强降雨</option><option value="uniform">均匀降雨</option></select></label>',
@@ -2222,7 +2226,7 @@ export function createLocalFloodUI({
       setSiteHud('siteHudYearText',String(futureYear));
       siteHud('siteHudYear').value=String(futureYear);
       siteHud('siteHudFooterYear').value=String(futureYear);
-      setSiteHud('siteHudFutureFactor','2100 年设计降雨参考倍率 ×'+climateRainFactor().toFixed(3)+'（年份插值，非官方逐年预报）');
+      setSiteHud('siteHudFutureFactor','2100 年设计雨强倍率 ×'+climateRainFactor().toFixed(3)+'（研究情景；需按场地流域核准）');
       const external=needsExternalStage();
       siteHud('siteHudFutureStage').disabled=!external;
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
