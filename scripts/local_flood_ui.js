@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.24';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.25';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -322,8 +322,8 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
       dest[pos]=Math.min(255,lerp(lo[1],hi[1],t)+light+foam);
       dest[pos+1]=Math.min(255,lerp(lo[2],hi[2],t)+light+foam);
       dest[pos+2]=Math.min(255,lerp(lo[3],hi[3],t)+light+foam*.3);
-      dest[pos+3]=Math.round((.72+.22*smooth(.03,.65,depth))*
-        smooth(.00075,.025,depth)*255);
+      dest[pos+3]=Math.round((.22+.70*smooth(.007,.40,depth))*
+        smooth(.00065,.010,depth)*255);
     }
   }
   context.putImageData(image,0,0);
@@ -370,7 +370,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'float depth=max(0.0,a_meta.z);',
           'float shimmer=sin(a_meta.x*0.85+a_meta.y*0.42-u_time*2.3)*0.5+',
           '  sin(a_meta.x*0.31-a_meta.y*1.15+u_time*1.7)*0.5;',
-          'float amplitude=min(0.048,depth*0.044+0.004);',
+          'float amplitude=min(0.020,depth*0.08);',
           'if(a_meta.w<0.5)p.z+=shimmer*amplitude*u_metres;',
           'gl_Position=u_matrix*vec4(p,1.0);',
           'v_meta=a_meta;',
@@ -400,8 +400,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'water=mix(water,vec3(0.77,0.94,1.0),glint*(0.09+0.07*deep));',
           'float contactFoam=clamp(v_contact*0.22*(0.55+0.45*abs(ripple)),0.0,0.22);',
           'water=mix(water,vec3(0.86,0.98,1.0),contactFoam);',
-          'float edge=smoothstep(0.001,0.018,depth);',
-          'float alpha=(0.72+0.22*deep)*edge;',
+          'float edge=smoothstep(0.0008,0.008,depth);',
+          'float alpha=(0.26+0.66*smoothstep(0.007,0.40,depth))*edge;',
           'if(v_meta.w>0.5){water*=0.91;alpha*=0.82;}',
           'fragColor=vec4(water,alpha);',
           '}'
@@ -497,7 +497,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
       // display mesh uses contour interpolation between measured solver cells.
       // This avoids square steps along flooded edges and does NOT add water to
       // the worker grid or alter collision/hydrology statistics.
-      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/18000)));
+      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/24000)));
       const meshCols=Math.ceil(widths/stride),meshRows=Math.ceil(rows/stride);
       const sampled=new Float32Array(meshCols*meshRows);
       const foam=new Float32Array(meshCols*meshRows);
@@ -1827,15 +1827,15 @@ export function createLocalFloodUI({
           '淹没格重合 '+(v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
         :'EA 风险暂不可用';
       setSiteHud('siteHudAreaProgress',
-        futureYear+' 年 / '+pct+'% · 淹没 '+nowHa.toFixed(2)+
-        ' ha（2026 画面 0.00 → 2100 '+finalHa.toFixed(2)+
+        futureYear+' 年 / 事件进度 '+pct+'% · 积水 '+nowHa.toFixed(2)+
+        ' ha（事件起点 0.00 → 终点 '+finalHa.toFixed(2)+
         ' ha） · '+riskText);
     }else{
       setSiteHud('siteHudAreaProgress',longTermMode
         ?'等待该年份的淹没面积快照':'');
     }
     setSiteHud('siteHudFloodPhase',longTermMode?
-      futureYear+' 年 · 2026 零新增积水演示起点 → 2100 设计暴雨最大演示范围；年份分期不是实际洪水预报':annualPlaying?
+      futureYear+' 年 · 两小时降雨事件计算快照回放（2026—2100 为演示刻度，非逐年洪水预测）':annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
@@ -1863,7 +1863,7 @@ export function createLocalFloodUI({
     if(progress)progress.style.width=((futureYear-2026)/74*100).toFixed(2)+'%';
     if(longTermMode&&v&&hydroState==='preparing')hydroState='ready';
     setSiteHud('siteHudRunState',longTermMode?
-      (annualPlaying?'逐年演化中 · ':'年份可回放 · ')+
+      (annualPlaying?'水流演算回放中 · ':'模拟快照可回放 · ')+
       (v?.wetAreaM2!=null?(v.wetAreaM2/1e4).toFixed(2)+' ha':'等待计算') :
       (({ready:'准备就绪',running:'洪水事件运行中',paused:'洪水事件已暂停',complete:'洪水事件完成',reset:'已重置'}[hydroState]||'等待模拟')+
         ' · 事件 '+simulationClock(elapsed)+' / '+simulationClock(duration)));
@@ -2113,7 +2113,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section"><div class="site-hydro-section-title">基础数据 · 三因素联合分析</div>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudEA"> EA 官方长期风险图（静态参考，默认隐藏）</label>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudDrainage"> DEM 推导排水网络（可选参考）</label>',
-      '<div class="site-hydro-mini">进入场地时仅显示建筑与地面。动态水深随「运行」时间变化；EA 风险概率不会随模拟时间变化。</div>',
+      '<div class="site-hydro-mini">从 DEM 网格逐步演算两小时雨水汇流，遇建筑绕流、低洼处蓄水。2026–2100为事件回放展示刻度，EA 风险等级不是水深。</div>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudGuide" checked> 汇水路径引导下坡流动</label>',
       '<div class="site-hydro-row">汇水阈值 <input id="siteHudThreshold" type="number" min="0" max="50" step="0.001" style="width:85px"> km²</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">02 · 海绵城市设计',
@@ -2188,7 +2188,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-timeline"><div style="display:flex;justify-content:space-between">',
       '<strong id="siteHudClock">2026 年 / 2100 年</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
-      '<div class="site-hydro-mini" id="siteHudNotice">2026—2100 无新增干预：最大淹没风险包络逐年扩展（情景推算，非连续积水）</div></div></footer>'
+      '<div class="site-hydro-mini" id="siteHudNotice">2026—2100 为两小时设计暴雨过程的展示刻度：回放 DEM 求解的水流，不代表每年洪灾预测</div></div></footer>'
     ].join('');
     container.appendChild(shell);
     const bounds=bboxLngLat(polygon[0]);
