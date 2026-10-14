@@ -2242,7 +2242,7 @@ export function createLocalFloodUI({
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
       resetFuture();
       if(needsExternalStage()&&!Number.isFinite(externalStageM)){
-        status('外部洪水缺少边界绝对水位。可点击「使用 EA 风险引导」，不必虚构水位。');
+        status('未提供外部洪水边界水位：点击运行时会明确切换至「降雨＋EA 风险引导」（有数据时），否则为「仅降雨」。');
       }
       if(floodMode==='rain-risk'&&!siteRiskAvailable)
         status('该场地没有可用的 EA 风险等级数据，暂不能使用引导模式。',true);
@@ -2255,6 +2255,10 @@ export function createLocalFloodUI({
       else status('EA 现状洪涝风险栅格不可用，不能创建风险引导情景。',true);
     };
     siteHud('siteHudShowEARisk').onclick=()=>{
+      if(!siteRiskAvailable){
+        status('当前场地未读取到可识别的 EA 官方风险等级，无法显示有效风险范围。',true);
+        return;
+      }
       forceEaRiskOverlay=!forceEaRiskOverlay;
       siteHud('siteHudShowEARisk').textContent=forceEaRiskOverlay
         ?'隐藏 EA 官方风险图':'显示 EA 官方风险图';
@@ -3053,6 +3057,8 @@ export function createLocalFloodUI({
 
     status('正在准备模拟：完整加载红色范围内的 OSM 建筑轮廓…');
     prepared=false;
+    siteRiskAvailable=false;siteRiskMappedCount=0;
+    forceEaRiskOverlay=false;
     setButtons();
 
     const keepCenter=map.getCenter();
@@ -3150,6 +3156,10 @@ export function createLocalFloodUI({
       siteRiskAvailable=Boolean(info.riskAvailable&&siteRiskMappedCount>0);
       if(siteHud('siteHudUseRiskGuide'))
         siteHud('siteHudUseRiskGuide').disabled=!siteRiskAvailable;
+      if(siteHud('siteHudShowEARisk')){
+        siteHud('siteHudShowEARisk').disabled=!siteRiskAvailable;
+        siteHud('siteHudShowEARisk').textContent='显示 EA 官方风险图';
+      }
       if(siteHud('siteHudRiskFusionNote'))
         setSiteHud('siteHudRiskFusionNote',siteRiskAvailable
           ?'场地内 EA 现状风险等级已配准（'+siteRiskMappedCount+' 个有效网格），可用于空间引导。风险等级不是水深。'
