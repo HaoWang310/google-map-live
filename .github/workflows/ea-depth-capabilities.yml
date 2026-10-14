@@ -1,0 +1,31 @@
+name: EA official surface water depth WMS discovery
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/ea_depth_capabilities.py
+      - .github/workflows/ea-depth-capabilities.yml
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Discover and validate official WMS depth layers
+        run: python scripts/ea_depth_capabilities.py
+      - name: Publish authoritative layer names
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/flood_risk/ea_depth_wms_capabilities.json
+          if ! git diff --cached --quiet; then
+            git commit -m "data: record official EA surface water depth WMS layer manifest"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
