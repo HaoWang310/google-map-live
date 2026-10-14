@@ -663,6 +663,7 @@ export function createLocalFloodUI({
   let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
   let annualPlaying=false,annualAdvanceTimer=null;
   let longTermMode=true,annualBudget=null;
+  let awaitingInitialReset=false;
   // The standalone 2026–2100 timeline now uses one coherent annual
   // accumulation scenario; its removed checkbox is no longer required.
   const yearFrames=new Map();
@@ -1633,7 +1634,9 @@ export function createLocalFloodUI({
     }
     const stage=longTermMode&&frame?.annualAreaStage?.kind==='area-interpolation'
       ?frame.annualAreaStage:null;
-    if(stage){
+    if(stage?.resetInitial){
+      setSiteHud('siteHudAreaProgress','2026 年 · 初始状态 · 0.00 ha');
+    }else if(stage){
       const finalHa=stage.finalAreaM2/10000;
       const nowHa=(v?.wetAreaM2||0)/10000;
       const share=finalHa>0?100*nowHa/finalHa:0;
@@ -1655,6 +1658,13 @@ export function createLocalFloodUI({
       setSiteHud('siteHudVolume',Math.round(v.volumeM3).toLocaleString('en-GB')+' m³');
       setSiteHud('siteHudRetained',Math.round(v.retainedM3||0).toLocaleString('en-GB')+' m³');
       setSiteHud('siteHudExtraInfil',Math.round(v.spongeInfiltrationM3||0).toLocaleString('en-GB')+' m³');
+    }else{
+      for(const [id,value] of [
+        ['siteHudDepth','0.00 m'],['siteHudArea','0.00 ha'],
+        ['siteHudImpacted','0 栋'],['siteHudVolume','0 m³'],
+        ['siteHudRetained','0 m³'],['siteHudExtraInfil','0 m³'],
+        ['siteHudLiveRain','0.0 mm/h']
+      ])setSiteHud(id,value);
     }
     const elapsed=v?.timeMin||0,duration=Number($('localFloodDuration')?.value)||60;
     setSiteHud('siteHudClock',futureYear+' 年 / 2100 年');
@@ -2116,9 +2126,43 @@ export function createLocalFloodUI({
       stopAnnual();simulator?.pause();updateSiteHydroDashboard();
     };
     siteHud('siteHudReset').onclick=()=>{
-      stopAnnual();clearRiskEnvelope();clearYearFrames();annualBudget=null;simulator?.reset();futureYear=2026;
-      hydroState='reset';lastHydroFrame=null;siteHydroHistory.length=0;
+      // Reset the actual scenario, not just the position of the year slider.
+      stopAnnual();
+      clearRiskEnvelope();clearYearFrames();
+      annualBudget=null;pendingBaselineFrame=false;
+      futureYear=2026;hydroState='reset';
+      lastHydroFrame=null;siteHydroHistory.length=0;
+      lastFlowUpdateAt=0;
+      awaitingInitialReset=Boolean(simulator&&prepared);
+      cancelAnimationFrame(waterBlendHandle);
+      previousWaterFrame=null;waterBlendStart=0;
+      canvasContext?.clearRect(0,0,canvas?.width||0,canvas?.height||0);
+      lowResWaterContext?.clearRect(0,0,lowResWater?.width||0,lowResWater?.height||0);
+      if(volumetricWater){
+        volumetricWater.animate=false;
+        volumetricWater.displayDepth=null;
+        volumetricWater.mesh=null;
+        volumetricWater.count=0;
+        volumetricWater.dirty=true;
+      }
+      isolateViewer?.getSource(FOCUS_FLOW_SOURCE)?.setData(spongeCollection([]));
+      // Restore orange buildings (including the base outlines) and cancel
+      // the red flooded-building state from the previous prediction.
+      hideSelectedBuildings=false;
+      if(siteHud('siteHudShowBuildings'))siteHud('siteHudShowBuildings').checked=true;
+      const mapBuildingToggle=$('localFloodHideSelectedBuildings');
+      if(mapBuildingToggle)mapBuildingToggle.checked=false;
+      for(const scene of sceneFeatures.values()){
+        if(scene?.properties?.selected)scene.properties.impacted=false;
+      }
+      publishBuildingScene();
+      updateFocusBuildings();
       simYearDisplay();
+      updateSiteHydroDashboard(null);
+      map.triggerRepaint();
+      isolateViewer?.triggerRepaint();
+      if(simulator&&prepared)simulator.resetInitial();
+      status('已恢复 2026 年初始场地：积水、风险建筑和回放记录均已清零。');
     };
     redrawSpongeSite();
     lookupSiteRainForSelection();
@@ -2906,7 +2950,18 @@ export function createLocalFloodUI({
   }
 
   function handleFrame(data){
+    if(awaitingInitialReset){
+      if(data?.annualAreaStage?.resetInitial!==true)return;
+      awaitingInitialReset=false;
+    }
     if(!canvas||!canvasContext)return;
+    if(data?.annualAreaStage?.resetInitial){
+      cancelAnimationFrame(waterBlendHandle);
+      previousWaterFrame=null;
+      canvasContext.clearRect(0,0,canvas.width,canvas.height);
+      lowResWaterContext?.clearRect(0,0,lowResWater?.width||0,lowResWater?.height||0);
+      if(volumetricWater){volumetricWater.displayDepth=null;volumetricWater.count=0;volumetricWater.dirty=true;}
+    }
     if(longTermMode&&!applyingYearFrame){
       if(data?.annualAreaStage?.kind==='area-interpolation'&&
          Number.isInteger(data.scenarioYear)){
