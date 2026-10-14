@@ -512,6 +512,10 @@ function sendFrame(){
   if(!sim)return;
   const {cols,rows,inside,obstacle,buildingIds,water,cell,svCapacity}=sim;
   const pixels=new Uint8ClampedArray(cols*rows*4);
+  // Visual 3D water uses the SAME obstacle-masked solver depths. Quantized
+  // millimetres avoid a second high-bandwidth float field per frame.
+  const depthMm=new Uint16Array(cols*rows);
+  const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
   const impacted=new Set();
   const markCollidingBuilding=cellIndex=>{
@@ -529,6 +533,15 @@ function sendFrame(){
     // Strict polygon mask: outside the selected area is always fully transparent.
     if(!inside[i]||obstacle[i])continue;
     const h=Math.max(0,water[i]-svCapacity[i]);
+    if(h>=0.005){
+      depthMm[i]=Math.min(65535,Math.round(h*1000));
+      const touchesBuilding=
+        (row>0&&obstacle[i-cols])||
+        (col<cols-1&&obstacle[i+1])||
+        (row<rows-1&&obstacle[i+cols])||
+        (col>0&&obstacle[i-1]);
+      if(touchesBuilding)contactMask[i]=1;
+    }
     retainedM3+=Math.min(water[i],svCapacity[i])*cell*cell;
     if(h>maxDepth)maxDepth=h;
     if(h>=0.02){wetCells++;volume+=h*cell*cell;}
@@ -560,6 +573,7 @@ function sendFrame(){
     Math.max(0,Number(params.rainfall)||0);
   postMessage({
     type:'frame',width:cols,height:rows,pixels:pixels.buffer,
+    depthMm:depthMm.buffer,contactMask:contactMask.buffer,
     vectors,
     stats:{
       currentRainMmH,
@@ -574,7 +588,7 @@ function sendFrame(){
       impactedCount:impacted.size
     },
     impactedIds:[...impacted]
-  },[pixels.buffer]);
+  },[pixels.buffer,depthMm.buffer,contactMask.buffer]);
 }
 
 function tick(){
