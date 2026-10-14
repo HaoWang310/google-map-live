@@ -515,7 +515,7 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>现状洪水风险等级 · EA</strong>
-              <small>伦敦 70 km · 官方风险等级 · 平滑过渡显示</small>
+              <small>伦敦 70 km · 官方风险类别 · 可选原始/平滑</small>
             </span>
             <input id="floodToggle" type="checkbox" autocomplete="off" disabled>
           </label>
@@ -525,6 +525,13 @@
               <option value="combined">综合风险（对比参考）</option>
               <option value="surface_water">仅地表水 · RoFSW</option>
               <option value="rivers_sea">仅河流与海洋 · RoFRS</option>
+            </select>
+          </div>
+          <div class="rangeRow">
+            <span>类别显示</span>
+            <select id="floodDisplayMode" aria-label="EA 风险等级渲染" style="max-width:185px;background:#203449;color:#e8f3ff;border:1px solid #526b82;border-radius:7px;padding:6px;">
+              <option value="nearest">原始等级 · 不平滑</option>
+              <option value="linear">平滑过渡 · 仅显示</option>
             </select>
           </div>
           <div class="rangeRow">
@@ -1090,6 +1097,7 @@
   let floodEnabled=false;
   let floodOpacity=0.7;
   let floodRiskSource='combined';
+  let floodDisplayMode='nearest';
   let floodRequestId=0;
   const floodImageUrls=new Map();
   let floodLoadingPromise=null;
@@ -1980,7 +1988,7 @@
     if(!osmMap.getLayer(FLOOD_DETAIL_LAYER)){
       osmMap.addLayer({id:FLOOD_DETAIL_LAYER,type:'raster',source:FLOOD_DETAIL_SOURCE,
         minzoom:DETAIL_MIN_ZOOM,
-        paint:{'raster-opacity':0,'raster-fade-duration':120,'raster-resampling':'linear'}
+        paint:{'raster-opacity':0,'raster-fade-duration':120,'raster-resampling':floodDisplayMode}
       },getFirstSymbolLayerId());
       floodAppliedMode=null;
       keepDrainageAboveTerrain();
@@ -2005,10 +2013,10 @@
     if(osmMap.getLayer(FLOOD_DETAIL_LAYER)){
       osmMap.setPaintProperty(FLOOD_DETAIL_LAYER,'raster-opacity',ready?floodOpacity:0);
     }
-    if(mode==='detail')setFloodStatus('已显示 · EA 官方街道精细图 · 平滑边缘显示');
+    if(mode==='detail')setFloodStatus('已显示 · EA 官方街道精细图 · '+(floodDisplayMode==='nearest'?'离散等级':'平滑过渡')');
     else if(mode==='loading')setFloodStatus('正在加载官方街道精细图… 暂时显示总览');
     else if(mode==='error')setFloodStatus('精细服务暂不可用，保留总览；可重新开关重试',true);
-    else setFloodStatus('已显示 · 25 m 区域总览 · 平滑过渡显示 · 放大切换精细图');
+    else setFloodStatus('已显示 · 25 m 风险图 · '+(floodDisplayMode==='nearest'?'原始等级':'平滑显示')');
   }
 
   function handleFloodDetailError(error){
@@ -2104,7 +2112,7 @@
           if(!osmMap.getLayer(ids.layer)){
             osmMap.addLayer({
               id:ids.layer,type:'raster',source:ids.source,
-              paint:{'raster-opacity':floodOpacity,'raster-fade-duration':120,'raster-resampling':'linear'}
+              paint:{'raster-opacity':floodOpacity,'raster-fade-duration':120,'raster-resampling':floodDisplayMode}
             },getFirstSymbolLayerId());
           }else{
             osmMap.setPaintProperty(ids.layer,'raster-opacity',floodOpacity);
@@ -7977,6 +7985,18 @@
       '正在生成 '+contourIntervalM+' m 等高线…';
     $('contourStatus').className='layerStatus';
     refreshContourLayer(0);
+  });
+
+  $('floodDisplayMode').addEventListener('change',e=>{
+    floodDisplayMode=e.target.value==='linear'?'linear':'nearest';
+    for(let row=0;row<FLOOD_GRID_SIZE;row++)for(let col=0;col<FLOOD_GRID_SIZE;col++){
+      const id=floodTileIds(row,col).layer;
+      if(osmMap?.getLayer(id))osmMap.setPaintProperty(id,'raster-resampling',floodDisplayMode);
+    }
+    if(osmMap?.getLayer(FLOOD_DETAIL_LAYER))osmMap.setPaintProperty(FLOOD_DETAIL_LAYER,'raster-resampling',floodDisplayMode);
+    if(floodEnabled)setFloodStatus(floodDisplayMode==='nearest'
+      ?'已使用原始离散等级（nearest），像素边界不进行视觉平滑'
+      :'已使用平滑过渡；混合色不是新的官方风险等级');
   });
 
   $('floodRiskSource').addEventListener('change',e=>{
