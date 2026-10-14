@@ -1663,14 +1663,14 @@ export function createLocalFloodUI({
         :'EA 风险暂不可用';
       setSiteHud('siteHudAreaProgress',
         futureYear+' 年 / '+pct+'% · 淹没 '+nowHa.toFixed(2)+
-        ' ha（2026 '+baseHa.toFixed(2)+' → 2100 '+finalHa.toFixed(2)+
+        ' ha（2026 画面 0.00 → 2100 '+finalHa.toFixed(2)+
         ' ha） · '+riskText);
     }else{
       setSiteHud('siteHudAreaProgress',longTermMode
         ?'等待该年份的淹没面积快照':'');
     }
     setSiteHud('siteHudFloodPhase',longTermMode?
-      futureYear+' 年 · 2026 基准和 2100 设计暴雨终态之间按年份均分新增淹没面积；仅分期展示，非逐年实测洪水':annualPlaying?
+      futureYear+' 年 · 2026 零新增积水演示起点 → 2100 设计暴雨最大演示范围；年份分期不是实际洪水预报':annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
@@ -1896,7 +1896,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
-      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 基准 → 2100 终态 · 新增淹没面积按年份分配</div>',
+      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 零新增积水展示起点 → 2100 计算终态</div>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水</option></select></label>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
@@ -2027,7 +2027,7 @@ export function createLocalFloodUI({
       siteHud('siteHudFutureStage').disabled=floodMode==='rain';
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])siteHud(id).disabled=floodMode==='rain';
       setSiteHud('siteHudFutureNote',longTermMode?
-        '先以指定设计暴雨、真实DEM、建筑和假设排水分别计算2026基准与2100远期结果；仅将二者新增的淹没面积平均分期至2026—2100年，水深保持两端计算值并平滑过渡。EA现状风险等级只辅助排序和空间校核，不能直接当作水深。本动画不是未来每年真实洪水预测。':
+        '本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。':
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
@@ -2131,7 +2131,7 @@ export function createLocalFloodUI({
         stopAnnual();annualPlaying=true;futureYear=2026;
         clearRiskEnvelope();clearYearFrames();simYearDisplay();
         requestYear(2026);
-        status('正在计算 2026 与 2100 的设计洪水终态，并把新增淹没范围均匀分配到 74 个年度步骤…');
+        status('正在计算 2100 年设计暴雨终态，从 2026 年零新增积水画面开始逐步展示至最大范围…');
         return;
       }
       if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
