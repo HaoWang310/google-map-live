@@ -4,6 +4,7 @@ export function createLocalFloodSimulator(config){
   const pending=new Map();
   const callbacks={
     onFrame:config.onFrame||(()=>{}),
+    onFlowField:config.onFlowField||(()=>{}),
     onStatus:config.onStatus||(()=>{}),
     onError:config.onError||(()=>{})
   };
@@ -19,6 +20,10 @@ export function createLocalFloodSimulator(config){
       }
       if(data.type==='frame'){
         callbacks.onFrame(data);
+        return;
+      }
+      if(data.type==='flow-field'){
+        callbacks.onFlowField(data);
         return;
       }
       if(data.type==='status'){
@@ -61,6 +66,7 @@ export function createLocalFloodSimulator(config){
     start(params){ensureWorker();worker.postMessage({type:'start',params});},
     annualStep(params){ensureWorker();worker.postMessage({type:'annual-step',...params});},
     seekYear(params){ensureWorker();worker.postMessage({type:'seek-year',...params});},
+    requestFlowField(){worker?.postMessage({type:'request-flow-field'});},
     pause(){worker?.postMessage({type:'pause'});},
     reset(silent=false){worker?.postMessage({type:'reset',silent:Boolean(silent)});},
     resetInitial(){worker?.postMessage({type:'reset-initial'});},
