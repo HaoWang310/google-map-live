@@ -603,12 +603,13 @@ function simulationStep(dt=5){
 // generate these values: each pixel comes from simulated water in metres.
 const SIM_DEPTH_BOUNDS=[0.001,0.05,0.15,0.30,0.60,1.20];
 const SIM_DEPTH_COLOURS=[
-  [190,236,255,135], // 0.001–0.05 m: shallow wet film to ponding, physically solved
-  [127,207,255,168], // 0.05–0.15 m: translucent pale azure
-  [68,162,249,202],  // 0.15–0.30 m: flowing sky blue
-  [43,109,233,225],  // 0.30–0.60 m: saturated river blue
-  [45,70,197,238],   // 0.60–1.20 m: deep cobalt
-  [39,45,141,248]    // >=1.20 m: indigo deepest water
+  // v3.22.26: darker blue while preserving modeled depth class boundaries.
+  [33,138,225,185], // 0.001–0.05 m: visible shallow wetting
+  [15,119,217,217], // 0.05–0.15 m: saturated azure
+  [11,92,206,229],  // 0.15–0.30 m: medium blue
+  [15,73,184,240],  // 0.30–0.60 m: river blue
+  [22,57,153,246],  // 0.60–1.20 m: deep cobalt
+  [20,39,112,250]   // >=1.20 m: indigo deepest water
 ];
 
 function depthBandIndex(depth){
