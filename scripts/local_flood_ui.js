@@ -645,6 +645,10 @@ export function createLocalFloodUI({
   let focusThresholdTimer=null;
   let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
   let lastHydroFrame=null,hydroState='ready';
+  let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null;
+  // London management catchment 1% AEP design rainfall reference:
+  // 2070s central +25%, upper end +40%; reference allowances, not yearly forecasts.
+  const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/49))*(climateScenario==='upper'?.40:.25);
   const siteHydroHistory=[];
   let siteFacilities=[];
   let nextFacilityId=1;
@@ -1559,7 +1563,7 @@ export function createLocalFloodUI({
       setSiteHud('siteHudExtraInfil',Math.round(v.spongeInfiltrationM3||0).toLocaleString('en-GB')+' m³');
     }
     const elapsed=v?.timeMin||0,duration=Number($('localFloodDuration')?.value)||60;
-    setSiteHud('siteHudClock',simulationClock(elapsed)+' / '+simulationClock(duration));
+    setSiteHud('siteHudClock',futureYear+' · '+simulationClock(elapsed)+' / '+simulationClock(duration));
     if(v&&Number.isFinite(v.currentRainMmH)){
       setSiteHud('siteHudLiveRain',v.currentRainMmH.toFixed(1)+' mm/h');
     }
@@ -1761,6 +1765,14 @@ export function createLocalFloodUI({
       '<div class="site-hydro-eyebrow">SCENARIO BUILDER</div>',
       '<div class="site-hydro-title">真实场地洪涝模拟</div>',
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
+      '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
+      '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水</option></select></label>',
+      '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
+      '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
+      '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
+      '<div id="siteHudFutureNote" class="site-hydro-mini">EA 伦敦 1% AEP 降雨设计增幅，2026—2075 插值，其后持平。外部边界水位须自行核实，EA 风险概率不是水位。每年对应短时洪水情景，非全年连续降雨。</div>',
+      '</div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">01 · 位置降雨数据</div>',
       '<div class="site-hydro-mini" id="siteHudRainStation">查找 EA 雨量站中…</div>',
       '<div class="site-hydro-value" id="siteHudRainTotal">— mm / 4h</div>',
@@ -1866,6 +1878,24 @@ export function createLocalFloodUI({
       updateFocusBuildings();
     };
     updateSiteHydroDashboard();
+    const resetFuture=()=>{
+      simulator?.reset();siteHydroHistory.length=0;lastHydroFrame=null;hydroState='reset';
+      updateSiteHydroDashboard();
+    };
+    const syncFuture=()=>{
+      setSiteHud('siteHudYearText',String(futureYear));
+      setSiteHud('siteHudFutureFactor','伦敦 1% AEP 参考设计暴雨 ×'+climateRainFactor().toFixed(3));
+      siteHud('siteHudFutureStage').disabled=floodMode==='rain';
+      setSiteHud('siteHudFutureNote',floodMode==='rain'?
+        'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
+        '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。');
+      resetFuture();
+    };
+    siteHud('siteHudYear').oninput=e=>{futureYear=Number(e.target.value);syncFuture();};
+    siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();};
+    siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
+    siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();};
+    syncFuture();
 
     const resetForNewRain=()=>{
       if(simulator){simulator.pause();simulator.reset();}
@@ -2785,14 +2815,15 @@ export function createLocalFloodUI({
 
   function currentParams(){
     return {
-      rainfall:Number($('localFloodRain').value),
+      rainfall:floodMode==='external'?0:Number($('localFloodRain').value)*climateRainFactor(),
+      floodMode,externalStageM,climateYear:futureYear,
       interventions:siteFacilities.map(({id,type,lng,lat,radiusM})=>
         ({id,type,lng,lat,radiusM})),
       showFlow:hydroDisplay.flow,
-      rainSeriesMm15:rainfallMode==='ea-observed'&&siteRainData?.complete&&siteRainData?.recent
-        ?siteRainData.series15
+      rainSeriesMm15:floodMode==='external'?null:rainfallMode==='ea-observed'&&siteRainData?.complete&&siteRainData?.recent
+        ?siteRainData.series15.map(v=>v*climateRainFactor())
         :rainfallMode==='feh-manual'&&Number.isFinite(manualFourHourMm)
-          ?Array(16).fill(manualFourHourMm/16):null,
+          ?Array(16).fill(manualFourHourMm/16*climateRainFactor()):null,
       infiltration:Number($('localFloodInfil').value),
       duration:Number($('localFloodDuration').value),
       openBoundary:true,
@@ -3138,6 +3169,11 @@ export function createLocalFloodUI({
   });
   $('localFloodRun').addEventListener('click',()=>{
     if(!prepared)return;
+    if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
+      status('缺少外部洪水的有效绝对边界水位；无法据 EA 风险概率凭空生成水位。',true);
+      setSiteHud('siteHudFutureNote','外部洪水无法启动：请输入已核实、与 DEM 同高程基准的外部边界水位。');
+      return;
+    }
     setCityView(true);
     ensureSimulator().start(currentParams());
   });
