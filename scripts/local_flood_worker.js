@@ -855,84 +855,65 @@ onmessage=async({data})=>{
           const baseline=runEvent(1);
           const futureFactor=1+(scenario==='upper'?0.40:0.25);
           const future=runEvent(futureFactor);
-          // A climate allowance changes DESIGN STORM INTENSITY; it does not
-          // imply that 74 years of rain accumulate on the surface.
-          // Keep both independently solved event endpoints unchanged.
-          // Distribute ONLY their difference in mapped wet cells over 74 years.
-          // EA probability categories guide the order of revealing cells,
-          // never create water in a place the future event did not inundate.
-          const additions=[],removals=[];
-          let baseWetCount=0,finalWetCount=0;
-          const wetThreshold=0.02;
+          // Compute both scenario storms for reference, but the VIDEO timeline
+          // starts at a NO-ADDITIONAL-WATER scene in 2026. This is a visual
+          // baseline, NOT a claim of zero real-world flood risk in 2026.
+          // Year 2100 uses exactly the event-solver's future result. Intermediate
+          // frames reveal equal fractions of FINAL mapped inundation. Never
+          // synthesize flood cells outside the independently calculated future.
+          const visibleWet=[],visibleShallow=[];
+          let finalWetCount=0;
+          const colourThreshold=.005,wetThreshold=.02;
           for(let i=0;i<sim.water.length;i++){
             if(!sim.inside[i]||sim.obstacle[i])continue;
-            const baseWet=baseline[i]-sim.svCapacity[i]>=wetThreshold;
-            const finalWet=future[i]-sim.svCapacity[i]>=wetThreshold;
-            if(baseWet)baseWetCount++;
-            if(finalWet)finalWetCount++;
-            if(!baseWet&&finalWet)additions.push(i);
-            if(baseWet&&!finalWet)removals.push(i);
+            const depth=future[i]-sim.svCapacity[i];
+            if(depth>=wetThreshold){visibleWet.push(i);finalWetCount++;}
+            else if(depth>=colourThreshold)visibleShallow.push(i);
           }
-          const knownRisk=i=>{
+          const risk=i=>{
             const code=sim.riskRank?.[i]||0;
             return code>=1&&code<=4?code:0;
           };
-          // Higher published EA risk and lower DEM cells appear first.
-          // A risk category is ordinal likelihood, NOT water depth.
-          additions.sort((a,b)=>
-            knownRisk(b)-knownRisk(a)||
+          const sortByRiskAndLowTerrain=(a,b)=>
+            risk(b)-risk(a)||
             sim.terrain[a]-sim.terrain[b]||
-            future[b]-future[a]||a-b);
-          // Baseline-only wet cells fade from higher ground/low risk first.
-          removals.sort((a,b)=>
-            knownRisk(a)-knownRisk(b)||
-            sim.terrain[b]-sim.terrain[a]||
-            baseline[a]-baseline[b]||a-b);
+            future[b]-future[a]||a-b;
+          visibleWet.sort(sortByRiskAndLowTerrain);
+          visibleShallow.sort(sortByRiskAndLowTerrain);
           annualRiskForecast={key,baseline,future,futureFactor,
-            eventIntensity,duration,infiltration,assumedUrbanDrainage,scenario,mode,
-            riskAvailable:sim.riskAvailable,
-            additions,removals,baseWetCount,finalWetCount,
-            wetThreshold};
+            eventIntensity,duration,infiltration,assumedUrbanDrainage,
+            scenario,mode,riskAvailable:sim.riskAvailable,
+            visibleWet,visibleShallow,finalWetCount,
+            wetThreshold,colourThreshold};
         }finally{params=priorParams;applySpongeInterventions();}
       }
       const forecast=annualRiskForecast;
       const progress=(year-2026)/74;
       sim.water.fill(0);sim.delta.fill(0);
-      // The baseline and future use the unchanged physical-event solutions.
-      // Intermediate years are an explicitly labelled AREA-STAGING animation:
-      // each year reveals roughly 1/74 of the newly wet final-event cells.
-      // Never synthesize new wet locations beyond the computed final extent.
-      const additionsVisible=Math.round(progress*forecast.additions.length);
-      const removalsHidden=Math.round(progress*forecast.removals.length);
-      const additionsShown=new Uint8Array(sim.water.length);
-      const removalsShown=new Uint8Array(sim.water.length);
-      for(let k=0;k<additionsVisible;k++)
-        additionsShown[forecast.additions[k]]=1;
-      for(let k=0;k<removalsHidden;k++)
-        removalsShown[forecast.removals[k]]=1;
-      const threshold=forecast.wetThreshold;
-      for(let i=0;i<sim.water.length;i++){
-        if(!sim.inside[i]||sim.obstacle[i])continue;
-        const b=forecast.baseline[i],f=forecast.future[i],capacity=sim.svCapacity[i];
-        const baseWet=b-capacity>=threshold;
-        const futureWet=f-capacity>=threshold;
-        const blended=Math.max(0,b+(f-b)*progress);
-        if(!baseWet&&futureWet){
-          // Below threshold until the cell's assigned year; after activation
-          // preserve the physical final depth and a gentle depth increase.
-          sim.water[i]=additionsShown[i]
-            ?Math.min(f,Math.max(capacity+threshold+0.0001,blended))
-            :Math.min(b,capacity+threshold-0.0001);
-        }else if(baseWet&&!futureWet){
-          sim.water[i]=removalsShown[i]
-            ?f
-            :Math.max(capacity+threshold+0.0001,blended);
-        }else{
-          sim.water[i]=blended;
+      // BOTH wet-area and shallow-colour cells are revealed in 74 equal
+      // yearly fractions. Water depths increase towards the computed final
+      // field. No 2026 model flood is displayed; none of these interim years
+      // is a physically solved future annual flood.
+      const wetVisible=Math.round(progress*forecast.visibleWet.length);
+      const shallowVisible=Math.round(progress*forecast.visibleShallow.length);
+      const reveal=(sorted,count,threshold)=>{
+        for(let k=0;k<count;k++){
+          const i=sorted[k],finalDepth=Math.max(0,forecast.future[i]);
+          // Newly visible cells begin near their respective display
+          // thresholds then deepen; never exceed the final computed depth.
+          const birth=(k+.5)/Math.max(1,sorted.length);
+          const age=Math.max(0,Math.min(1,
+            (progress-birth)/Math.max(1/74,1-birth)));
+          const depth=Math.min(finalDepth,
+            Math.max(threshold,finalDepth*(.20+.80*age)));
+          sim.water[i]=depth;
         }
+      };
+      if(year>2026){
+        reveal(forecast.visibleWet,wetVisible,forecast.wetThreshold+.0001);
+        reveal(forecast.visibleShallow,shallowVisible,forecast.colourThreshold+.0001);
       }
-      // Exact preservation of both calculated endpoints (no visual staging).
-      if(year===2026)sim.water.set(forecast.baseline);
+      // The animation begins dry and ends exactly on the computed result.
       if(year===2100)sim.water.set(forecast.future);
       sim.timeSec=0;
       annualFrameYear=year;
@@ -944,16 +925,15 @@ onmessage=async({data})=>{
           (1+(forecast.futureFactor-1)*progress),
         durationMin:forecast.duration,
         assumedUrbanDrainageMmH:forecast.assumedUrbanDrainage,
-        baselineWetAreaM2:forecast.baseWetCount*sim.cell*sim.cell,
+        baselineWetAreaM2:0,
         finalWetAreaM2:forecast.finalWetCount*sim.cell*sim.cell,
-        targetWetAreaM2:(forecast.baseWetCount+additionsVisible-
-          removalsHidden)*sim.cell*sim.cell,
-        addedCellCount:forecast.additions.length,
-        removedCellCount:forecast.removals.length,
-        areaStaging:true,
+        targetWetAreaM2:wetVisible*sim.cell*sim.cell,
+        addedCellCount:forecast.visibleWet.length,
+        removedCellCount:0,
+        zeroWaterAt2026:true,areaStaging:true,
         riskAvailable:forecast.riskAvailable,
         riskReference:'EA present-day combined probability map; diagnostic only',
-        methodologicalNote:'Two DEM/OSM event endpoints; only newly wet area is staged evenly from 2026 to 2100. EA categories guide reveal order; no yearly flood forecasts or accumulated rainfall.'
+        methodologicalNote:'2026 is a zero-additional-water PRESENTATION baseline. 2100 is an independently modeled design storm; mapped cells and depth build gradually over 74 steps. EA risk guides ordering only. This is NOT a historical or annual flood prediction.'
       };
       sendFrame();
       annualFrameYear=null;annualAreaStage=null;
