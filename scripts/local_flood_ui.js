@@ -739,7 +739,7 @@ export function createLocalFloodUI({
   let focusThresholdTimer=null;
   let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
   let lastHydroFrame=null,hydroState='ready';
-  let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null,siteTerrainMinM=null;
+  let futureYear=2026, floodMode='rain-risk', climateScenario='central', externalStageM=null,siteTerrainMinM=null;
   let siteRiskAvailable=false;
   let forceEaRiskOverlay=false;
   let siteRiskMappedCount=0;
@@ -1074,7 +1074,7 @@ export function createLocalFloodUI({
     const ctx=focusContextSettings();
     // Independent EA ordinal probability overlay. Not a flood depth layer.
     for(const [id,on] of [
-      [FOCUS_EA_LAYER,forceEaRiskOverlay||ctx.ea||floodMode==='rain-risk'],
+      [FOCUS_EA_LAYER,false],
       [FOCUS_DRAINAGE_LAYER,ctx.drainage]]){
       if(viewer.getLayoutProperty(id,'visibility')!==(on?'visible':'none')){
         viewer.setLayoutProperty(id,'visibility',on?'visible':'none');
@@ -2053,7 +2053,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
       '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 零新增积水展示起点 → 2100 计算终态</div>',
-      '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="rain-risk">降雨 + EA 风险引导</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水（需水位）</option></select></label>',
+      '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:180px" aria-label="唯一模拟模式"><option value="rain-risk">降雨 + EA 风险引导</option></select></label>',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
       '<button type="button" class="site-hydro-btn" id="siteHudTrialStage">采用 DEM 低点 + 1.0 m（仅设计试验）</button>',
       '<div class="site-hydro-mini" style="margin:8px 0;border:1px solid #426279;border-radius:7px;padding:8px">',
@@ -2230,7 +2230,9 @@ export function createLocalFloodUI({
       siteHud('siteHudYear').value=String(futureYear);
       siteHud('siteHudFooterYear').value=String(futureYear);
       setSiteHud('siteHudFutureFactor','2100 年设计雨强倍率 ×'+climateRainFactor().toFixed(3)+'（研究情景；需按场地流域核准）');
-      const external=needsExternalStage();
+      floodMode='rain-risk';
+      if(siteHud('siteHudFutureMode'))siteHud('siteHudFutureMode').value='rain-risk';
+      const external=false;
       siteHud('siteHudFutureStage').disabled=!external;
       const stageHint=siteHud('siteHudStageHint');
       if(stageHint){stageHint.style.display=external?'block':'none';stageHint.textContent=Number.isFinite(externalStageM)?'已输入边界绝对水位 '+externalStageM.toFixed(2)+' m（请确认与 DEM 高程基准一致；该值为用户设定，不是 EA 实测水位）。':'此模式需要边界绝对水位：在此输入与 DEM 同基准的水位（m）；没有真实水位时不能计算外部洪水。';}
@@ -2244,7 +2246,7 @@ export function createLocalFloodUI({
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
         (floodMode==='rain-risk'
-          ?'本模式以实际配准的 EA 综合现状风险等级轻度引导已计算降雨水量沿 DEM 下坡移动，并显示独立风险底图。水深不是 EA 官方预测，2026 为零新增水量的视觉起点，至 2100 仅进行设计情景分期演示。'
+          ?'本模式以实际配准的 EA 综合现状风险等级轻度引导已计算降雨水量沿 DEM 下坡移动，但不显示独立风险底图。水深不是 EA 官方预测，2026 为零新增水量的视觉起点，至 2100 仅进行设计情景分期演示。'
           :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
@@ -2318,25 +2320,18 @@ export function createLocalFloodUI({
         output.textContent='EA 站点查询失败：'+(error?.message||String(error))+'。未替换为估计水位。';
       }finally{clearTimeout(timeout);}
     };
-    siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();siteHud('siteHudFutureMode').value=floodMode;};
+    siteHud('siteHudFutureMode').onchange=()=>{floodMode='rain-risk';siteHud('siteHudFutureMode').value='rain-risk';syncFuture();};
     siteHud('siteHudUseRiskGuide').onclick=()=>{
       if(enableEaRiskGuidance())syncFuture();
       else status('EA 现状洪涝风险栅格不可用，不能创建风险引导情景。',true);
     };
+    // Risk data remains in the solver; it must never create a red/yellow map overlay.
     siteHud('siteHudShowEARisk').onclick=()=>{
-      if(!siteRiskAvailable){
-        status('当前场地未读取到可识别的 EA 官方风险等级，无法显示有效风险范围。',true);
-        return;
-      }
-      forceEaRiskOverlay=!forceEaRiskOverlay;
-      siteHud('siteHudShowEARisk').textContent=forceEaRiskOverlay
-        ?'隐藏 EA 官方风险图':'显示 EA 官方风险图';
+      forceEaRiskOverlay=false;
       updateFocusAnalysisLayers();
-      status(forceEaRiskOverlay
-        ?'显示 EA 官方现状洪涝概率分级图（不等于计算水深或外部洪水水位）。'
-        :'已恢复 EA 风险图默认显示设置。');
+      status('EA 风险已用于降雨引导；单独红黄图层已隐藏。');
     };
-    siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
+        siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
     siteHud('siteHudTrialStage').onclick=()=>{
       if(!needsExternalStage()){status('请先选择仅外部洪水或降雨＋外部洪水模式。');return;}
       if(!Number.isFinite(siteTerrainMinM)){
@@ -2354,7 +2349,11 @@ export function createLocalFloodUI({
     siteHud('siteHudExternalInlet').onchange=e=>{externalInlet=e.target.value;resetFuture();};
     siteHud('siteHudRise').onchange=e=>{externalRiseMin=Math.max(1,Number(e.target.value)||30);resetFuture();};
     siteHud('siteHudFall').onchange=e=>{externalFallMin=Math.max(externalRiseMin+1,Number(e.target.value)||90);resetFuture();};
-    syncFuture();
+    for(const id of ['siteHudFutureStage','siteHudStageHint','siteHudTrialStage','siteHudQueryEaZones','siteHudQueryEaStage','siteHudUseRiskGuide','siteHudShowEARisk','siteHudExternalInlet','siteHudRise','siteHudFall','siteHudEaStageStatus','siteHudEaFloodZoneStatus']){
+      const el=siteHud(id);if(el){const parent=el.closest('.site-hydro-row,.site-hydro-actions');(parent||el).style.display='none';}
+    }
+    forceEaRiskOverlay=false;
+        syncFuture();
 
     const resetForNewRain=()=>{
       stopAnnual();clearYearFrames();clearRiskEnvelope();
@@ -3240,6 +3239,8 @@ export function createLocalFloodUI({
       const info=await ensureSimulator().setup({polygon,buildings});
       siteTerrainMinM=Number.isFinite(Number(info.terrainMinM))&&info.terrainMinM!==null?Number(info.terrainMinM):null;
       siteRiskMappedCount=Number(info.riskMappedCells)||0;
+      floodMode='rain-risk';
+      forceEaRiskOverlay=false;
       siteRiskAvailable=Boolean(info.riskAvailable&&siteRiskMappedCount>0);
       if(siteHud('siteHudUseRiskGuide'))
         siteHud('siteHudUseRiskGuide').disabled=!siteRiskAvailable;
