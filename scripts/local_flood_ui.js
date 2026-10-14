@@ -790,25 +790,15 @@ export function createLocalFloodUI({
     return true;
   };
   const resolveFloodModeForPlayback=()=>{
+    // Respect the user's selected scenario: never silently substitute rain
+    // for a boundary-driven hydraulic simulation.
     if(needsExternalStage()&&!Number.isFinite(externalStageM)){
-      // Never fake an external hydraulic boundary. Select a distinct,
-      // explicitly labelled rain-based model so the timeline can still run.
-      if(siteRiskAvailable){
-        enableEaRiskGuidance();
-        status('没有外部洪水绝对水位：自动切换至「降雨＋EA 风险引导」计算，不是外部洪水水深。');
-      }else{
-        floodMode='rain';
-        if(siteHud('siteHudFutureMode'))siteHud('siteHudFutureMode').value='rain';
-        clearYearFrames();
-        updateFocusAnalysisLayers();
-        status('没有外部洪水绝对水位，EA 风险等级亦不可用：已切换「仅降雨」情景；不虚构洪水数据。');
-      }
-      if(siteHud('siteHudFutureStage'))siteHud('siteHudFutureStage').disabled=true;
-      for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
-        if(siteHud(id))siteHud(id).disabled=true;
+      status('当前已选择「'+(floodMode==='external'?'仅外部洪水':'降雨＋外部洪水')+
+        '」，但尚未提供同一高程基准的外部边界水位。请先输入水位；不会自动切换模式，也不会伪造外部洪水。',true);
+      return false;
     }
     if(floodMode==='rain-risk'&&!siteRiskAvailable){
-      status('当前场地 EA 分类风险数据不可用；请使用仅降雨模式。',true);
+      status('当前已选择「降雨＋EA 风险引导」，但该场地 EA 分类风险数据不可用。可改用仅降雨；当前选择不会被自动覆盖。',true);
       return false;
     }
     return true;
@@ -2255,7 +2245,7 @@ export function createLocalFloodUI({
     };
     siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
-    siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();};
+    siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();siteHud('siteHudFutureMode').value=floodMode;};
     siteHud('siteHudUseRiskGuide').onclick=()=>{
       if(enableEaRiskGuidance())syncFuture();
       else status('EA 现状洪涝风险栅格不可用，不能创建风险引导情景。',true);
