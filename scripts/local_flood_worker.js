@@ -655,15 +655,17 @@ function sendFrame(){
 function tick(){
   if(!running||!sim)return;
   const endSec=Math.max(1,Number(params.duration)||60)*60;
-  // Smaller physical increments make the propagation visible instead of jumping.
-  for(let i=0;i<2&&sim.timeSec<endSec;i++)simulationStep(3);
+  // Annual playback accelerates a representative event; approximate, not engineering-grade.
+  const fast=Boolean(params.annualPreview);
+  const dt=fast?12:3,iterations=fast?30:2;
+  for(let i=0;i<iterations&&sim.timeSec<endSec;i++)simulationStep(Math.min(dt,endSec-sim.timeSec));
   sendFrame();
   if(sim.timeSec>=endSec){
     running=false;
     postMessage({type:'status',state:'complete'});
     return;
   }
-  timer=setTimeout(tick,48);
+  timer=setTimeout(tick,params.annualPreview?8:48);
 }
 
 onmessage=async({data})=>{
