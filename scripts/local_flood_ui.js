@@ -655,6 +655,7 @@ export function createLocalFloodUI({
   let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null;
   let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
   let annualPlaying=false,annualAdvanceTimer=null;
+  let longTermMode=false,annualBudget=null;
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
   let riskEnvelope=null; // maximum predicted depth encountered through the current year
   const clearRiskEnvelope=()=>{riskEnvelope=null;};
@@ -1571,7 +1572,8 @@ export function createLocalFloodUI({
       const el=siteHud('siteDepthBin'+i);
       if(el)el.dataset.wet=ha>0?'true':'false';
     }
-    setSiteHud('siteHudFloodPhase',annualPlaying?
+    setSiteHud('siteHudFloodPhase',longTermMode?
+      futureYear+' 年 · 长期累积蓄水压力测试（雨量与年度损失为假设值）':annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
@@ -1787,6 +1789,10 @@ export function createLocalFloodUI({
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
+      '<label class="site-hydro-check"><input type="checkbox" id="siteHudLongTerm"> 长期累积积水 · 无新增干预（极端情景）</label>',
+      '<div class="site-hydro-mini">每年计算有效雨量与年度损失，剩余水量传递至下一年；仅用于排水受限的压力测试，不是实际逐年洪水预测。</div>',
+      '<label class="site-hydro-row">年度有效降雨 <input id="siteHudAnnualRain" type="number" min="0" max="3000" step="10" value="250" style="width:85px"> mm/年</label>',
+      '<label class="site-hydro-row">年度综合损失 <input id="siteHudAnnualLoss" type="number" min="0" max="3000" step="10" value="210" style="width:85px"> mm/年</label>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水</option></select></label>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
@@ -1919,6 +1925,7 @@ export function createLocalFloodUI({
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。');
       resetFuture();
     };
+    siteHud('siteHudLongTerm').onchange=e=>{longTermMode=e.target.checked;stopAnnual();simulator?.reset();clearRiskEnvelope();annualBudget=null;futureYear=2026;simYearDisplay();};
     siteHud('siteHudYear').oninput=e=>{futureYear=Number(e.target.value);syncFuture();};
     siteHud('siteHudFooterYear').oninput=e=>{futureYear=Number(e.target.value);syncFuture();};
     siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();};
@@ -2007,6 +2014,22 @@ export function createLocalFloodUI({
     };
     siteHud('siteHudRun').onclick=()=>{
       if(!prepared)return;
+      if(longTermMode){
+        if(futureYear>=2100){futureYear=2026;simulator?.reset(true);annualBudget=null;}
+        const netRain=Number(siteHud('siteHudAnnualRain').value),loss=Number(siteHud('siteHudAnnualLoss').value);
+        if(!Number.isFinite(netRain)||!Number.isFinite(loss)||netRain<0||loss<0){status('请输入有效的年度降雨和损失假设。',true);return;}
+        annualPlaying=true;clearRiskEnvelope();
+        annualBudget={rain:netRain,loss};
+        const advance=()=>{
+          if(!annualPlaying||!isolatedSelection)return;
+          if(futureYear>=2100){stopAnnual();status('2100 年长期蓄水情景计算完成。');return;}
+          futureYear++;simYearDisplay();
+          ensureSimulator().annualStep({annualRainMm:annualBudget.rain*climateRainFactor(),annualLossMm:annualBudget.loss,climateYear:futureYear});
+          annualAdvanceTimer=setTimeout(advance,160);
+        };
+        annualAdvanceTimer=setTimeout(advance,60);
+        return;
+      }
       if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
         status('必须先填写有依据的外部洪水边界水位。',true);return;
       }
@@ -2021,7 +2044,7 @@ export function createLocalFloodUI({
       stopAnnual();simulator?.pause();updateSiteHydroDashboard();
     };
     siteHud('siteHudReset').onclick=()=>{
-      stopAnnual();clearRiskEnvelope();simulator?.reset();futureYear=2026;
+      stopAnnual();clearRiskEnvelope();annualBudget=null;simulator?.reset();futureYear=2026;
       hydroState='reset';lastHydroFrame=null;siteHydroHistory.length=0;
       simYearDisplay();
     };
@@ -2811,7 +2834,7 @@ export function createLocalFloodUI({
     // envelope observed up to the selected year. Never clear risk patches
     // when a new representative storm starts. This is a design-risk envelope,
     // NOT 74 years of continuously retained physical floodwater.
-    if(annualPlaying&&data.depthMm){
+    if(annualPlaying&&!longTermMode&&data.depthMm){
       const current=new Uint16Array(data.depthMm);
       const rgba=new Uint8ClampedArray(data.pixels);
       const contact=data.contactMask?new Uint8Array(data.contactMask):null;
@@ -2940,7 +2963,7 @@ export function createLocalFloodUI({
       rainfall:floodMode==='external'?0:Number($('localFloodRain').value)*climateRainFactor(),
       floodMode,externalStageM,climateYear:futureYear,
       stormProfile,externalInlet,externalRiseMin,externalFallMin,
-      interventions:(annualPlaying?[]:siteFacilities).map(({id,type,lng,lat,radiusM})=>
+      interventions:((annualPlaying||longTermMode)?[]:siteFacilities).map(({id,type,lng,lat,radiusM})=>
         ({id,type,lng,lat,radiusM})),
       showFlow:hydroDisplay.flow,
       rainSeriesMm15:floodMode==='external'?null:rainfallMode==='ea-observed'&&siteRainData?.complete&&siteRainData?.recent
