@@ -2048,12 +2048,31 @@ export function createLocalFloodUI({
         const netRain=Number(siteHud('siteHudAnnualRain').value),loss=Number(siteHud('siteHudAnnualLoss').value);
         if(!Number.isFinite(netRain)||!Number.isFinite(loss)||netRain<0||loss<0){status('请输入有效的年度降雨和损失假设。',true);return;}
         annualPlaying=true;clearRiskEnvelope();
-        annualBudget={rain:netRain,loss};
+        // Distribute the full-horizon assumed net effective water input evenly
+        // over the 74 annual steps. This controls presentation pacing; it does
+        // not claim the real sequence of future storms is uniform.
+        const budgetYears=Array.from({length:74},(_,i)=>2027+i);
+        const projectedTotalNetMm=budgetYears.reduce((sum,year)=>{
+          const factor=1+Math.min(1,Math.max(0,(year-2026)/49))*
+            (climateScenario==='upper'?.40:.25);
+          return sum+Math.max(0,netRain*factor-loss);
+        },0);
+        annualBudget={rain:netRain,loss,
+          uniformNetMm:projectedTotalNetMm/74,
+          projectedTotalNetMm};
+        setSiteHud('siteHudFutureNote',
+          '长期累积压力测试：全期净蓄水 '+projectedTotalNetMm.toFixed(0)+
+          ' mm，均分 74 年，每年 '+annualBudget.uniformNetMm.toFixed(1)+
+          ' mm。此为演示节奏假设，不是实际逐年降雨预测。');
         const advance=()=>{
           if(!annualPlaying||!isolatedSelection)return;
           if(futureYear>=2100){stopAnnual();status('2100 年长期蓄水情景计算完成。');return;}
           futureYear++;simYearDisplay();
-          ensureSimulator().annualStep({annualRainMm:annualBudget.rain*climateRainFactor(),annualLossMm:annualBudget.loss,climateYear:futureYear});
+          ensureSimulator().annualStep({
+            annualRainMm:annualBudget.uniformNetMm,
+            annualLossMm:0,
+            climateYear:futureYear
+          });
           annualAdvanceTimer=setTimeout(advance,160);
         };
         annualAdvanceTimer=setTimeout(advance,60);
