@@ -716,7 +716,7 @@ export function createLocalFloodUI({
   let siteFacilities=[];
   let nextFacilityId=1;
   let spongeTool='navigate';
-  let hydroDisplay={depth:true,flow:true,collision:true,volume:true};
+  let hydroDisplay={depth:true,flow:false,collision:true,volume:true};
   let lastFlowUpdateAt=0;
 
   const status=(message,error=false)=>{
@@ -1051,7 +1051,22 @@ export function createLocalFloodUI({
 
   function syncFocusFootprintVisibility(){
     if(!isolateViewer)return;
-    const visible=hideSelectedBuildings?'visible':'none';
+    const visible=(hydroDisplay.flow||hideSelectedBuildings)?'visible':'none';
+    // Neutral footprints are shown only in the independent vector view.
+    for(const [id,paint,defaultPaint] of [
+      [FOCUS_FOOTPRINT_FILL,'fill-color',
+        ['case',['boolean',['get','impacted'],false],'#ef615d','#94a3b8']],
+      [FOCUS_FOOTPRINT_LINE,'line-color',
+        ['case',['boolean',['get','impacted'],false],'#ff3b30','#8497a5']]
+    ]){
+      if(isolateViewer.getLayer(id))
+        isolateViewer.setPaintProperty(id,paint,
+          hydroDisplay.flow?'#8a9ba8':defaultPaint);
+    }
+    if(isolateViewer.getLayer(FOCUS_FOOTPRINT_FILL))
+      isolateViewer.setPaintProperty(FOCUS_FOOTPRINT_FILL,'fill-opacity',
+        hydroDisplay.flow?.24:
+        ['case',['boolean',['get','impacted'],false],.45,.12]);
     for(const id of [FOCUS_FOOTPRINT_FILL,FOCUS_FOOTPRINT_LINE]){
       if(isolateViewer.getLayer(id)&&isolateViewer.getLayoutProperty(id,'visibility')!==visible)
         isolateViewer.setLayoutProperty(id,'visibility',visible);
@@ -1403,11 +1418,11 @@ export function createLocalFloodUI({
   function syncFocusFloodWaterRendering(){
     const viewer=isolateViewer;
     if(!viewer)return;
-    const useVolume=Boolean(hydroDisplay.depth&&hydroDisplay.volume&&
-      viewer.getPitch()>.5&&volumetricWater?.ready);
+    const useVolume=Boolean(!hydroDisplay.flow&&hydroDisplay.depth&&
+      hydroDisplay.volume&&viewer.getPitch()>.5&&volumetricWater?.ready);
     volumetricWater?.setVisible(useVolume);
     if(viewer.getLayer(FOCUS_RAIN_LAYER)){
-      const visibility=hydroDisplay.depth&&!useVolume?'visible':'none';
+      const visibility=!hydroDisplay.flow&&hydroDisplay.depth&&!useVolume?'visible':'none';
       if(viewer.getLayoutProperty(FOCUS_RAIN_LAYER,'visibility')!==visibility)
         viewer.setLayoutProperty(FOCUS_RAIN_LAYER,'visibility',visibility);
     }
@@ -1421,12 +1436,16 @@ export function createLocalFloodUI({
       if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!==desired)
         viewer.setLayoutProperty(id,'visibility',desired);
     }
+    setFocusPitchMode();
     for(const id of [FOCUS_2D,FOCUS_3D]){
       if(viewer.getLayer(id))viewer.setPaintProperty(id,
         id===FOCUS_3D?'fill-extrusion-color':'fill-color',
         hydroDisplay.collision?buildingColourExpression():'#ff9f1a');
     }
     simulator?.setParams(currentParams());
+    const source=viewer.getSource(FOCUS_FLOW_SOURCE);
+    if(!hydroDisplay.flow)source?.setData(spongeCollection([]));
+    else if(prepared)simulator?.requestFlowField();
   }
 
   function focusStyle(details){
@@ -1557,8 +1576,8 @@ export function createLocalFloodUI({
     if(!viewer)return;
     const is3D=viewer.getPitch()>.5;
     for(const [id,v] of [
-      [FOCUS_2D,is3D?'none':'visible'],
-      [FOCUS_3D,is3D?'visible':'none']
+      [FOCUS_2D,hydroDisplay.flow?'none':is3D?'none':'visible'],
+      [FOCUS_3D,hydroDisplay.flow?'none':is3D?'visible':'none']
     ]){
       if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!==v){
         viewer.setLayoutProperty(id,'visibility',v);
@@ -1965,10 +1984,13 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉隐藏，不影响水文计算）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
-      '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox" checked> 水流向量场</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
       '<div class="site-hydro-mini">3D 水体厚度按真实计算水深视觉放大 2 倍（最大显示 4 m）；实际水深统计、碰撞阈值均保持原值。水花和波纹属于表现效果。</div>',
-      '<div class="site-hydro-mini">水流箭头表示网格水位梯度方向，并非经过校准的流速数据。</div>',
+      '</div></section>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">04 · 独立向量场</div>',
+      '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox"> 单独查看水文向量场</label>',
+      '<div class="site-hydro-mini">默认关闭。开启后暂时隐藏洪水颜色和3D建筑，仅显示连续流线、道路和灰色建筑基底；关闭后恢复洪水画面。计算数据、年份与受淹统计不变。</div>',
+      '<div class="site-hydro-mini">流线颜色和粗细表示相对流动强度，并非真实测得的 m/s。2026 年零积水时没有流线，请查看较晚年份。</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -2116,7 +2138,7 @@ export function createLocalFloodUI({
     }
     siteHud('siteHudResetSponge').onclick=()=>{
       siteFacilities=[];
-      hydroDisplay={depth:true,flow:true,collision:true,volume:true};
+      hydroDisplay={depth:true,flow:false,collision:true,volume:true};
       for(const [id,flag] of [
         ['siteHudShowDepth','depth'],
         ['siteHudShowVolume','volume'],
@@ -2768,6 +2790,9 @@ export function createLocalFloodUI({
         new URL(assetUrl('assets/flood_risk/flood_1-1.webp'),location.href).href
       ],
       onFrame:handleFrame,
+      onFlowField:data=>{
+        if(hydroDisplay.flow)updateFocusFlowVectors(data);
+      },
       onStatus:data=>{
         hydroState=data.state;
         if(data.state==='preparing'){
@@ -2932,7 +2957,7 @@ export function createLocalFloodUI({
       siteFacilities=[];
       nextFacilityId=1;
       spongeTool='navigate';
-      hydroDisplay={depth:true,flow:true,collision:true,volume:true};
+      hydroDisplay={depth:true,flow:false,collision:true,volume:true};
       ensureSimulator().setParams(currentParams());
       const info=await ensureSimulator().setup({polygon,buildings});
       prepared=true;
