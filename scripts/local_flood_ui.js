@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.19';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.21';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -743,7 +743,8 @@ export function createLocalFloodUI({
   let siteRiskAvailable=false;
   let forceEaRiskOverlay=false;
   let siteRiskMappedCount=0;
-  let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
+  const stormProfile='peak';
+  let externalInlet='low',externalRiseMin=30,externalFallMin=90;
   let annualPlaying=false,annualAdvanceTimer=null;
   let longTermMode=true,annualBudget=null;
   let awaitingInitialReset=false;
@@ -2077,7 +2078,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini">官方产品深度区间为 ≤0.15、0.15–0.30、0.30–0.60、0.60–0.90、0.90–1.20、1.20–2.30、>2.30 m。此处提供来源链接，尚未将对应 WMS 深度分级下载并解码成场地逐格官方水深；模拟蓝色水面仍使用 DEM 和降雨求解。</div>',
       '<label class="site-hydro-row">假设雨水管网排水能力 <input id="siteHudAssumedDrainage" type="number" min="0" max="100" step="5" value="25" style="width:75px"> mm/h</label>',
       '<div class="site-hydro-mini">25 mm/h 为可调整的研究假设，不是 EA 测量的排水管网能力。仅用于改善缺失地下排水数据时的情景计算。</div>',
-      '<label class="site-hydro-row">降雨事件过程 <select id="siteHudStormProfile" style="width:140px"><option value="peak">中段暴雨峰值</option><option value="front">前段强降雨</option><option value="uniform">均匀降雨</option></select></label>',
+      '<div class="site-hydro-mini">设计暴雨采用固定单峰极值过程（峰值位于事件中点，总雨量不额外增加）；EA 实测雨量回放仍按原始实测时序。</div>',
       
       '<label class="site-hydro-row">入流位置 <select id="siteHudExternalInlet" style="width:140px"><option value="low">边界低洼 10%（假设）</option><option value="all">全部边界（试验）</option></select></label>',
       '<label class="site-hydro-row">涨水时间 <input id="siteHudRise" type="number" min="1" max="1440" value="30" style="width:88px"> min</label>',
@@ -2344,7 +2345,7 @@ export function createLocalFloodUI({
         ' m（场地 DEM 最低高程 + 1.0 m）。这是人为假设，不是 EA 官方洪水水位，也不是2100年预测。');
     };
     siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();syncFuture();};
-    siteHud('siteHudStormProfile').onchange=e=>{stormProfile=e.target.value;resetFuture();};
+    // v3.22.21: storm profile is fixed to the single-peak design event, no dropdown.
     siteHud('siteHudAssumedDrainage').onchange=()=>resetFuture();
     siteHud('siteHudExternalInlet').onchange=e=>{externalInlet=e.target.value;resetFuture();};
     siteHud('siteHudRise').onchange=e=>{externalRiseMin=Math.max(1,Number(e.target.value)||30);resetFuture();};
