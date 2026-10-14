@@ -9,7 +9,8 @@ let timer=null;
 let params={
   rainfall:50,infiltration:5,duration:60,openBoundary:true,
   drainageGuide:true,drainageThreshold:1,rainSeriesMm15:null,
-  interventions:[],showFlow:true,floodMode:'rain',externalStageM:null
+  interventions:[],showFlow:true,floodMode:'rain',externalStageM:null,
+  stormProfile:'uniform',externalInlet:'low',externalRiseMin:30,externalFallMin:90
 };
 
 function mercator(lng,lat){
@@ -297,6 +298,16 @@ async function setup(data){
     if(obstacle[i])buildingCells++;
   }
 
+  // Select the low-lying tenth of boundary cells as a provisional inlet
+  // instead of unrealistically flooding the entire study-area perimeter.
+  const perimeter=[];
+  for(let i=0;i<boundary.length;i++){
+    if(boundary[i]&&inside[i]&&!obstacle[i]&&Number.isFinite(terrain[i]))
+      perimeter.push(i);
+  }
+  const sorted=perimeter.slice().sort((a,b)=>terrain[a]-terrain[b]);
+  const lowCount=Math.max(1,Math.ceil(sorted.length*.1));
+  sim.inletBoundaryCells=sorted.slice(0,lowCount);
   postMessage({
     type:'setup-complete',
     requestId:data.requestId,
@@ -389,9 +400,17 @@ function simulationStep(dt=5){
     ?params.rainSeriesMm15:null;
   const slot=Math.min(15,Math.max(0,Math.floor(sim.timeSec/900)));
   const observed=series&&sim.timeSec<4*3600?Number(series[slot]):NaN;
+  // Event hyetograph: unit-mean temporal patterns keep the entered event
+  // total rainfall unchanged, rather than inventing additional rain volume.
+  const eventSec=Math.max(60,(Number(params.duration)||60)*60);
+  const progress=clamp(sim.timeSec/eventSec,0,1);
+  const profile=params.stormProfile==='front'?
+    (progress<0.25?2.2:progress<0.6?0.9:0.275):
+    params.stormProfile==='peak'?
+    (progress<0.25?0.40:progress<0.5?1.60:progress<0.75?1.60:0.40):1;
   const rain=params.floodMode==='external'?0:(Number.isFinite(observed)&&observed>=0
     ?observed/1000/900*dt
-    :Math.max(0,Number(params.rainfall)||0)/1000/3600*dt);
+    :Math.max(0,Number(params.rainfall)||0)/1000/3600*dt*profile);
   const infil=Math.max(0,Number(params.infiltration)||0)/1000/3600*dt;
 
   for(let i=0;i<water.length;i++){
@@ -407,9 +426,18 @@ function simulationStep(dt=5){
   if((params.floodMode==='external'||params.floodMode==='coupled')&&
      params.externalStageM!==null&&Number.isFinite(Number(params.externalStageM))){
     const stage=Number(params.externalStageM);
+    const riseSec=Math.max(60,Number(params.externalRiseMin||30)*60);
+    const fallSec=Math.max(riseSec+60,Number(params.externalFallMin||90)*60);
+    const tideProgress=clamp(sim.timeSec/riseSec,0,1);
+    const recession=clamp((fallSec-sim.timeSec)/(fallSec-riseSec),0,1);
+    // Ramp the inundation depth at the boundary, not the DEM datum.
+    const stageFraction=Math.min(tideProgress,recession);
+    const lowBoundary=sim.inletBoundaryCells||[];
+    const boundarySelection=params.externalInlet==='all'?null:lowBoundary;
     for(let i=0;i<water.length;i++){
       if(!inside[i]||obstacle[i]||!boundary[i])continue;
-      const target=Math.max(0,stage-terrain[i]);
+      if(boundarySelection&&!boundarySelection.includes(i))continue;
+      const target=Math.max(0,stage-terrain[i])*stageFraction;
       water[i]+=Math.min(Math.max(0,target-water[i]),0.025*dt);
     }
   }
