@@ -772,6 +772,9 @@ export function createLocalFloodUI({
   const FOCUS_WATER='focus-water-source';
   const FOCUS_2D='focus-building-fill';
   const FOCUS_3D='focus-building-extrusion';
+  const FOCUS_FOOTPRINT_SOURCE='focus-building-footprint-source';
+  const FOCUS_FOOTPRINT_FILL='focus-building-footprint-fill';
+  const FOCUS_FOOTPRINT_LINE='focus-building-footprint-outline';
   const FOCUS_EA_SOURCE='focus-ea-risk-source';
   const FOCUS_DRAINAGE_SOURCE='focus-drainage-network-source';
   const FOCUS_EA_LAYER='focus-ea-risk-context';
@@ -989,6 +992,21 @@ export function createLocalFloodUI({
 
   function updateFocusBuildings(){
     isolateViewer?.getSource(FOCUS_BUILDINGS)?.setData(focusBuildingData());
+    // The footprint is a separate, always-populated copy of the actual clipped
+    // building geometry. Hiding extrusions never deletes the flood-collision map.
+    isolateViewer?.getSource(FOCUS_FOOTPRINT_SOURCE)?.setData({
+      type:'FeatureCollection',features:selectedBuildingVisuals()
+    });
+    syncFocusFootprintVisibility();
+  }
+
+  function syncFocusFootprintVisibility(){
+    if(!isolateViewer)return;
+    const visible=hideSelectedBuildings?'visible':'none';
+    for(const id of [FOCUS_FOOTPRINT_FILL,FOCUS_FOOTPRINT_LINE]){
+      if(isolateViewer.getLayer(id)&&isolateViewer.getLayoutProperty(id,'visibility')!==visible)
+        isolateViewer.setLayoutProperty(id,'visibility',visible);
+    }
   }
 
 
@@ -1377,6 +1395,7 @@ export function createLocalFloodUI({
       sources:{
         [FOCUS_SITE]:{type:'geojson',data:parcel},
         [FOCUS_BUILDINGS]:{type:'geojson',data:focusBuildingData()},
+        [FOCUS_FOOTPRINT_SOURCE]:{type:'geojson',data:{type:'FeatureCollection',features:selectedBuildingVisuals()}},
         [FOCUS_GREEN]:{type:'geojson',data:details.greens},
         [FOCUS_WATER]:{type:'geojson',data:details.waters},
         [FOCUS_ROADS]:{type:'geojson',data:details.roads},
@@ -1448,6 +1467,15 @@ export function createLocalFloodUI({
         {id:FOCUS_2D,type:'fill',source:FOCUS_BUILDINGS,
           layout:{visibility:'none'},
           paint:{'fill-color':buildingColourExpression(),'fill-opacity':1}},
+        {id:FOCUS_FOOTPRINT_FILL,type:'fill',source:FOCUS_FOOTPRINT_SOURCE,
+          layout:{visibility:hideSelectedBuildings?'visible':'none'},
+          paint:{'fill-color':['case',['boolean',['get','impacted'],false],'#ef615d','#94a3b8'],
+            'fill-opacity':['case',['boolean',['get','impacted'],false],0.45,0.12]}},
+        {id:FOCUS_FOOTPRINT_LINE,type:'line',source:FOCUS_FOOTPRINT_SOURCE,
+          layout:{visibility:hideSelectedBuildings?'visible':'none'},
+          paint:{'line-color':['case',['boolean',['get','impacted'],false],'#ff3b30','#8497a5'],
+            'line-width':['case',['boolean',['get','impacted'],false],2.2,1.1],
+            'line-opacity':0.96}},
         {id:FOCUS_3D,type:'fill-extrusion',source:FOCUS_BUILDINGS,
           layout:{visibility:'visible'},
           paint:{
@@ -1474,6 +1502,7 @@ export function createLocalFloodUI({
       }
     }
     syncFocusFloodWaterRendering();
+    syncFocusFootprintVisibility();
   }
 
   function installFocusFloodVolume(viewer){
@@ -1481,7 +1510,7 @@ export function createLocalFloodUI({
     const volume=createFloodVolumeLayer(maplibregl,focusWaterBounds);
     volumetricWater=volume;
     try{
-      viewer.addLayer(volume,FOCUS_3D);
+      viewer.addLayer(volume,FOCUS_FOOTPRINT_FILL);
       if(volume.failed)throw new Error(volume.failed);
       if(lastHydroFrame?.depthMm)volume.updateFrame(lastHydroFrame,true);
       volume.animate=hydroState==='running';
