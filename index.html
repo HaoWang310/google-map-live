@@ -400,7 +400,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.18</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.19</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -520,6 +520,14 @@
             <input id="floodToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
+            <span>风险来源</span>
+            <select id="floodRiskSource" aria-label="洪水风险来源" style="max-width:185px;background:#203449;color:#e8f3ff;border:1px solid #526b82;border-radius:7px;padding:6px;">
+              <option value="combined">综合风险（对比参考）</option>
+              <option value="surface_water">仅地表水 · RoFSW</option>
+              <option value="rivers_sea">仅河流与海洋 · RoFRS</option>
+            </select>
+          </div>
+          <div class="rangeRow">
             <span>透明度</span>
             <input id="floodOpacity" aria-label="洪水风险透明度" type="range" min="0" max="1" step="0.05" value="0.7">
             <span id="floodOpacityValue">70%</span>
@@ -532,7 +540,7 @@
             <span><i style="--swatch:#999c9e"></i>不可用</span>
           </div>
           <div class="layerMeta">
-            河流／海洋与地表水两套现状风险图中，取可获得的较高等级；风险等级仍按官方离散类别判断。地图显示端仅对像素边缘做线性平滑和缩放过渡，减少块状锯齿；过渡带的混合颜色没有独立风险等级含义。不是合并洪水概率，也不是洪水深度。空白不代表无风险。
+            可切换综合风险、仅地表水（RoFSW）或仅河流海洋（RoFRS）。两类独立风险不叠加为洪水水量；降雨模拟只使用 RoFSW 参与空间引导。综合图仅供对比，取两套现状概率分级中较高的可用等级。地图显示端仅对像素边缘做线性平滑和缩放过渡，减少块状锯齿；过渡带的混合颜色没有独立风险等级含义。不是合并洪水概率，也不是洪水深度。空白不代表无风险。
           </div>
           <div id="floodStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
@@ -761,11 +769,11 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.18';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.19';
   import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.88';
+  const APP_VERSION='3.22.19';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1081,6 +1089,7 @@
   let networkDisplayError=null;
   let floodEnabled=false;
   let floodOpacity=0.7;
+  let floodRiskSource='combined';
   let floodRequestId=0;
   const floodImageUrls=new Map();
   let floodLoadingPromise=null;
@@ -1957,7 +1966,7 @@
   }
 
   function ensureFloodDetailLayer(){
-    if(!floodEnabled||!osmStyleReady||!osmMap||osmMap.getZoom()<DETAIL_MIN_ZOOM||
+    if(floodRiskSource!=='combined'||!floodEnabled||!osmStyleReady||!osmMap||osmMap.getZoom()<DETAIL_MIN_ZOOM||
        !osmMap.getLayer(floodTileIds(0,0).layer))return;
     if(!osmMap.getSource(FLOOD_DETAIL_SOURCE)){
       const nw=networkCoordinates()[0],se=networkCoordinates()[2];
@@ -1981,7 +1990,7 @@
   function syncFloodView(){
     if(!floodEnabled||!osmMap||!osmStyleReady||!osmMap.getLayer(floodTileIds(0,0).layer))return;
     ensureFloodDetailLayer();
-    const close=osmMap.getZoom()>=DETAIL_MIN_ZOOM;
+    const close=floodRiskSource==='combined'&&osmMap.getZoom()>=DETAIL_MIN_ZOOM;
     const ready=close&&floodDetailSeen&&!floodDetailError&&osmMap.getSource(FLOOD_DETAIL_SOURCE)&&
       osmMap.isSourceLoaded(FLOOD_DETAIL_SOURCE);
     const mode=ready?'detail':close?(floodDetailError?'error':'loading'):'overview';
@@ -2024,11 +2033,12 @@
     const tasks=[];
     for(let row=0;row<FLOOD_GRID_SIZE;row++){
       for(let col=0;col<FLOOD_GRID_SIZE;col++){
-        const key=row+'-'+col;
+        const suffix=row+'-'+col;
+        const key=floodRiskSource+':'+suffix;
         tasks.push((async()=>{
           if(floodImageUrls.has(key))return floodImageUrls.get(key);
-          const response=await fetch(assetUrl('assets/flood_risk/flood_'+key+'.webp'),{cache:'force-cache'});
-          if(!response.ok)throw new Error('洪水图层文件加载失败（'+response.status+'）');
+          const response=await fetch(assetUrl('assets/flood_risk/'+(floodRiskSource==='combined'?'flood':floodRiskSource)+'_'+suffix+'.webp'),{cache:'force-cache'});
+          if(!response.ok)throw new Error((floodRiskSource==='combined'?'综合风险':'独立 EA 风险')+'数据文件未发布或加载失败（'+response.status+'）。未使用其他来源填补。');
           const blob=await response.blob();
           const bitmap=await createImageBitmap(blob);
           const valid=bitmap.width===DRAINAGE_3857.baseWidth50m&&
@@ -7966,6 +7976,14 @@
       '正在生成 '+contourIntervalM+' m 等高线…';
     $('contourStatus').className='layerStatus';
     refreshContourLayer(0);
+  });
+
+  $('floodRiskSource').addEventListener('change',e=>{
+    floodRiskSource=e.target.value;
+    floodRequestId++;
+    removeFloodLayer();
+    if(floodEnabled)updateFloodLayer();
+    else setFloodStatus('已选 '+e.target.options[e.target.selectedIndex].text+' · 图层未开启');
   });
 
   $('floodToggle').addEventListener('change',e=>{
