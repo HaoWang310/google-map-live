@@ -46,8 +46,27 @@ for key,url in SOURCES.items():
     root=ET.fromstring(body)
     layers=names(root)
     if not layers:raise RuntimeError("EA WMS did not disclose named layers for "+key)
+    for item in layers:
+        # Record official SLD legend and underlying polygon depth filters.
+        # The build must validate these values before decoding a single pixel.
+        body_style=fetch(url,{"SERVICE":"WMS","REQUEST":"GetStyles",
+                              "VERSION":"1.1.1","LAYERS":item["name"]})
+        styled=ET.fromstring(body_style)
+        rules=[]
+        for node in styled.iter():
+            if local(node.tag)!="Rule":continue
+            fills=[]
+            for fill in node.iter():
+                if local(fill.tag) in ("CssParameter","SvgParameter") and fill.attrib.get("name")=="fill":
+                    if fill.text:fills.append(fill.text.strip())
+            literals=[v.text.strip() for v in node.iter() if local(v.tag)=="Literal" and v.text]
+            rules.append({"rule":text_direct(node,"Name"),
+                          "title":text_direct(node,"Title"),
+                          "literal_filters":literals,"fills":fills})
+        item["official_depth_rules"]=rules
+        if not rules:raise RuntimeError("Official depth SLD has no rules: "+item["name"])
     manifest["sources"][key]={"url":url,"layer_count":len(layers),"layers":layers}
-    print(key,"layers",len(layers),[(x["name"],x["title"]) for x in layers],flush=True)
+    print(key,"layers",len(layers),[(x["name"],x["official_depth_rules"]) for x in layers],flush=True)
 OUT.parent.mkdir(parents=True,exist_ok=True)
 OUT.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n")
 print("Published layer manifest",OUT)
