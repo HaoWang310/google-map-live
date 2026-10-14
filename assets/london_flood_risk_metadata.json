@@ -1,7 +1,7 @@
 {
   "name": "London 70 km higher published present-day flood category",
   "derived_display_product": true,
-  "generated_utc": "2026-10-11T13:04:05.637621+00:00",
+  "generated_utc": "2026-10-14T19:22:10.148907+00:00",
   "attribution": "© Environment Agency copyright and/or database right 2025. All rights reserved.",
   "licence": "Open Government Licence v3.0",
   "licence_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
@@ -48,10 +48,10 @@
   "source_request_grid": {
     "crs": "EPSG:27700",
     "bounds_m": [
-      460012,
-      110348,
-      600062,
-      250398
+      460012.0,
+      110348.0,
+      600062.0,
+      250398.0
     ],
     "width": 11204,
     "height": 11204,
@@ -139,9 +139,9 @@
     "height": 5750,
     "affine": [
       40.145721369175355,
-      0,
+      0.0,
       -127813.8696191665,
-      0,
+      0.0,
       -40.14572136917532,
       6827041.923624865
     ],
@@ -206,10 +206,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        460012,
-        110348,
-        495037,
-        145323
+        460012.0,
+        110348.0,
+        495037.0,
+        145323.0
       ],
       "width": 2802,
       "height": 2798,
@@ -217,7 +217,7 @@
       "sample_m": 12.5,
       "png_sha256": "cd414b8d4adb1a2a746b4c2125b18fc425cfe8bede72be90b4ac7e6c399c20a9",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:55.554061+00:00",
+      "retrieved_utc": "2026-10-14T19:20:52.333407+00:00",
       "sampled_class_counts": [
         7674091,
         514,
@@ -230,10 +230,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        495037,
-        110348,
-        530062,
-        145323
+        495037.0,
+        110348.0,
+        530062.0,
+        145323.0
       ],
       "width": 2802,
       "height": 2798,
@@ -241,7 +241,7 @@
       "sample_m": 12.5,
       "png_sha256": "c68fd3ec3226a526ef4a40cad5e935035c0da13a96d403dfdf25eb2e5ca03927",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:02:02.657644+00:00",
+      "retrieved_utc": "2026-10-14T19:20:52.885697+00:00",
       "sampled_class_counts": [
         7346503,
         4430,
@@ -254,10 +254,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        530062,
-        110348,
-        565087,
-        145323
+        530062.0,
+        110348.0,
+        565087.0,
+        145323.0
       ],
       "width": 2802,
       "height": 2798,
@@ -265,7 +265,7 @@
       "sample_m": 12.5,
       "png_sha256": "6b817129afe1daa97a8ed1165825f3be7e4b6a4676de60db0e427656c2de5e05",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:02:09.482840+00:00",
+      "retrieved_utc": "2026-10-14T19:20:54.494019+00:00",
       "sampled_class_counts": [
         7414491,
         2439,
@@ -278,10 +278,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        565087,
-        110348,
-        600062,
-        145323
+        565087.0,
+        110348.0,
+        600062.0,
+        145323.0
       ],
       "width": 2798,
       "height": 2798,
@@ -289,7 +289,7 @@
       "sample_m": 12.5,
       "png_sha256": "3842409df502451f87f0d0df4e6a7cf368b91381e67c894035257b47e0240587",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:02:09.532234+00:00",
+      "retrieved_utc": "2026-10-14T19:20:57.014683+00:00",
       "sampled_class_counts": [
         6580239,
         416366,
@@ -302,10 +302,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        460012,
-        145323,
-        495037,
-        180348
+        460012.0,
+        145323.0,
+        495037.0,
+        180348.0
       ],
       "width": 2802,
       "height": 2802,
@@ -313,7 +313,7 @@
       "sample_m": 12.5,
       "png_sha256": "44d7fb65029b32b94166633f12b6e880206f1b3f85d2c1c096e703c37ac5b134",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:44.826641+00:00",
+      "retrieved_utc": "2026-10-14T19:20:44.830496+00:00",
       "sampled_class_counts": [
         7125573,
         13505,
@@ -326,10 +326,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        495037,
-        145323,
-        530062,
-        180348
+        495037.0,
+        145323.0,
+        530062.0,
+        180348.0
       ],
       "width": 2802,
       "height": 2802,
@@ -337,7 +337,7 @@
       "sample_m": 12.5,
       "png_sha256": "d0999802723ab8c804c80e4949542ae78e84f5a098b4720e28248d1f88ad87bb",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:44.676389+00:00",
+      "retrieved_utc": "2026-10-14T19:20:48.126825+00:00",
       "sampled_class_counts": [
         6837286,
         141955,
@@ -350,10 +350,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        530062,
-        145323,
-        565087,
-        180348
+        530062.0,
+        145323.0,
+        565087.0,
+        180348.0
       ],
       "width": 2802,
       "height": 2802,
@@ -361,7 +361,7 @@
       "sample_m": 12.5,
       "png_sha256": "3c781a1e8c68a52882e46ee6790adbd6be558cdab7f3b95e28b42ed1d972663f",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:02:02.489177+00:00",
+      "retrieved_utc": "2026-10-14T19:20:48.345297+00:00",
       "sampled_class_counts": [
         7107222,
         325047,
@@ -374,10 +374,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        565087,
-        145323,
-        600062,
-        180348
+        565087.0,
+        145323.0,
+        600062.0,
+        180348.0
       ],
       "width": 2798,
       "height": 2802,
@@ -385,7 +385,7 @@
       "sample_m": 12.5,
       "png_sha256": "4a1d70314a87a5431cdd1bf29483ecb161796eb0d93678ff610b161e8e458d42",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:56.275748+00:00",
+      "retrieved_utc": "2026-10-14T19:20:49.973722+00:00",
       "sampled_class_counts": [
         6097398,
         369129,
@@ -398,10 +398,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        460012,
-        180348,
-        495037,
-        215373
+        460012.0,
+        180348.0,
+        495037.0,
+        215373.0
       ],
       "width": 2802,
       "height": 2802,
@@ -409,7 +409,7 @@
       "sample_m": 12.5,
       "png_sha256": "fe67061b65655237901bf45ea1a0ee7a241072b8579a5e7c69956dfc23520c44",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:27.719862+00:00",
+      "retrieved_utc": "2026-10-14T19:20:39.125400+00:00",
       "sampled_class_counts": [
         7352903,
         12139,
@@ -422,10 +422,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        495037,
-        180348,
-        530062,
-        215373
+        495037.0,
+        180348.0,
+        530062.0,
+        215373.0
       ],
       "width": 2802,
       "height": 2802,
@@ -433,7 +433,7 @@
       "sample_m": 12.5,
       "png_sha256": "d8e5221343be3d4bdd1e3154abb39666dfa457b9184ea4b4b07b9a193f992045",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:37.505001+00:00",
+      "retrieved_utc": "2026-10-14T19:20:39.598578+00:00",
       "sampled_class_counts": [
         7570061,
         8567,
@@ -446,10 +446,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        530062,
-        180348,
-        565087,
-        215373
+        530062.0,
+        180348.0,
+        565087.0,
+        215373.0
       ],
       "width": 2802,
       "height": 2802,
@@ -457,7 +457,7 @@
       "sample_m": 12.5,
       "png_sha256": "0b31064613f948a6aa4dc38be9cf51442808e34ee0ba8e7d3a5da15fe13a9442",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:38.028264+00:00",
+      "retrieved_utc": "2026-10-14T19:20:43.805558+00:00",
       "sampled_class_counts": [
         7090487,
         176138,
@@ -470,10 +470,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        565087,
-        180348,
-        600062,
-        215373
+        565087.0,
+        180348.0,
+        600062.0,
+        215373.0
       ],
       "width": 2798,
       "height": 2802,
@@ -481,7 +481,7 @@
       "sample_m": 12.5,
       "png_sha256": "56deba2447b129a60c550be07918229c3488cde1599504ba4b02a1eb9f013946",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:44.531042+00:00",
+      "retrieved_utc": "2026-10-14T19:20:43.718329+00:00",
       "sampled_class_counts": [
         5867537,
         340357,
@@ -494,10 +494,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        460012,
-        215373,
-        495037,
-        250398
+        460012.0,
+        215373.0,
+        495037.0,
+        250398.0
       ],
       "width": 2802,
       "height": 2802,
@@ -505,7 +505,7 @@
       "sample_m": 12.5,
       "png_sha256": "480639204ac6f1dc35215b67293fbe9331fe30eccf50514369cb8be7104a0c51",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:19.935774+00:00",
+      "retrieved_utc": "2026-10-14T19:20:34.813320+00:00",
       "sampled_class_counts": [
         7303670,
         4691,
@@ -518,10 +518,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        495037,
-        215373,
-        530062,
-        250398
+        495037.0,
+        215373.0,
+        530062.0,
+        250398.0
       ],
       "width": 2802,
       "height": 2802,
@@ -529,7 +529,7 @@
       "sample_m": 12.5,
       "png_sha256": "99323fb67177905c44e7b6968b57e5a9b3ba2832101b3d2b9440ad8ed922ad8a",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:27.916829+00:00",
+      "retrieved_utc": "2026-10-14T19:20:34.453169+00:00",
       "sampled_class_counts": [
         7517658,
         9099,
@@ -542,10 +542,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        530062,
-        215373,
-        565087,
-        250398
+        530062.0,
+        215373.0,
+        565087.0,
+        250398.0
       ],
       "width": 2802,
       "height": 2802,
@@ -553,7 +553,7 @@
       "sample_m": 12.5,
       "png_sha256": "0b7674862b2c9e189e0c8cbd7ced050efe29528fb50ad1d13255ca888f0c8cb1",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:19.786903+00:00",
+      "retrieved_utc": "2026-10-14T19:20:34.283211+00:00",
       "sampled_class_counts": [
         7586808,
         813,
@@ -566,10 +566,10 @@
     {
       "source": "rivers_sea",
       "bbox_m": [
-        565087,
-        215373,
-        600062,
-        250398
+        565087.0,
+        215373.0,
+        600062.0,
+        250398.0
       ],
       "width": 2798,
       "height": 2802,
@@ -577,7 +577,7 @@
       "sample_m": 12.5,
       "png_sha256": "eb5b5ba87bb73478548fbed211f541f48da991b37e3834b21e527a59fb3f812d",
       "style_sha256": "7d5a618cdc389ef7aca47f38aed880c6a6f65522f8138cf1f287371c930b20af",
-      "retrieved_utc": "2026-10-11T13:01:27.713650+00:00",
+      "retrieved_utc": "2026-10-14T19:20:38.762495+00:00",
       "sampled_class_counts": [
         7486636,
         6250,
@@ -590,10 +590,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        460012,
-        110348,
-        495037,
-        145323
+        460012.0,
+        110348.0,
+        495037.0,
+        145323.0
       ],
       "width": 2802,
       "height": 2798,
@@ -601,7 +601,7 @@
       "sample_m": 12.5,
       "png_sha256": "d2aa158dd7d118744c15735ae01a7b0f75272a37acd91bfa60ff27b0f423f536",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:37.188825+00:00",
+      "retrieved_utc": "2026-10-14T19:21:48.620740+00:00",
       "sampled_class_counts": [
         7697886,
         0,
@@ -614,10 +614,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        495037,
-        110348,
-        530062,
-        145323
+        495037.0,
+        110348.0,
+        530062.0,
+        145323.0
       ],
       "width": 2802,
       "height": 2798,
@@ -625,7 +625,7 @@
       "sample_m": 12.5,
       "png_sha256": "1ecdf77768ad8109bb7e6e68422cf278851b052a977e3e1b7f3f9bcf4e0d9524",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:48.807963+00:00",
+      "retrieved_utc": "2026-10-14T19:21:55.399540+00:00",
       "sampled_class_counts": [
         7459129,
         0,
@@ -638,10 +638,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        530062,
-        110348,
-        565087,
-        145323
+        530062.0,
+        110348.0,
+        565087.0,
+        145323.0
       ],
       "width": 2802,
       "height": 2798,
@@ -649,7 +649,7 @@
       "sample_m": 12.5,
       "png_sha256": "3eee15af0f15d72f7af912538441519165cec2b36f6e34022fb583a8eebff93e",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:55.699535+00:00",
+      "retrieved_utc": "2026-10-14T19:21:56.171808+00:00",
       "sampled_class_counts": [
         7514078,
         0,
@@ -662,10 +662,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        565087,
-        110348,
-        600062,
-        145323
+        565087.0,
+        110348.0,
+        600062.0,
+        145323.0
       ],
       "width": 2798,
       "height": 2798,
@@ -673,7 +673,7 @@
       "sample_m": 12.5,
       "png_sha256": "2bdc616f257fb2bb14014849cc1d724c16d3d1f79dce825b853bab829989f095",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:57.947236+00:00",
+      "retrieved_utc": "2026-10-14T19:22:02.703241+00:00",
       "sampled_class_counts": [
         7332591,
         0,
@@ -686,10 +686,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        460012,
-        145323,
-        495037,
-        180348
+        460012.0,
+        145323.0,
+        495037.0,
+        180348.0
       ],
       "width": 2802,
       "height": 2802,
@@ -697,7 +697,7 @@
       "sample_m": 12.5,
       "png_sha256": "9bff2e4e640c1e3d62208c19c83972cae035874ae9d1544132cdd9ecf3db6ff9",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:24.109791+00:00",
+      "retrieved_utc": "2026-10-14T19:21:33.047840+00:00",
       "sampled_class_counts": [
         7419579,
         0,
@@ -710,10 +710,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        495037,
-        145323,
-        530062,
-        180348
+        495037.0,
+        145323.0,
+        530062.0,
+        180348.0
       ],
       "width": 2802,
       "height": 2802,
@@ -721,7 +721,7 @@
       "sample_m": 12.5,
       "png_sha256": "3330586230b33842ec72035a6a06b0b0f533ab0fdb7abe5e7ddc441a50958678",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:24.934669+00:00",
+      "retrieved_utc": "2026-10-14T19:21:41.312583+00:00",
       "sampled_class_counts": [
         7186931,
         0,
@@ -734,10 +734,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        530062,
-        145323,
-        565087,
-        180348
+        530062.0,
+        145323.0,
+        565087.0,
+        180348.0
       ],
       "width": 2802,
       "height": 2802,
@@ -745,7 +745,7 @@
       "sample_m": 12.5,
       "png_sha256": "54a7ec880cd3c1d1f99e376dbbfe24f7fddd7bb4a11d02cc3f5d432d80c410a6",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:31.163117+00:00",
+      "retrieved_utc": "2026-10-14T19:21:42.705671+00:00",
       "sampled_class_counts": [
         7290028,
         0,
@@ -758,10 +758,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        565087,
-        145323,
-        600062,
-        180348
+        565087.0,
+        145323.0,
+        600062.0,
+        180348.0
       ],
       "width": 2798,
       "height": 2802,
@@ -769,7 +769,7 @@
       "sample_m": 12.5,
       "png_sha256": "af2fb422fffeeabfbbb2e0de3fd1f948eb2f655031f3a9bfefb847b98ab9f9f4",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:40.518864+00:00",
+      "retrieved_utc": "2026-10-14T19:21:43.873277+00:00",
       "sampled_class_counts": [
         7425682,
         0,
@@ -782,10 +782,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        460012,
-        180348,
-        495037,
-        215373
+        460012.0,
+        180348.0,
+        495037.0,
+        215373.0
       ],
       "width": 2802,
       "height": 2802,
@@ -793,7 +793,7 @@
       "sample_m": 12.5,
       "png_sha256": "b1c5068c414797aa29e46238f3b6f3e4ae64ff24439baa2ddbc43c99eaed6822",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:02:36.656505+00:00",
+      "retrieved_utc": "2026-10-14T19:21:15.061499+00:00",
       "sampled_class_counts": [
         7466494,
         0,
@@ -806,10 +806,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        495037,
-        180348,
-        530062,
-        215373
+        495037.0,
+        180348.0,
+        530062.0,
+        215373.0
       ],
       "width": 2802,
       "height": 2802,
@@ -817,7 +817,7 @@
       "sample_m": 12.5,
       "png_sha256": "ed30a91359d497da851e353734297e7dd4e81b356207390db34d0539f392eab7",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:04.779305+00:00",
+      "retrieved_utc": "2026-10-14T19:21:21.158762+00:00",
       "sampled_class_counts": [
         7235436,
         0,
@@ -830,10 +830,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        530062,
-        180348,
-        565087,
-        215373
+        530062.0,
+        180348.0,
+        565087.0,
+        215373.0
       ],
       "width": 2802,
       "height": 2802,
@@ -841,7 +841,7 @@
       "sample_m": 12.5,
       "png_sha256": "fd680dfd57607c43c05f9f32fece9dafd06a02dbe7f89c3434608b88d049144f",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:14.230390+00:00",
+      "retrieved_utc": "2026-10-14T19:21:30.848518+00:00",
       "sampled_class_counts": [
         6975396,
         0,
@@ -854,10 +854,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        565087,
-        180348,
-        600062,
-        215373
+        565087.0,
+        180348.0,
+        600062.0,
+        215373.0
       ],
       "width": 2798,
       "height": 2802,
@@ -865,7 +865,7 @@
       "sample_m": 12.5,
       "png_sha256": "8def17dccbd5b2337c15e8a19754e9845c1d985ce88fc8c5df0ee86608210644",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:03:10.344859+00:00",
+      "retrieved_utc": "2026-10-14T19:21:28.902473+00:00",
       "sampled_class_counts": [
         6951343,
         0,
@@ -878,10 +878,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        460012,
-        215373,
-        495037,
-        250398
+        460012.0,
+        215373.0,
+        495037.0,
+        250398.0
       ],
       "width": 2802,
       "height": 2802,
@@ -889,7 +889,7 @@
       "sample_m": 12.5,
       "png_sha256": "ade61c4741e3a9a4f0fc16ec976fc2032ed91710a1389b1eef16583e87641c54",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:02:24.618679+00:00",
+      "retrieved_utc": "2026-10-14T19:21:06.223692+00:00",
       "sampled_class_counts": [
         7137089,
         0,
@@ -902,10 +902,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        495037,
-        215373,
-        530062,
-        250398
+        495037.0,
+        215373.0,
+        530062.0,
+        250398.0
       ],
       "width": 2802,
       "height": 2802,
@@ -913,7 +913,7 @@
       "sample_m": 12.5,
       "png_sha256": "b69e63f637181d5c55e143626b2c2e1701384c5dd39c4bbab3c8e4f636863268",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:02:22.622802+00:00",
+      "retrieved_utc": "2026-10-14T19:21:05.384803+00:00",
       "sampled_class_counts": [
         7310512,
         0,
@@ -926,10 +926,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        530062,
-        215373,
-        565087,
-        250398
+        530062.0,
+        215373.0,
+        565087.0,
+        250398.0
       ],
       "width": 2802,
       "height": 2802,
@@ -937,7 +937,7 @@
       "sample_m": 12.5,
       "png_sha256": "160df08320c3db16f9c971e65c230b375854749137c28d0c3511a06cc2b39dbc",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:02:28.054812+00:00",
+      "retrieved_utc": "2026-10-14T19:21:07.751439+00:00",
       "sampled_class_counts": [
         7550414,
         0,
@@ -950,10 +950,10 @@
     {
       "source": "surface_water",
       "bbox_m": [
-        565087,
-        215373,
-        600062,
-        250398
+        565087.0,
+        215373.0,
+        600062.0,
+        250398.0
       ],
       "width": 2798,
       "height": 2802,
@@ -961,7 +961,7 @@
       "sample_m": 12.5,
       "png_sha256": "d91bf9887c4ab0be81d5d280ef4eb88ee79ad6d61abe15f5cefd68096736fb37",
       "style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
-      "retrieved_utc": "2026-10-11T13:02:37.962186+00:00",
+      "retrieved_utc": "2026-10-14T19:21:16.165974+00:00",
       "sampled_class_counts": [
         7513121,
         0,
@@ -971,23 +971,5 @@
         0
       ]
     }
-  ],
-  "street_detail": {
-    "added_on": "2026-10-11",
-    "source": "Same official present-day rofrs_4band and rofsw flooding-extent layers; live WMS requests.",
-    "request_crs": "EPSG:3857",
-    "tile_grid": "Standard OSM/Web Mercator XYZ, 512×512 pixels, zoom 13–17",
-    "pixel_size": "2π×6378137/(512×2^z) projected metres; ground size multiplied by cos(latitude). At London z14 ~3 m, z15 ~1.5 m. These are map-rendering pixels, not new model resolution.",
-    "processing": "Keep official SLD filters and fill colours, disable antialiasing and polygon outlines, decode risk categories exactly, select the highest available category per map pixel. No 25 m max aggregation or smoothing that invents risk boundaries.",
-    "mask": "Same study circle centre/radius/spherical distance and hydrology rectangle; pixel-centre test in EPSG:3857 map coordinates.",
-    "switching": "Keep the cached 25 m regional overview at smaller zooms and while detail loads. Hide every overview tile when all visible fine tiles are loaded, so old coarse cells cannot show through transparent fine pixels. Preserve the overview and flag detail-service errors.",
-    "cache": "64 encoded tiles in memory; request queue limited to 6 WMS requests; abort stale requests; retry temporary service failures.",
-    "licence": "Environment Agency / Open Government Licence v3.0"
-  },
-  "display_rendering": {
-    "version": "3.16.5",
-    "method": "MapLibre linear raster resampling with 120 ms fade for visual anti-aliasing only.",
-    "analytical_classes_unchanged": true,
-    "interpretation": "Intermediate blended edge colours are display artefacts and do not represent additional flood-risk classes."
-  }
+  ]
 }

@@ -1,0 +1,107 @@
+{
+  "name": "EA present-day Risk of Flooding from Surface Water",
+  "source_type": "surface_water",
+  "derived_display_product": true,
+  "not_flood_depth": true,
+  "generated_utc": "2026-10-14T19:22:15.929127+00:00",
+  "attribution": "© Environment Agency copyright and/or database right 2025. All rights reserved.",
+  "licence": "Open Government Licence v3.0",
+  "source": {
+    "title": "Risk of Flooding from Surface Water",
+    "catalogue": "https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3",
+    "wms": "https://environment.data.gov.uk/spatialdata/nafra2-risk-of-flooding-from-surface-water/wms",
+    "service": "https://environment.data.gov.uk/geoservices/datasets/b5aaa28d-6eb9-460e-8d6f-43caa71fbe0e/wms",
+    "layer": "rofsw",
+    "revision": "2025-09-17",
+    "official_style_sha256": "b606b9a41554fe0da35d70abb0e0dd9246f824d0fd3d47a6a64253ac63f4689f",
+    "fill_only_style_sha256": "10c8d5c9c29760810a5a3d0a92808856eb7f121aa28844bd3de548a6c96b32ec",
+    "capabilities_sha256": "fe1eac6876916bd50dd52f0d696cfb7c1d2cc1d630ef961c287a28456fb2538f",
+    "wms_fill_rgb_to_class": {
+      "(85, 91, 157)": 4,
+      "(154, 159, 222)": 3,
+      "(195, 224, 255)": 2,
+      "(176, 179, 180)": 5
+    },
+    "catalogue_updated": "2026-07-06"
+  },
+  "web_grid": {
+    "crs": "EPSG:3857",
+    "bounds_m": [
+      -127813.8696191665,
+      6596204.025752107,
+      102461.98815442335,
+      6827041.923624865
+    ],
+    "width": 5736,
+    "height": 5750,
+    "affine": [
+      40.145721369175355,
+      0.0,
+      -127813.8696191665,
+      0.0,
+      -40.14572136917532,
+      6827041.923624865
+    ],
+    "tiles": "2×2; each 2868×2875 pixels"
+  },
+  "source_request_grid": {
+    "crs": "EPSG:27700",
+    "bounds_m": [
+      460012.0,
+      110348.0,
+      600062.0,
+      250398.0
+    ],
+    "width": 11204,
+    "height": 11204,
+    "sample_m": 12.5
+  },
+  "registration": "Same exact EPSG:3857 outer bounds as contributing area and terrain-derived network, twice their base width/height. Terrain requests use EPSG:3857 viewport bounds. No screenshot cropping, control-point guess, or manual offset.",
+  "method": "Source-specific official ordinal risk WMS, decoded at 12.5 m, aggregated at 25 m, nearest-neighbour reprojected to the common EPSG:3857 grid; no merging across sources.",
+  "class_counts": [
+    29577039,
+    0,
+    1489987,
+    504788,
+    1410186,
+    0
+  ],
+  "products": [
+    {
+      "path": "assets/flood_risk/surface_water_0-0.webp",
+      "row": 0,
+      "col": 0,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "4ed58d55b07482576c9e64c5d5f4ada6a631d2aeef7b798d60fc3dcf0fffb435",
+      "size_bytes": 501672
+    },
+    {
+      "path": "assets/flood_risk/surface_water_0-1.webp",
+      "row": 0,
+      "col": 1,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "07dc87327c587df1a51152f27321fe38975742dfc1f54934a4d59f4d6f8516d4",
+      "size_bytes": 584282
+    },
+    {
+      "path": "assets/flood_risk/surface_water_1-0.webp",
+      "row": 1,
+      "col": 0,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "e31c0bc807267664ca62df73a15484c88b900481f9d2b1d9ef02b3b87feb1ab2",
+      "size_bytes": 526348
+    },
+    {
+      "path": "assets/flood_risk/surface_water_1-1.webp",
+      "row": 1,
+      "col": 1,
+      "width": 2868,
+      "height": 2875,
+      "sha256": "afe9b120a0b0fa7414adab339cd72116b75812b1e40c1692dec9e14e933e5de3",
+      "size_bytes": 465010
+    }
+  ]
+}
