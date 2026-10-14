@@ -833,7 +833,8 @@ export function createLocalFloodUI({
   const FOCUS_SPONGE_FILL='focus-sponge-fill';
   const FOCUS_SPONGE_LINE='focus-sponge-line';
   const FOCUS_FLOW_SOURCE='focus-flow-source';
-  const FOCUS_FLOW_LAYER='focus-flow-arrows';
+  const FOCUS_FLOW_LAYER='focus-flow-streamlines';
+  const FOCUS_FLOW_GLOW='focus-flow-streamlines-glow';
 
 
   const focusReferenceTileSize=512;
@@ -1415,11 +1416,10 @@ export function createLocalFloodUI({
     const viewer=isolateViewer;
     if(!viewer)return;
     syncFocusFloodWaterRendering();
-    if(viewer.getLayer(FOCUS_FLOW_LAYER)){
-      const desired=hydroDisplay.flow?'visible':'none';
-      if(viewer.getLayoutProperty(FOCUS_FLOW_LAYER,'visibility')!==desired){
-        viewer.setLayoutProperty(FOCUS_FLOW_LAYER,'visibility',desired);
-      }
+    const desired=hydroDisplay.flow?'visible':'none';
+    for(const id of [FOCUS_FLOW_GLOW,FOCUS_FLOW_LAYER]){
+      if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!==desired)
+        viewer.setLayoutProperty(id,'visibility',desired);
     }
     for(const id of [FOCUS_2D,FOCUS_3D]){
       if(viewer.getLayer(id))viewer.setPaintProperty(id,
@@ -1450,7 +1450,7 @@ export function createLocalFloodUI({
         [FOCUS_SPONGE_SOURCE]:{type:'geojson',data:spongeCollection(
           siteFacilities.map(siteSpongeFeature).filter(Boolean)
         )},
-        [FOCUS_FLOW_SOURCE]:{type:'geojson',data:spongeCollection([])},
+        [FOCUS_FLOW_SOURCE]:{type:'geojson',lineMetrics:true,data:spongeCollection([])},
         [FOCUS_EA_SOURCE]:{
           type:'raster',tiles:[focusContextUrl('ea',analysis.threshold)],
           tileSize:512,minzoom:13,maxzoom:17
@@ -1496,9 +1496,6 @@ export function createLocalFloodUI({
               'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff'],
             'fill-opacity':1
           }},
-        {id:FOCUS_FLOW_LAYER,type:'line',source:FOCUS_FLOW_SOURCE,
-          layout:{visibility:'visible'},
-          paint:{'line-color':'#f1fdff','line-width':1.5,'line-opacity':0.92}},
         {id:FOCUS_SPONGE_FILL,type:'fill',source:FOCUS_SPONGE_SOURCE,
           paint:{'fill-color':['get','color'],'fill-opacity':0.78}},
         {id:FOCUS_SPONGE_LINE,type:'line',source:FOCUS_SPONGE_SOURCE,
@@ -1507,6 +1504,24 @@ export function createLocalFloodUI({
           id:FOCUS_RAIN_LAYER,type:'raster',source:FOCUS_RAIN_SOURCE,
           paint:{'raster-opacity':0.94,'raster-resampling':'linear','raster-fade-duration':0}
         }]:[]),
+        // Display hydrological flow ABOVE the water colour raster, and below
+        // the architectural 3D buildings so walls still occlude the field.
+        {id:FOCUS_FLOW_GLOW,type:'line',source:FOCUS_FLOW_SOURCE,
+          layout:{visibility:hydroDisplay.flow?'visible':'none',
+            'line-cap':'round','line-join':'round'},
+          paint:{
+            'line-color':['get','color'],
+            'line-width':['*',['get','width'],2.7],
+            'line-blur':1.8,'line-opacity':0.27
+          }},
+        {id:FOCUS_FLOW_LAYER,type:'line',source:FOCUS_FLOW_SOURCE,
+          layout:{visibility:hydroDisplay.flow?'visible':'none',
+            'line-cap':'round','line-join':'round'},
+          paint:{
+            'line-color':['get','color'],
+            'line-width':['get','width'],
+            'line-opacity':0.91
+          }},
         // The dashed red boundary is a ground-level graphic, not an overlay
         // painted across roofs/walls. Extruded buildings must draw after it
         // for physically correct occlusion from every camera bearing.
@@ -2940,43 +2955,135 @@ export function createLocalFloodUI({
   }
 
 
-  function updateFocusFlowVectors(data){
-    if(!isolateViewer||!hydroDisplay.flow||!focusWaterBounds||
-      !Array.isArray(data.vectors))return;
-    const now=performance.now();
-    if(now-lastFlowUpdateAt<350&&data.stats?.timeMin>0)return;
-    lastFlowUpdateAt=now;
-    const source=isolateViewer.getSource(FOCUS_FLOW_SOURCE);
-    if(!source)return;
+
+  // The colour scale expresses relative hydraulic-gradient intensity,
+  // not physical velocity in metres/second (solver is not calibrated).
+  function hydroFlowColour(strength){
+    const stops=[
+      [0,[167,244,255]],[0.20,[117,218,255]],
+      [0.45,[71,171,255]],[0.70,[56,123,246]],
+      [1,[116,91,236]]
+    ];
+    const t=Math.max(0,Math.min(1,strength));
+    let a=stops[0],b=stops[stops.length-1];
+    for(let k=1;k<stops.length;k++){
+      if(t<=stops[k][0]){a=stops[k-1];b=stops[k];break;}
+    }
+    const f=(t-a[0])/Math.max(.00001,b[0]-a[0]);
+    return '#'+a[1].map((v,i)=>
+      Math.round(v+(b[1][i]-v)*f).toString(16).padStart(2,'0')).join('');
+  }
+
+  function buildHydroStreamlines(data){
+    const field=data?.flowField;
+    if(!field||!focusWaterBounds)return spongeCollection([]);
+    const {cols,rows}=field;
+    if(!cols||!rows||cols*rows>70000)return spongeCollection([]);
+    const vx=new Int8Array(field.vx),vy=new Int8Array(field.vy);
+    const intensity=new Uint8Array(field.intensity);
+    if(vx.length!==cols*rows||vy.length!==vx.length||
+       intensity.length!==vx.length)return spongeCollection([]);
     const nw=mercator(focusWaterBounds[0][0],focusWaterBounds[0][1]);
     const ne=mercator(focusWaterBounds[1][0],focusWaterBounds[1][1]);
     const sw=mercator(focusWaterBounds[3][0],focusWaterBounds[3][1]);
-    const cellX=(ne[0]-nw[0])/Math.max(1,data.width);
-    const cellY=(nw[1]-sw[1])/Math.max(1,data.height);
-    const size=Math.max(1,Math.min(Math.abs(cellX),Math.abs(cellY)));
-    const arrowSize=1.8*size;
+    const cellX=(ne[0]-nw[0])/cols,cellY=(nw[1]-sw[1])/rows;
+    const value=(x,y)=>{
+      if(x<0||y<0||x>=cols||y>=rows)return null;
+      const ix=Math.floor(x),iy=Math.floor(y),index=iy*cols+ix;
+      // A zero-intensity cell means dry, outside the site or a building.
+      // This nearest-cell test prevents paths leaking through buildings.
+      if(intensity[index]<6)return null;
+      const cx=x-.5,cy=y-.5,x0=Math.floor(cx),y0=Math.floor(cy);
+      let dx=0,dy=0,speed=0,total=0;
+      for(let oy=0;oy<=1;oy++)for(let ox=0;ox<=1;ox++){
+        const xx=x0+ox,yy=y0+oy;
+        if(xx<0||yy<0||xx>=cols||yy>=rows)continue;
+        const j=yy*cols+xx;
+        if(intensity[j]<6)continue;
+        const weight=(ox?cx-x0:1-(cx-x0))*
+          (oy?cy-y0:1-(cy-y0));
+        dx+=vx[j]/127*weight;
+        dy+=vy[j]/127*weight;
+        speed+=intensity[j]/255*weight;
+        total+=weight;
+      }
+      const size=Math.hypot(dx,dy);
+      if(total<.04||size<.09)return null;
+      return {dx:dx/size,dy:dy/size,speed:speed/total};
+    };
+    const toLngLat=(point)=>unmercator(
+      nw[0]+point.x*cellX,nw[1]-point.y*cellY
+    );
+    const trace=(sx,sy,sign)=>{
+      const points=[];
+      let x=sx,y=sy;
+      for(let k=0;k<32;k++){
+        const v=value(x,y);
+        if(!v)break;
+        points.push({x,y,speed:v.speed});
+        const step=.62;
+        const halfway=value(x+v.dx*sign*step/2,
+          y+v.dy*sign*step/2)||v;
+        const nx=x+halfway.dx*sign*step;
+        const ny=y+halfway.dy*sign*step;
+        if(nx<0||ny<0||nx>=cols||ny>=rows)break;
+        if(!value(nx,ny))break;
+        x=nx;y=ny;
+      }
+      return points;
+    };
+    const occupied=new Uint8Array(cols*rows);
     const features=[];
-    for(const vec of data.vectors.slice(0,180)){
-      const [col,row,dx,dy]=vec;
-      if(![col,row,dx,dy].every(Number.isFinite))continue;
-      const x=nw[0]+(col+.5)*cellX;
-      const y=nw[1]-(row+.5)*cellY;
-      const mag=Math.hypot(dx,dy);
-      if(mag<.02)continue;
-      const nx=dx/mag,ny=-dy/mag;
-      const tipX=x+nx*arrowSize,tipY=y+ny*arrowSize;
-      const back=.42*arrowSize,side=.33*arrowSize;
-      const lx=tipX-nx*back-ny*side,ly=tipY-ny*back+nx*side;
-      const rx=tipX-nx*back+ny*side,ry=tipY-ny*back-nx*side;
-      features.push({type:'Feature',properties:{},geometry:{
-        type:'LineString',coordinates:[
-          unmercator(x,y),unmercator(tipX,tipY),
-          unmercator(lx,ly),unmercator(tipX,tipY),
-          unmercator(rx,ry)
-        ]
-      }});
+    const stride=Math.max(2,Math.round(Math.sqrt(cols*rows/460)));
+    let traces=0;
+    for(let row=1;row<rows-1&&traces<440;row+=stride){
+      for(let col=1;col<cols-1&&traces<440;col+=stride){
+        const index=row*cols+col;
+        if(occupied[index]||intensity[index]<6)continue;
+        const seedX=col+.5,seedY=row+.5;
+        const forward=trace(seedX,seedY,1);
+        const backward=trace(seedX,seedY,-1);
+        const points=backward.reverse().slice(0,-1).concat(forward);
+        if(points.length<5)continue;
+        traces++;
+        // Segment colours smoothly follow the underlying intensity.
+        // Break only every four interpolated points for manageable GeoJSON.
+        for(let start=0;start<points.length-1;start+=4){
+          const portion=points.slice(start,Math.min(points.length,start+5));
+          if(portion.length<2)continue;
+          const avg=portion.reduce((sum,p)=>sum+p.speed,0)/portion.length;
+          features.push({
+            type:'Feature',
+            properties:{
+              color:hydroFlowColour(avg),
+              width:Math.max(.85,Math.min(2.4,1+1.35*avg)),
+              relativeIntensity:avg
+            },
+            geometry:{type:'LineString',coordinates:portion.map(toLngLat)}
+          });
+        }
+        // Suppress near-duplicate starting positions, not the path itself.
+        for(let k=0;k<points.length;k+=4){
+          const p=points[k],x=Math.floor(p.x),y=Math.floor(p.y);
+          if(x>=0&&x<cols&&y>=0&&y<rows)occupied[y*cols+x]=1;
+        }
+      }
     }
-    source.setData(spongeCollection(features));
+    return spongeCollection(features);
+  }
+
+  function updateFocusFlowVectors(data){
+    if(!isolateViewer||!focusWaterBounds)return;
+    const source=isolateViewer.getSource(FOCUS_FLOW_SOURCE);
+    if(!source)return;
+    if(!hydroDisplay.flow||!data?.flowField){
+      source.setData(spongeCollection([]));
+      return;
+    }
+    const now=performance.now();
+    if(now-lastFlowUpdateAt<130&&data.stats?.timeMin>0)return;
+    lastFlowUpdateAt=now;
+    source.setData(buildHydroStreamlines(data));
   }
 
   function handleFrame(data){
