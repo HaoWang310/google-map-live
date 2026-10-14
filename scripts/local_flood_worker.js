@@ -326,6 +326,7 @@ async function setup(data){
     terrainMaxM:Number.isFinite(maxZ)?maxZ:null,
     drainageAvailable:Boolean(upstreamCodes),
     riskAvailable:Boolean(sim.riskAvailable),riskInfo:sim.riskInfo,
+    riskMappedCells:sim.riskMappedCount||0,
     boundsLngLat:[
       lngLat(box.left,box.top),
       lngLat(box.right,box.top),
@@ -395,11 +396,20 @@ async function loadPublishedRiskForSite(){
         }
       }finally{bitmap.close();}
     }
+    // A tile request can succeed while no classified EA cells are present.
+    let mapped=0;
+    for(let i=0;i<ranks.length;i++){
+      if(sim.inside[i]&&!sim.obstacle[i]&&ranks[i]>=1&&ranks[i]<=4)mapped++;
+    }
     sim.riskRank=ranks;
-    sim.riskAvailable=true;
-    sim.riskInfo='EA official present-day combined surface-water and river/sea probability map (not depth)';
+    sim.riskMappedCount=mapped;
+    sim.riskAvailable=mapped>0;
+    sim.riskInfo=mapped>0
+      ?'EA present-day ordinal probability classes mapped (NOT flood depth)'
+      :'EA raster contains no mapped risk cells for this site';
   }catch(error){
     sim.riskRank=ranks;
+    sim.riskMappedCount=0;
     sim.riskAvailable=false;
     sim.riskInfo='EA risk overlay not available: '+(error?.message||String(error));
   }
@@ -544,7 +554,13 @@ function simulationStep(dt=5){
         // it never creates water or imposes a fictitious hydraulic head.
         const preferCorridor=useDrainage&&accumulation[j]>=threshold&&
           accumulation[j]>accumulation[i];
-        const weight=drop*(preferCorridor?1.5:1);
+        // Existing DOWNHILL transfers only: EA categories softly bias the
+        // preference of already-eligible paths, NOT the water level or volume.
+        const riskClass=params.floodMode==='rain-risk'&&sim.riskAvailable
+          ?sim.riskRank?.[j]||0:0;
+        const riskBias=riskClass===4?1.28:riskClass===3?1.17:
+          riskClass===2?1.08:1;
+        const weight=drop*(preferCorridor?1.5:1)*riskBias;
         weights.push(weight);
         sumWeight+=weight;
       }
@@ -559,7 +575,8 @@ function simulationStep(dt=5){
         }
       }
 
-      if(params.openBoundary&&boundary[i]&&params.floodMode==='rain'){
+      if(params.openBoundary&&boundary[i]&&
+         (params.floodMode==='rain'||params.floodMode==='rain-risk')){
         delta[i]-=Math.min(Math.max(0,h+delta[i]),h*0.035);
       }
     }
@@ -906,15 +923,21 @@ onmessage=async({data})=>{
       const storm=data.stormProfile==='front'?'front':
         data.stormProfile==='uniform'?'uniform':'peak';
       const drainage=data.drainageGuide!==false;
-      const mode=['rain','external','coupled'].includes(data.floodMode)?data.floodMode:'rain';
+      const mode=['rain','rain-risk','external','coupled'].includes(data.floodMode)?
+        data.floodMode:'rain';
       const externalStage=data.externalStageM===null?null:Number(data.externalStageM);
-      if(mode!=='rain'&&!Number.isFinite(externalStage))throw Error('外部洪水需要可信的绝对边界水位。');
+      if((mode==='external'||mode==='coupled')&&!Number.isFinite(externalStage))
+        throw Error('外部洪水需要可信的绝对边界水位。');
+      if(mode==='rain-risk'&&!sim.riskAvailable)
+        throw Error('没有取得场地内的 EA 洪涝风险等级数据，请改用仅降雨模式。');
       const key=[eventIntensity,duration,infiltration,assumedUrbanDrainage,scenario,storm,drainage,mode,externalStage,
         data.externalRiseMin,data.externalFallMin,data.externalInlet,
         Number(data.drainageThreshold)||0].join(':');
       if(!annualRiskForecast||annualRiskForecast.key!==key){
         postMessage({type:'status',state:'preparing',
-          message:'正在运行两场独立暴雨事件（2026基准 / 2100气候情景），并校核EA风险空间…'});
+          message:mode==='rain-risk'
+            ?'正在计算 DEM 降雨汇流，并以 EA 现状风险等级轻度引导下坡流动（非水深校准）…'
+            :'正在运行两场独立设计事件，并对照 EA 洪涝风险位置…'});
         const priorParams=params;
         const runEvent=factor=>{
           sim.water.fill(0);sim.delta.fill(0);
@@ -1017,7 +1040,9 @@ onmessage=async({data})=>{
         zeroWaterAt2026:true,areaStaging:true,
         riskAvailable:forecast.riskAvailable,
         riskReference:'EA present-day combined probability map; diagnostic only',
-        methodologicalNote:'2026 is a zero-additional-water PRESENTATION baseline. 2100 is an independently modeled design storm; mapped cells and depth build gradually over 74 steps. EA risk guides ordering only. This is NOT a historical or annual flood prediction.'
+        methodologicalNote:mode==='rain-risk'
+          ?'Rainfall supplies water; DEM/buildings/drainage govern movement. Mapped EA ordinal flood-risk classes guide downhill path preference and visual ordering, never add flood depth or boundary inflow. 2026 is a dry visual start, not actual historical flood conditions.'
+          :'2026 is a zero-additional-water PRESENTATION baseline. 2100 is an independently modeled design storm; mapped cells and depth build gradually over 74 steps. EA risk guides ordering only. This is NOT a historical or annual flood prediction.'
       };
       sendFrame();
       annualFrameYear=null;annualAreaStage=null;
