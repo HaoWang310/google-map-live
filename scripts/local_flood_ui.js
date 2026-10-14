@@ -270,6 +270,66 @@ function onceIdle(map,timeout=2200){
 // Volumetric water is a display-only custom MapLibre layer. Geometry is built
 // exclusively from the flood solver's obstacle-masked depth field, never from
 // arbitrary random flood shapes. Building collisions stay in the solver.
+
+/**
+ * Render-only water compositor. The simulation depths, wet-area statistics,
+ * building collisions and reference data are NOT changed by this interpolation.
+ * A hard solver-valid mask protects buildings and the study-area perimeter;
+ * bilinear depth sampling and smooth alpha soften only the visible shoreline.
+ */
+function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
+  const width=frame.width,height=frame.height;
+  const depths=new Uint16Array(frame.depthMm);
+  const valid=frame.validMask?new Uint8Array(frame.validMask):null;
+  const contacts=frame.contactMask?new Uint8Array(frame.contactMask):null;
+  if(depths.length!==width*height)return false;
+  const image=context.createImageData(outWidth,outHeight);
+  const dest=image.data;
+  const palette=[
+    [0.005,174,233,255],[0.05,99,195,247],
+    [0.15,43,156,231],[0.30,30,112,218],
+    [0.60,43,75,187],[1.20,35,42,136]
+  ];
+  const index=(x,y)=>Math.max(0,Math.min(height-1,y))*width+
+    Math.max(0,Math.min(width-1,x));
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const smooth=(a,b,t)=>{const x=Math.max(0,Math.min(1,(t-a)/(b-a)));return x*x*(3-2*x);};
+  const clock=performance.now()/1000;
+  for(let y=0;y<outHeight;y++){
+    const v=(y+.5)*height/outHeight-.5;
+    const y0=Math.floor(v),ty=v-y0;
+    for(let x=0;x<outWidth;x++){
+      const u=(x+.5)*width/outWidth-.5;
+      const x0=Math.floor(u),tx=u-x0;
+      const nearest=index(Math.round(u),Math.round(v));
+      if(valid&&!valid[nearest])continue;
+      const a=depths[index(x0,y0)]/1000;
+      const b=depths[index(x0+1,y0)]/1000;
+      const c=depths[index(x0,y0+1)]/1000;
+      const d=depths[index(x0+1,y0+1)]/1000;
+      const depth=lerp(lerp(a,b,tx),lerp(c,d,tx),ty);
+      if(depth<.0035)continue;
+      let lo=palette[0],hi=palette[palette.length-1];
+      for(let k=1;k<palette.length;k++)
+        if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
+      const t=smooth(lo[0],hi[0],depth);
+      const rim=1-smooth(.006,.044,depth);
+      const ripples=Math.sin(u*.56+v*.19-clock*.95)*.55+
+        Math.sin(u*.26-v*.67+clock*1.15)*.45;
+      const light=Math.max(0,ripples)*7+rim*8;
+      const foam=(contacts?.[nearest]||0)*smooth(.012,.08,depth)*8;
+      const pos=(y*outWidth+x)*4;
+      dest[pos]=Math.min(255,lerp(lo[1],hi[1],t)+light+foam);
+      dest[pos+1]=Math.min(255,lerp(lo[2],hi[2],t)+light+foam);
+      dest[pos+2]=Math.min(255,lerp(lo[3],hi[3],t)+light+foam*.3);
+      dest[pos+3]=Math.round((.72+.22*smooth(.03,.65,depth))*
+        smooth(.0035,.025,depth)*255);
+    }
+  }
+  context.putImageData(image,0,0);
+  return true;
+}
+
 function createFloodVolumeLayer(maplibregl,bounds){
   const layer={
     id:'focus-volumetric-water',
@@ -1521,7 +1581,7 @@ export function createLocalFloodUI({
           paint:{'line-color':'#175967','line-width':1.5}},
         ...(canvas&&focusWaterBounds?[{
           id:FOCUS_RAIN_LAYER,type:'raster',source:FOCUS_RAIN_SOURCE,
-          paint:{'raster-opacity':0.94,'raster-resampling':'linear','raster-fade-duration':0}
+          paint:{'raster-opacity':1,'raster-resampling':'linear','raster-fade-duration':0}
         }]:[]),
         // Display hydrological flow ABOVE the water colour raster, and below
         // the architectural 3D buildings so walls still occlude the field.
@@ -2853,7 +2913,7 @@ export function createLocalFloodUI({
     });
     map.addLayer({
       id:WATER_LAYER,type:'raster',source:WATER_SOURCE,
-      paint:{'raster-opacity':0.86,'raster-resampling':'linear','raster-fade-duration':0}
+      paint:{'raster-opacity':1,'raster-resampling':'linear','raster-fade-duration':0}
     },map.getLayer(BUILDING_SCENE_3D)?BUILDING_SCENE_3D:getFirstSymbolLayerId());
   }
 
@@ -3183,12 +3243,14 @@ export function createLocalFloodUI({
     }
     // Supersample a softly thresholded colour field. The DEM grid remains
     // authoritative; smoothing here is rendering-only, not added precision.
-    lowResWaterContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
     const nextFrame=document.createElement('canvas');
     nextFrame.width=outWidth;nextFrame.height=outHeight;
     const nc=nextFrame.getContext('2d');
-    nc.imageSmoothingEnabled=true;nc.imageSmoothingQuality='high';
-    nc.drawImage(lowResWater,0,0,outWidth,outHeight);
+    if(!data.depthMm||!renderSoftWaterCanvas(nc,data,outWidth,outHeight)){
+      lowResWaterContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
+      nc.imageSmoothingEnabled=true;nc.imageSmoothingQuality='high';
+      nc.drawImage(lowResWater,0,0,outWidth,outHeight);
+    }
     if(canvas.width!==outWidth||canvas.height!==outHeight)previousWaterFrame=null;
     if(!previousWaterFrame){
       previousWaterFrame=document.createElement('canvas');
@@ -3204,9 +3266,10 @@ export function createLocalFloodUI({
       const alpha=Math.min(1,(performance.now()-waterBlendStart)/
         (data.annualAreaStage?.kind==='rainfall-risk-scenario'?150:WATER_BLEND_MS));
       canvasContext.clearRect(0,0,outWidth,outHeight);
-      canvasContext.globalAlpha=1;
+      const blend=alpha*alpha*(3-2*alpha);
+      canvasContext.globalAlpha=1-blend;
       canvasContext.drawImage(oldFrame,0,0);
-      canvasContext.globalAlpha=alpha*alpha*(3-2*alpha);
+      canvasContext.globalAlpha=blend;
       canvasContext.drawImage(nextFrame,0,0);
       canvasContext.globalAlpha=1;
       map.triggerRepaint();isolateViewer?.triggerRepaint();
