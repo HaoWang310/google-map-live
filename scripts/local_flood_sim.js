@@ -10,7 +10,7 @@ export function createLocalFloodSimulator(config){
 
   function ensureWorker(){
     if(worker)return;
-    worker=new Worker(new URL('./local_flood_worker.js?v=3.21.94',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./local_flood_worker.js?v=3.21.97',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>{
       if(data.type==='setup-complete'){
         const request=pending.get(data.requestId);
@@ -57,6 +57,7 @@ export function createLocalFloodSimulator(config){
       });
     },
     start(params){ensureWorker();worker.postMessage({type:'start',params});},
+    annualStep(params){ensureWorker();worker.postMessage({type:'annual-step',...params});},
     pause(){worker?.postMessage({type:'pause'});},
     reset(silent=false){worker?.postMessage({type:'reset',silent:Boolean(silent)});},
     setParams(params){worker?.postMessage({type:'params',params});},
