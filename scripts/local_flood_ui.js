@@ -1472,6 +1472,15 @@ export function createLocalFloodUI({
   function updateSiteHydroDashboard(frame=lastHydroFrame){
     if(!isolatedSelection)return;
     const v=frame?.stats;
+    for(let i=0;i<6;i++){
+      const ha=(v?.depthAreaM2?.[i]||0)/10000;
+      setSiteHud('siteDepthArea'+i,ha.toFixed(2)+' ha');
+      const el=siteHud('siteDepthBin'+i);
+      if(el)el.dataset.wet=ha>0?'true':'false';
+    }
+    setSiteHud('siteHudFloodPhase',!v||v.timeMin===0?
+      '尚未运行 · 无动态积水':
+      '模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化');
     if(v){
       setSiteHud('siteHudDepth',v.maxDepthM.toFixed(2)+' m');
       setSiteHud('siteHudArea',(v.wetAreaM2/1e4).toFixed(2)+' ha');
@@ -1493,14 +1502,16 @@ export function createLocalFloodUI({
     if(siteHud('siteHudRun'))siteHud('siteHudRun').disabled=!prepared||hydroState==='running';
     if(siteHud('siteHudPause'))siteHud('siteHudPause').disabled=!prepared||hydroState!=='running';
     const chart=siteHud('siteHudChart');
-    if(chart&&siteHydroHistory.length){
+    if(chart){
       chart.replaceChildren();
+      if(siteHydroHistory.length){
       const mx=Math.max(.02,...siteHydroHistory.map(r=>r[1]));
       for(const [t,depth] of siteHydroHistory){
         const bar=document.createElement('span');
         bar.style.height=Math.max(2,Math.round(depth/mx*48))+'px';
         bar.title=simulationClock(t)+' / '+depth.toFixed(2)+'m';
         chart.appendChild(bar);
+      }
       }
     }
   }
@@ -1697,8 +1708,9 @@ export function createLocalFloodUI({
       '<a href="https://fehweb.ceh.ac.uk/" target="_blank" rel="noopener noreferrer" style="color:#8ce5ea">FEH 官网 ↗</a>',
       ' 查询后填入；EA 数据为附近测站实测，不能视为场地实测。</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">基础数据 · 三因素联合分析</div>',
-      '<label class="site-hydro-check"><input type="checkbox" id="siteHudEA" checked> EA 现状洪水风险等级（参考）</label>',
-      '<label class="site-hydro-check"><input type="checkbox" id="siteHudDrainage" checked> DEM 推导排水网络（参考）</label>',
+      '<label class="site-hydro-check"><input type="checkbox" id="siteHudEA"> EA 官方长期风险图（静态参考，默认隐藏）</label>',
+      '<label class="site-hydro-check"><input type="checkbox" id="siteHudDrainage"> DEM 推导排水网络（可选参考）</label>',
+      '<div class="site-hydro-mini">进入场地时仅显示建筑与地面。动态水深随「运行」时间变化；EA 风险概率不会随模拟时间变化。</div>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudGuide" checked> 汇水路径引导下坡流动</label>',
       '<div class="site-hydro-row">汇水阈值 <input id="siteHudThreshold" type="number" min="0" max="50" step="0.001" style="width:85px"> km²</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">02 · 海绵城市设计',
@@ -1727,6 +1739,17 @@ export function createLocalFloodUI({
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
+      '<div class="site-hydro-section" style="margin-top:4px;padding-top:7px;border-top:0">',
+      '<div class="site-hydro-section-title">动态积水水深分级 · SIMULATED DEPTH</div>',
+      '<div class="site-hydro-mini">以下是随模拟时间变化的水深，并非 EA 洪涝风险概率。</div>',
+      '<div class="site-hydro-depth-legend">',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:#b8eff5"></i><span>0.005–0.05m <strong id="siteDepthArea0">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:#6adaDF"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:#25b8c6"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:#247cc9"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:#224baa"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:#1c2968"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
+      '</div><div class="site-hydro-depth-note" id="siteHudFloodPhase">尚未运行 · 无动态积水</div></div>',
       '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.00 m</b></div>',
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
       '<div class="site-hydro-metric"><small>IMPACTED BUILDINGS · 受影响建筑</small><b id="siteHudImpacted">0 栋</b></div>',
@@ -1737,7 +1760,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-value" id="siteHudLiveRain">— mm/h</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAX DEPTH · 水深变化</div>',
       '<div id="siteHudChart" class="site-hydro-chart"></div></div>',
-      '<div class="site-hydro-section"><div class="site-hydro-section-title">EA RISK · 官方长期概率分类</div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">EA RISK · 静态长期概率（手动查看）</div>',
       '<div class="site-hydro-mini" style="line-height:1.9">',
       '<span style="color:#9cdeea">■</span> 极低 &lt;0.1% · ',
       '<span style="color:#f7d359">■</span> 低 0.1–&lt;1%<br>',
@@ -1914,6 +1937,20 @@ export function createLocalFloodUI({
       pitch:map.getPitch(),bearing:map.getBearing()
     };
     isolatedSelection=true;
+    // Clean initial comparison state, even when returning from an earlier flood.
+    // These checkboxes ONLY control reference overlays in the isolated map.
+    if($('localFloodFocusEA'))$('localFloodFocusEA').checked=false;
+    if($('localFloodFocusDrainage'))$('localFloodFocusDrainage').checked=false;
+    canvasContext?.clearRect(0,0,canvas?.width||0,canvas?.height||0);
+    let impactedReset=false;
+    for(const feature of sceneFeatures.values()){
+      if(feature?.properties?.selected&&feature.properties.impacted){
+        feature.properties.impacted=false;
+        impactedReset=true;
+      }
+    }
+    if(impactedReset)publishBuildingScene();
+    simulator?.reset();
     rainfallMode='manual';manualFourHourMm=null;
     lastHydroFrame=null;siteHydroHistory.length=0;hydroState='ready';siteRainData=null;
     focusSiteSerial++;
