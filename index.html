@@ -2028,17 +2028,17 @@
     },2000);
   }
 
-  async function getFloodImageUrls(){
-    if(floodLoadingPromise)return floodLoadingPromise;
+  async function getFloodImageUrls(source=floodRiskSource){
+    if(floodLoadingPromise?.source===source)return floodLoadingPromise.promise;
     const tasks=[];
     for(let row=0;row<FLOOD_GRID_SIZE;row++){
       for(let col=0;col<FLOOD_GRID_SIZE;col++){
         const suffix=row+'-'+col;
-        const key=floodRiskSource+':'+suffix;
+        const key=source+':'+suffix;
         tasks.push((async()=>{
           if(floodImageUrls.has(key))return floodImageUrls.get(key);
-          const response=await fetch(assetUrl('assets/flood_risk/'+(floodRiskSource==='combined'?'flood':floodRiskSource)+'_'+suffix+'.webp'),{cache:'force-cache'});
-          if(!response.ok)throw new Error((floodRiskSource==='combined'?'综合风险':'独立 EA 风险')+'数据文件未发布或加载失败（'+response.status+'）。未使用其他来源填补。');
+          const response=await fetch(assetUrl('assets/flood_risk/'+(source==='combined'?'flood':source)+'_'+suffix+'.webp'),{cache:'force-cache'});
+          if(!response.ok)throw new Error((source==='combined'?'综合风险':'独立 EA 风险')+'数据文件未发布或加载失败（'+response.status+'）。未使用其他来源填补。');
           const blob=await response.blob();
           const bitmap=await createImageBitmap(blob);
           const valid=bitmap.width===DRAINAGE_3857.baseWidth50m&&
@@ -2056,8 +2056,9 @@
       }
     }
     // All files must pass validation before installing any visible tile.
-    floodLoadingPromise=Promise.all(tasks);
-    try{return await floodLoadingPromise;}finally{floodLoadingPromise=null;}
+    const promise=Promise.all(tasks);
+    floodLoadingPromise={source,promise};
+    try{return await promise;}finally{if(floodLoadingPromise?.promise===promise)floodLoadingPromise=null;}
   }
 
   function removeFloodLayer(){
