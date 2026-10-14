@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.25';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.26';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -286,9 +286,10 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
   const image=context.createImageData(outWidth,outHeight);
   const dest=image.data;
   const palette=[
-    [0.001,174,233,255],[0.05,99,195,247],
-    [0.15,43,156,231],[0.30,30,112,218],
-    [0.60,43,75,187],[1.20,35,42,136]
+    // v3.22.26: saturated blue separated from pale grey/beige map ground.
+    [0.001,33,138,225],[0.05,15,119,217],
+    [0.15,11,92,206],[0.30,15,73,184],
+    [0.60,22,57,153],[1.20,20,39,112]
   ];
   const index=(x,y)=>Math.max(0,Math.min(height-1,y))*width+
     Math.max(0,Math.min(width-1,x));
@@ -322,8 +323,8 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
       dest[pos]=Math.min(255,lerp(lo[1],hi[1],t)+light+foam);
       dest[pos+1]=Math.min(255,lerp(lo[2],hi[2],t)+light+foam);
       dest[pos+2]=Math.min(255,lerp(lo[3],hi[3],t)+light+foam*.3);
-      dest[pos+3]=Math.round((.22+.70*smooth(.007,.40,depth))*
-        smooth(.00065,.010,depth)*255);
+      dest[pos+3]=Math.round((.58+.34*smooth(.008,.35,depth))*
+        smooth(.00045,.0018,depth)*255);
     }
   }
   context.putImageData(image,0,0);
@@ -386,23 +387,23 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'out vec4 fragColor;',
           'void main(){',
           'float depth=max(v_meta.z,0.0);',
-          'vec3 water=vec3(0.58,0.86,1.0);',
-          'water=mix(water,vec3(0.36,0.76,0.98),smoothstep(0.001,0.05,depth));',
-          'water=mix(water,vec3(0.17,0.61,0.91),smoothstep(0.05,0.15,depth));',
-          'water=mix(water,vec3(0.12,0.43,0.84),smoothstep(0.15,0.30,depth));',
-          'water=mix(water,vec3(0.17,0.29,0.73),smoothstep(0.30,0.60,depth));',
-          'water=mix(water,vec3(0.14,0.16,0.53),smoothstep(0.60,1.20,depth));',
+          'vec3 water=vec3(0.10,0.48,0.84);',
+          'water=mix(water,vec3(0.06,0.39,0.81),smoothstep(0.001,0.05,depth));',
+          'water=mix(water,vec3(0.04,0.31,0.72),smoothstep(0.05,0.15,depth));',
+          'water=mix(water,vec3(0.06,0.26,0.66),smoothstep(0.15,0.30,depth));',
+          'water=mix(water,vec3(0.08,0.19,0.55),smoothstep(0.30,0.60,depth));',
+          'water=mix(water,vec3(0.06,0.12,0.42),smoothstep(0.60,1.20,depth));',
           'float deep=smoothstep(0.04,0.85,depth);',
           'float ripple=sin(v_meta.x*1.15+v_meta.y*0.35-u_time*1.8)*0.52+',
           '  sin(v_meta.y*0.62-v_meta.x*0.46+u_time*1.3)*0.32+',
           '  sin((v_meta.x+v_meta.y)*0.22-u_time*0.8)*0.16;',
           'float glint=pow(max(0.0,0.5+0.35*ripple),7.0);',
-          'water=mix(water,vec3(0.77,0.94,1.0),glint*(0.09+0.07*deep));',
+          'water=mix(water,vec3(0.55,0.83,1.0),glint*(0.04+0.05*deep));',
           'float contactFoam=clamp(v_contact*0.22*(0.55+0.45*abs(ripple)),0.0,0.22);',
           'water=mix(water,vec3(0.86,0.98,1.0),contactFoam);',
-          'float edge=smoothstep(0.0008,0.008,depth);',
-          'float alpha=(0.26+0.66*smoothstep(0.007,0.40,depth))*edge;',
-          'if(v_meta.w>0.5){water*=0.91;alpha*=0.82;}',
+          'float edge=smoothstep(0.0007,0.0020,depth);',
+          'float alpha=(0.63+0.30*smoothstep(0.006,0.35,depth))*edge;',
+          'if(v_meta.w>0.5){water*=0.86;alpha*=0.94;}',
           'fragColor=vec4(water,alpha);',
           '}'
         ].join('\n');
@@ -2150,12 +2151,12 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section-title">动态积水水深分级 · SIMULATED DEPTH</div>',
       '<div class="site-hydro-mini">以下是随模拟时间变化的水深，并非 EA 洪涝风险概率。</div>',
       '<div class="site-hydro-depth-legend">',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:#36c5da"></i><span>0.001–0.05m <strong id="siteDepthArea0">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:#10b1d1"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:#1797d7"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:#1868c6"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:#1440a7"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:#0b236f"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:#218ae1"></i><span>0.001–0.05m <strong id="siteDepthArea0">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:#0f77d9"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:#0b5cce"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:#0f49b8"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:#163999"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:#142770"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
       '</div><div class="site-hydro-depth-note" id="siteHudFloodPhase">尚未运行 · 无动态积水</div></div>',
       '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.000 m</b></div>',
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
