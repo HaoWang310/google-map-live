@@ -647,6 +647,8 @@ export function createLocalFloodUI({
   let lastHydroFrame=null,hydroState='ready';
   let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null;
   let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
+  let annualPlaying=false,annualAdvanceTimer=null;
+  const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;};
   // London management catchment 1% AEP design rainfall reference:
   // 2070s central +25%, upper end +40%; reference allowances, not yearly forecasts.
   const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/49))*(climateScenario==='upper'?.40:.25);
@@ -1543,6 +1545,12 @@ export function createLocalFloodUI({
     setSiteHud('siteHudGrid',$('localFloodGridInfo')?.textContent||'');
     setSiteRainMode();
   }
+  function simYearDisplay(){
+    setSiteHud('siteHudYearText',String(futureYear));
+    for(const id of ['siteHudYear','siteHudFooterYear'])if(siteHud(id))siteHud(id).value=String(futureYear);
+    setSiteHud('siteHudFutureFactor','伦敦参考设计暴雨 ×'+climateRainFactor().toFixed(3));
+    updateSiteHydroDashboard();
+  }
   function updateSiteHydroDashboard(frame=lastHydroFrame){
     if(!isolatedSelection)return;
     const v=frame?.stats;
@@ -1867,7 +1875,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-timeline"><div style="display:flex;justify-content:space-between">',
       '<strong id="siteHudClock">2026 年 / 2100 年</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
-      '<div class="site-hydro-mini" id="siteHudNotice">计算时间轴 · 不支持回放拖动</div></div></footer>'
+      '<div class="site-hydro-mini" id="siteHudNotice">自动播放 2026—2100 年度设计事件（加速近似计算，并非逐年真实洪水预报）</div></div></footer>'
     ].join('');
     container.appendChild(shell);
     const bounds=bboxLngLat(polygon[0]);
@@ -1884,6 +1892,7 @@ export function createLocalFloodUI({
     };
     updateSiteHydroDashboard();
     const resetFuture=()=>{
+      stopAnnual();
       simulator?.reset();siteHydroHistory.length=0;lastHydroFrame=null;hydroState='reset';
       updateSiteHydroDashboard();
     };
@@ -1985,11 +1994,24 @@ export function createLocalFloodUI({
       hydroDisplay[flag]=e.target.checked;
       updateHydroLayerVisibility();
     };
-    siteHud('siteHudRun').onclick=()=>$('localFloodRun').click();
-    siteHud('siteHudPause').onclick=()=>$('localFloodPause').click();
+    siteHud('siteHudRun').onclick=()=>{
+      if(!prepared)return;
+      if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
+        status('必须先填写有依据的外部洪水边界水位。',true);return;
+      }
+      if(futureYear>=2100)futureYear=2026;
+      annualPlaying=true;
+      simulator?.reset();
+      ensureSimulator().start({...currentParams(),annualPreview:true});
+      updateSiteHydroDashboard();
+    };
+    siteHud('siteHudPause').onclick=()=>{
+      stopAnnual();simulator?.pause();updateSiteHydroDashboard();
+    };
     siteHud('siteHudReset').onclick=()=>{
-      $('localFloodReset').click();
-      siteHydroHistory.length=0;hydroState='reset';updateSiteHydroDashboard();
+      stopAnnual();simulator?.reset();futureYear=2026;
+      hydroState='reset';lastHydroFrame=null;siteHydroHistory.length=0;
+      simYearDisplay();
     };
     redrawSpongeSite();
     lookupSiteRainForSelection();
@@ -2092,6 +2114,7 @@ export function createLocalFloodUI({
     if(!isolatedSelection)return false;
     isolatedSelection=false;
     siteRainRequest++;
+    stopAnnual();simulator?.pause();
     destroyFocusViewer();
     // The underlying map's style, layers, data and camera never changed.
     isolateCamera=null;
@@ -2259,6 +2282,7 @@ export function createLocalFloodUI({
   }
 
   function clearSimulation(keepSelection=false){
+    stopAnnual();
     hideAreaPopup();
     if(isolatedSelection)exitSelectionIsolate(false);
     if(!keepSelection){
@@ -2557,7 +2581,20 @@ export function createLocalFloodUI({
         updateSiteHydroDashboard();
         if(data.state==='running')status('模拟运行中：雨水沿 50 m 地形势能流动，OSM 建筑作为不可穿透障碍。');
         else if(data.state==='paused')status('模拟已暂停。');
-        else if(data.state==='complete')status('模拟完成。可调整降雨参数后“重置水体”再运行。');
+        else if(data.state==='complete'){
+          if(annualPlaying&&isolatedSelection&&futureYear<2100){
+            annualAdvanceTimer=setTimeout(()=>{
+              if(!annualPlaying||!isolatedSelection)return;
+              futureYear++;
+              simYearDisplay();
+              simulator?.reset();
+              simulator?.start({...currentParams(),annualPreview:true});
+            },100);
+          }else{
+            if(annualPlaying)stopAnnual();
+            status('当前预测年份的洪水事件计算完成。');
+          }
+        }
       },
       onError:error=>status(error.message,true)
     });
