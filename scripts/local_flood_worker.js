@@ -659,11 +659,13 @@ function sendFrame(){
   },[pixels.buffer,depthMm.buffer,contactMask.buffer]);
 }
 
-function annualStorageStep(data,emit=true){
+function annualStorageStep(data,emit=true,facilitiesReady=false){
   if(!sim)return;
   // Baseline means no proposed sponge installations are active.
-  params={...params,interventions:[]};
-  applySpongeInterventions();
+  if(!facilitiesReady){
+    params={...params,interventions:[]};
+    applySpongeInterventions();
+  }
   const rainMm=clamp(Number(data.annualRainMm)||0,0,5000);
   const lossMm=clamp(Number(data.annualLossMm)||0,0,5000);
   const input=Math.max(0,rainMm-lossMm)/1000;
@@ -749,11 +751,13 @@ onmessage=async({data})=>{
           total+=Math.max(0,rain*factor(y)-loss);
         let weightSum=0;
         for(let k=0;k<74;k++)weightSum+=.22+2.34*Math.pow((k+.5)/74,2);
+        params={...params,interventions:[]};
+        applySpongeInterventions();
         for(let y=2027;y<=2100;y++){
           const k=y-2027;
           const weight=.22+2.34*Math.pow((k+.5)/74,2);
           annualStorageStep({annualRainMm:total*weight/weightSum,
-            annualLossMm:0},false);
+            annualLossMm:0},false,true);
         }
         const finalDepth=new Float32Array(sim.water.length);
         const ranked=[];
@@ -777,7 +781,8 @@ onmessage=async({data})=>{
       const targetCount=year===2100?forecast.ranked.length:
         Math.round(fraction*forecast.ranked.length);
       sim.water.fill(0);
-      const depthScale=.45+.55*fraction;
+      // Both wet area and displayed water depth grow with the 74-year axis.
+      const depthScale=fraction;
       for(let k=0;k<targetCount;k++){
         const idx=forecast.ranked[k],d=forecast.finalDepth[idx];
         sim.water[idx]=Math.min(d,Math.max(.0201,d*depthScale));
