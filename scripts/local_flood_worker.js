@@ -593,9 +593,9 @@ function simulationStep(dt=5){
 
 // Depth-encoded map colours. The reference EA probability map is NOT used to
 // generate these values: each pixel comes from simulated water in metres.
-const SIM_DEPTH_BOUNDS=[0.005,0.05,0.15,0.30,0.60,1.20];
+const SIM_DEPTH_BOUNDS=[0.001,0.05,0.15,0.30,0.60,1.20];
 const SIM_DEPTH_COLOURS=[
-  [190,236,255,135], // 0.005–0.05 m: luminous ice-blue wet edge
+  [190,236,255,135], // 0.001–0.05 m: shallow wet film to ponding, physically solved
   [127,207,255,168], // 0.05–0.15 m: translucent pale azure
   [68,162,249,202],  // 0.15–0.30 m: flowing sky blue
   [43,109,233,225],  // 0.30–0.60 m: saturated river blue
@@ -733,7 +733,7 @@ function sendFrame(){
   for(let i=0;i<validMask.length;i++)
     validMask[i]=inside[i]&&!obstacle[i]?1:0;
   const contactMask=new Uint8Array(cols*rows);
-  let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
+  let maxDepth=0,wetCells=0,shallowCells=0,volume=0,retainedM3=0;
   let riskOverlapCells=0,riskKnownCells=0;
   const depthCells=new Uint32Array(SIM_DEPTH_BOUNDS.length);
   const impacted=new Set();
@@ -751,7 +751,7 @@ function sendFrame(){
     // Strict polygon mask: outside the selected area is always fully transparent.
     if(!inside[i]||obstacle[i])continue;
     const h=Math.max(0,water[i]-svCapacity[i]);
-    if(h>=0.005){
+    if(h>=0.001){
       depthMm[i]=Math.min(65535,Math.round(h*1000));
       const touchesBuilding=
         (row>0&&obstacle[i-cols])||
@@ -762,6 +762,7 @@ function sendFrame(){
     }
     retainedM3+=Math.min(water[i],svCapacity[i])*cell*cell;
     if(h>maxDepth)maxDepth=h;
+    if(h>=0.001)shallowCells++; // >=1 mm wet surface, NOT >2 cm flooding
     const depthBand=depthBandIndex(h);
     if(depthBand>=0)depthCells[depthBand]++;
     if(h>=0.02){
@@ -813,6 +814,7 @@ function sendFrame(){
       depthAreaM2:Array.from(depthCells,n=>n*cell*cell),
       maxDepthM:maxDepth,
       wetAreaM2:wetCells*cell*cell,
+      shallowWetAreaM2:shallowCells*cell*cell, // distinct from flooded-area threshold
       volumeM3:volume,
       retainedM3,
       spongeInfiltrationM3:sim.spongeInfilM3,
@@ -971,7 +973,7 @@ onmessage=async({data})=>{
           // synthesize flood cells outside the independently calculated future.
           const visibleWet=[],visibleShallow=[];
           let finalWetCount=0;
-          const colourThreshold=.005,wetThreshold=.02;
+          const colourThreshold=.001,wetThreshold=.02;
           for(let i=0;i<sim.water.length;i++){
             if(!sim.inside[i]||sim.obstacle[i])continue;
             const depth=future[i]-sim.svCapacity[i];
@@ -1040,7 +1042,7 @@ onmessage=async({data})=>{
         removedCellCount:0,
         zeroWaterAt2026:true,areaStaging:true,
         riskAvailable:forecast.riskAvailable,
-        riskReference:'EA present-day combined probability map; diagnostic only',
+        riskReference:'EA RoFSW surface-water ordinal categories; guidance only; RoFRS excluded',
         methodologicalNote:mode==='rain-risk'
           ?'Rainfall supplies water; DEM/buildings/drainage govern movement. Mapped EA ordinal flood-risk classes guide downhill path preference and visual ordering, never add flood depth or boundary inflow. 2026 is a dry visual start, not actual historical flood conditions.'
           :'2026 is a zero-additional-water PRESENTATION baseline. 2100 is an independently modeled design storm; mapped cells and depth build gradually over 74 steps. EA risk guides ordering only. This is NOT a historical or annual flood prediction.'
