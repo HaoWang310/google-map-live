@@ -1380,8 +1380,10 @@ export function createLocalFloodUI({
         }:{})
       },
       layers:[
+        // Outside the selected polygon: solid black for a clean isolated
+        // architectural model display. All parcel-internal layers stay intact.
         {id:'focus-background',type:'background',
-          paint:{'background-color':'#f4f2ed'}},
+          paint:{'background-color':'#000000'}},
         {id:'focus-parcel-ground',type:'fill',source:FOCUS_SITE,
           paint:{'fill-color':'#e8e7e2','fill-opacity':1}},
         {id:'focus-green-ground',type:'fill',source:FOCUS_GREEN,
@@ -1947,7 +1949,7 @@ export function createLocalFloodUI({
     // Full-browser independent analysis workspace. The original geographic
     // map stays intact underneath and is restored instantly on Esc.
     el.style.cssText='position:fixed;inset:0;z-index:2147483000;'+
-      'background:#f4f2ed;overflow:hidden;pointer-events:auto;';
+      'background:#000000;overflow:hidden;pointer-events:auto;';
     document.body.appendChild(el);
     isolateViewerElement=el;
 
