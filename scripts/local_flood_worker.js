@@ -651,8 +651,8 @@ function flowVisual(simulation,row,col,i){
  * Eight-neighbour downhill integration allows water to turn around structures
  * while forbidding diagonal shortcuts through blocked corners.
  */
-function buildHydroFlowField(){
-  if(!sim||params.showFlow===false)return null;
+function buildHydroFlowField(force=false){
+  if(!sim||(!force&&params.showFlow===false))return null;
   const {cols,rows,cell,terrain,inside,obstacle,water,svCapacity}=sim;
   const length=cols*rows;
   const vx=new Int8Array(length),vy=new Int8Array(length);
@@ -869,6 +869,23 @@ onmessage=async({data})=>{
       params={...params,...data.params};
       if(changed)applySpongeInterventions();
       if(sim&&!running)sendFrame();
+      return;
+    }
+    if(data.type==='request-flow-field'){
+      // A dedicated presentation-only request. Existing floodwater and
+      // statistics are untouched; the user may switch the independent layer
+      // on without running a fresh flood simulation.
+      const field=buildHydroFlowField(true);
+      const buffers=field?
+        [field.vx.buffer,field.vy.buffer,field.intensity.buffer]:[];
+      postMessage({
+        type:'flow-field',
+        flowField:field?{
+          cols:field.cols,rows:field.rows,units:'relative',
+          vx:field.vx.buffer,vy:field.vy.buffer,
+          intensity:field.intensity.buffer
+        }:null
+      },buffers);
       return;
     }
     if(data.type==='seek-year'){
