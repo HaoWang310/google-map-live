@@ -1799,6 +1799,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" style="margin-top:6px">下雨模拟以 50 m DEM 为底图计算。设施的局部额外入渗和可容纳水深采用概念参数，不应视为现场试验值。</div>',
       '</div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 显示</div>',
+      '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉隐藏，不影响水文计算）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
       '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox" checked> 水流向量场</label>',
@@ -1856,6 +1857,14 @@ export function createLocalFloodUI({
     setSiteHud('siteHudLocation','Lat '+((bounds.south+bounds.north)/2).toFixed(5)+
       ' · Lon '+((bounds.west+bounds.east)/2).toFixed(5));
     syncSiteControls();
+    siteHud('siteHudShowBuildings').checked=!hideSelectedBuildings;
+    siteHud('siteHudShowBuildings').onchange=event=>{
+      hideSelectedBuildings=!event.target.checked;
+      const mapToggle=$('localFloodHideSelectedBuildings');
+      if(mapToggle)mapToggle.checked=hideSelectedBuildings;
+      publishBuildingScene();
+      updateFocusBuildings();
+    };
     updateSiteHydroDashboard();
 
     const resetForNewRain=()=>{
