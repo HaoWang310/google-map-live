@@ -683,6 +683,7 @@ export function createLocalFloodUI({
       ?manualFourHourMm/4:Number($('localFloodRain')?.value)||0,
     durationMin:Number($('localFloodDuration')?.value)||60,
     infiltrationMmH:Number($('localFloodInfil')?.value)||5,
+    assumedUrbanDrainageMmH:Number(siteHud('siteHudAssumedDrainage')?.value??25),
     stormProfile,drainageGuide:$('localFloodDrainageGuide')?.checked!==false,
     drainageThreshold:Number($('networkThreshold')?.value)||0,
     externalStageM,externalRiseMin,externalFallMin,externalInlet
@@ -710,7 +711,7 @@ export function createLocalFloodUI({
   const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;};
   // London management catchment 1% AEP design rainfall reference:
   // 2070s central +25%, upper end +40%; reference allowances, not yearly forecasts.
-  const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/49))*(climateScenario==='upper'?.40:.25);
+  const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/74))*(climateScenario==='upper'?.40:.25);
   const siteHydroHistory=[];
   let siteFacilities=[];
   let nextFacilityId=1;
@@ -1636,7 +1637,7 @@ export function createLocalFloodUI({
   function simYearDisplay(){
     setSiteHud('siteHudYearText',String(futureYear));
     for(const id of ['siteHudYear','siteHudFooterYear'])if(siteHud(id))siteHud(id).value=String(futureYear);
-    setSiteHud('siteHudFutureFactor','伦敦参考设计暴雨 ×'+climateRainFactor().toFixed(3));
+    setSiteHud('siteHudFutureFactor','设计暴雨情景倍率 ×'+climateRainFactor().toFixed(3));
     updateSiteHydroDashboard();
   }
   function updateSiteHydroDashboard(frame=lastHydroFrame){
@@ -1653,15 +1654,18 @@ export function createLocalFloodUI({
     if(stage?.resetInitial){
       setSiteHud('siteHudAreaProgress','2026 年 · 已重置 · 0.00 ha');
     }else if(stage){
-      const riskText=stage.riskAvailable?'EA 现状风险已空间对照':'EA 空间风险暂不可用';
-      setSiteHud('siteHudAreaProgress',futureYear+' 年 · 设计雨强 '+
-        (stage.designRainMmH||0).toFixed(1)+' mm/h · '+riskText);
+      const riskText=stage.riskAvailable
+        ?'与 EA 已绘制风险格重合 '+(v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
+        :'EA 风险数据暂不可用（未校核）';
+      setSiteHud('siteHudAreaProgress',futureYear+' 年 · '+
+        (stage.floodMode==='external'?'外部水位情景':'设计雨强 '+
+        (stage.designRainMmH||0).toFixed(1)+' mm/h')+' · '+riskText);
     }else{
       setSiteHud('siteHudAreaProgress',longTermMode
         ?'等待该年份的淹没面积快照':'');
     }
     setSiteHud('siteHudFloodPhase',longTermMode?
-      futureYear+' 年 · 设计暴雨情景水深（2026 与 2100 独立求解，年份插值，非逐年实测）':annualPlaying?
+      futureYear+' 年 · 极端降雨事件水深：OS DEM + 建筑 + 假设排水；EA 现状风险作空间对照':annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
@@ -1887,10 +1891,12 @@ export function createLocalFloodUI({
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
-      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">等待年度面积计算</div>',
+      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">请选择年份计算设计暴雨情景 · EA 风险校核</div>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水</option></select></label>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
+      '<label class="site-hydro-row">假设雨水管网排水能力 <input id="siteHudAssumedDrainage" type="number" min="0" max="100" step="5" value="25" style="width:75px"> mm/h</label>',
+      '<div class="site-hydro-mini">25 mm/h 为可调整的研究假设，不是 EA 测量的排水管网能力。仅用于改善缺失地下排水数据时的情景计算。</div>',
       '<label class="site-hydro-row">降雨事件过程 <select id="siteHudStormProfile" style="width:140px"><option value="peak">中段暴雨峰值</option><option value="front">前段强降雨</option><option value="uniform">均匀降雨</option></select></label>',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
       '<label class="site-hydro-row">入流位置 <select id="siteHudExternalInlet" style="width:140px"><option value="low">边界低洼 10%（假设）</option><option value="all">全部边界（试验）</option></select></label>',
@@ -2012,11 +2018,11 @@ export function createLocalFloodUI({
       setSiteHud('siteHudYearText',String(futureYear));
       siteHud('siteHudYear').value=String(futureYear);
       siteHud('siteHudFooterYear').value=String(futureYear);
-      setSiteHud('siteHudFutureFactor','伦敦 1% AEP 参考设计暴雨 ×'+climateRainFactor().toFixed(3));
+      setSiteHud('siteHudFutureFactor','2100 年设计降雨参考倍率 ×'+climateRainFactor().toFixed(3)+'（年份插值，非官方逐年预报）');
       siteHud('siteHudFutureStage').disabled=floodMode==='rain';
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])siteHud(id).disabled=floodMode==='rain';
       setSiteHud('siteHudFutureNote',longTermMode?
-        '设计暴雨推演：根据场地雨强、DEM、建筑及排水条件分别计算基准与 2100 情景；中间年份插值。EA 官方现状风险图用于空间交叉校核，不作为虚构水深。雨强不是未来每年实测预报。':
+        '本模式按选定设计雨强分别计算 2026、2100 两场独立洪水事件；年份连续插值，并非多年降雨累积。EA 现状合并洪涝概率图用于空间校核（不是水深）；实际地下管网数据缺失，排水能力为用户可调假设。EA 4h 实测雨量不等于未来设计暴雨。':
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
@@ -2028,12 +2034,14 @@ export function createLocalFloodUI({
     siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
     siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();};
     siteHud('siteHudStormProfile').onchange=e=>{stormProfile=e.target.value;resetFuture();};
+    siteHud('siteHudAssumedDrainage').onchange=()=>resetFuture();
     siteHud('siteHudExternalInlet').onchange=e=>{externalInlet=e.target.value;resetFuture();};
     siteHud('siteHudRise').onchange=e=>{externalRiseMin=Math.max(1,Number(e.target.value)||30);resetFuture();};
     siteHud('siteHudFall').onchange=e=>{externalFallMin=Math.max(externalRiseMin+1,Number(e.target.value)||90);resetFuture();};
     syncFuture();
 
     const resetForNewRain=()=>{
+      stopAnnual();clearYearFrames();clearRiskEnvelope();
       if(simulator){simulator.pause();simulator.reset();}
       hydroState='reset';siteHydroHistory.length=0;lastHydroFrame=null;
       updateSiteHydroDashboard();
@@ -2912,7 +2920,8 @@ export function createLocalFloodUI({
       publishBuildingScene();
       $('localFloodGridInfo').textContent=
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑 · '+
-        (info.drainageAvailable?'汇水路径数据就绪':'地形独立计算（汇水数据不可用）');
+        (info.drainageAvailable?'汇水路径数据就绪':'地形独立计算（汇水数据不可用）')+
+        ' · '+(info.riskAvailable?'EA 现状风险可校核':'EA 风险不可用');
       $('localFloodStats').textContent=
         '范围 '+(area/1e6).toFixed(2)+' km² · '+info.cellSizeM+' m 网格 · 圈内建筑 '+info.buildingCount+' 栋';
       setButtons();
