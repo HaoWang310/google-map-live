@@ -453,6 +453,13 @@ function createFloodVolumeLayer(maplibregl,bounds){
           foam[id]=Math.min(1,hit/Math.max(1,amount)*1.1);
         }
       }
+      // Temporal low-pass on displayed depth avoids hard mesh jumps between
+      // yearly scenarios; calculation values and statistics remain unchanged.
+      if(!this.displayDepth||this.displayDepth.length!==sampled.length)this.displayDepth=sampled.slice();
+      else for(let i=0;i<sampled.length;i++){
+        this.displayDepth[i]+=Math.max(-0.06,Math.min(0.06,(sampled[i]-this.displayDepth[i])*.28));
+      }
+      sampled.set(this.displayDepth);
       const cutoff=0.008;
       const metre=this.metreScale;
       const quads=[];
@@ -2898,7 +2905,7 @@ export function createLocalFloodUI({
       rainfall:floodMode==='external'?0:Number($('localFloodRain').value)*climateRainFactor(),
       floodMode,externalStageM,climateYear:futureYear,
       stormProfile,externalInlet,externalRiseMin,externalFallMin,
-      interventions:siteFacilities.map(({id,type,lng,lat,radiusM})=>
+      interventions:(annualPlaying?[]:siteFacilities).map(({id,type,lng,lat,radiusM})=>
         ({id,type,lng,lat,radiusM})),
       showFlow:hydroDisplay.flow,
       rainSeriesMm15:floodMode==='external'?null:rainfallMode==='ea-observed'&&siteRainData?.complete&&siteRainData?.recent
