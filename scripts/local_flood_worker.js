@@ -13,6 +13,7 @@ let annualAreaStage=null;
 let timer=null;
 let params={
   rainfall:50,infiltration:5,duration:60,openBoundary:true,
+  assumedUrbanDrainageMmH:0,
   drainageGuide:true,drainageThreshold:1,rainSeriesMm15:null,
   interventions:[],showFlow:true,floodMode:'rain',externalStageM:null,
   stormProfile:'uniform',externalInlet:'low',externalRiseMin:30,externalFallMin:90
@@ -486,7 +487,10 @@ function simulationStep(dt=5){
   const rain=params.floodMode==='external'?0:(Number.isFinite(observed)&&observed>=0
     ?observed/1000/900*dt
     :Math.max(0,Number(params.rainfall)||0)/1000/3600*dt*profile);
-  const infil=Math.max(0,Number(params.infiltration)||0)/1000/3600*dt;
+  // The catchment-wide drainage capacity is a declared exploratory assumption,
+  // NOT a measured sewer-network capacity. Do not infer it from EA probability.
+  const infil=(Math.max(0,Number(params.infiltration)||0)+
+    Math.max(0,Number(params.assumedUrbanDrainageMmH)||0))/1000/3600*dt;
 
   for(let i=0;i<water.length;i++){
     if(!inside[i]||obstacle[i])continue;
@@ -813,6 +817,7 @@ onmessage=async({data})=>{
       const eventIntensity=clamp(Number(data.eventRainMmH)||0,0,150);
       const duration=clamp(Number(data.durationMin)||60,15,240);
       const infiltration=clamp(Number(data.infiltrationMmH)||5,0,100);
+      const assumedUrbanDrainage=clamp(Number(data.assumedUrbanDrainageMmH??25),0,100);
       const scenario=data.climateScenario==='upper'?'upper':'central';
       const storm=data.stormProfile==='front'?'front':
         data.stormProfile==='uniform'?'uniform':'peak';
@@ -820,7 +825,7 @@ onmessage=async({data})=>{
       const mode=['rain','external','coupled'].includes(data.floodMode)?data.floodMode:'rain';
       const externalStage=data.externalStageM===null?null:Number(data.externalStageM);
       if(mode!=='rain'&&!Number.isFinite(externalStage))throw Error('外部洪水需要可信的绝对边界水位。');
-      const key=[eventIntensity,duration,infiltration,scenario,storm,drainage,mode,externalStage,
+      const key=[eventIntensity,duration,infiltration,assumedUrbanDrainage,scenario,storm,drainage,mode,externalStage,
         data.externalRiseMin,data.externalFallMin,data.externalInlet,
         Number(data.drainageThreshold)||0].join(':');
       if(!annualRiskForecast||annualRiskForecast.key!==key){
@@ -832,6 +837,7 @@ onmessage=async({data})=>{
           sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
           params={...params,rainfall:mode==='external'?0:eventIntensity*factor,
             infiltration,duration,stormProfile:storm,
+            assumedUrbanDrainageMmH:assumedUrbanDrainage,
             rainSeriesMm15:null,externalStageM:externalStage,floodMode:mode,
             externalRiseMin:Number(data.externalRiseMin)||30,
             externalFallMin:Number(data.externalFallMin)||90,
@@ -852,7 +858,7 @@ onmessage=async({data})=>{
           // A climate allowance changes DESIGN STORM INTENSITY; it does not
           // imply that 74 years of rain accumulate on the surface.
           annualRiskForecast={key,baseline,future,futureFactor,
-            eventIntensity,duration,infiltration,scenario,mode,
+            eventIntensity,duration,infiltration,assumedUrbanDrainage,scenario,mode,
             riskAvailable:sim.riskAvailable};
         }finally{params=priorParams;applySpongeInterventions();}
       }
@@ -875,6 +881,7 @@ onmessage=async({data})=>{
         designRainMmH:forecast.mode==='external'?0:forecast.eventIntensity*
           (1+(forecast.futureFactor-1)*progress),
         durationMin:forecast.duration,
+        assumedUrbanDrainageMmH:forecast.assumedUrbanDrainage,
         riskAvailable:forecast.riskAvailable,
         riskReference:'EA present-day combined probability map; diagnostic only',
         methodologicalNote:'Two DEM/OSM rainfall-runoff event outputs interpolated over scenario years; no annual accumulation.'
