@@ -310,7 +310,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'float depth=max(0.0,a_meta.z);',
           'float shimmer=sin(a_meta.x*0.85+a_meta.y*0.42-u_time*2.3)*0.5+',
           '  sin(a_meta.x*0.31-a_meta.y*1.15+u_time*1.7)*0.5;',
-          'float amplitude=min(0.15,depth*0.16+0.014);',
+          'float amplitude=min(0.075,depth*0.07+0.007);',
           'if(a_meta.w<0.5)p.z+=shimmer*amplitude*u_metres;',
           'gl_Position=u_matrix*vec4(p,1.0);',
           'v_meta=a_meta;',
@@ -326,19 +326,22 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'out vec4 fragColor;',
           'void main(){',
           'float depth=max(v_meta.z,0.0);',
-          'float deep=smoothstep(0.015,0.95,depth);',
-          'vec3 shallow=vec3(0.19,0.80,0.91);',
-          'vec3 dark=vec3(0.015,0.31,0.57);',
-          'vec3 water=mix(shallow,dark,deep);',
+          'vec3 water=vec3(0.722,0.937,0.961);',
+          'water=mix(water,vec3(0.416,0.855,0.875),smoothstep(0.005,0.05,depth));',
+          'water=mix(water,vec3(0.145,0.722,0.776),smoothstep(0.05,0.15,depth));',
+          'water=mix(water,vec3(0.141,0.486,0.788),smoothstep(0.15,0.30,depth));',
+          'water=mix(water,vec3(0.133,0.294,0.667),smoothstep(0.30,0.60,depth));',
+          'water=mix(water,vec3(0.110,0.161,0.408),smoothstep(0.60,1.20,depth));',
+          'float deep=smoothstep(0.05,1.20,depth);',
           'float w1=sin(v_meta.x*2.65+v_meta.y*0.86-u_time*2.8);',
           'float w2=sin(v_meta.x*1.21-v_meta.y*1.72+u_time*2.1);',
           'float w3=sin((v_meta.x+v_meta.y)*0.71-u_time*1.35);',
-          'float glint=pow(max(0.0,0.5+0.27*w1+0.18*w2+0.13*w3),4.0);',
-          'water=mix(water,vec3(0.77,0.98,1.0),glint*0.56);',
-          'float collisionFoam=clamp(v_contact*(0.34+0.25*(0.5+0.5*w1)),0.0,0.8);',
-          'water=mix(water,vec3(0.88,0.99,0.99),collisionFoam);',
-          'float alpha=mix(0.69,0.88,deep);',
-          'if(v_meta.w>0.5){water*=0.65;alpha=min(0.95,alpha+0.06);}',
+          'float glint=pow(max(0.0,0.45+0.20*w1+0.14*w2+0.10*w3),5.0);',
+          'water=mix(water,vec3(0.88,0.98,1.0),glint*0.20);',
+          'float collisionFoam=clamp(v_contact*(0.22+0.12*(0.5+0.5*w1)),0.0,0.30);',
+          'water=mix(water,vec3(0.87,0.97,0.98),collisionFoam);',
+          'float alpha=mix(0.48,0.86,deep);',
+          'if(v_meta.w>0.5){water*=0.80;alpha=min(0.94,alpha+0.05);}',
           'fragColor=vec4(water,alpha);',
           '}'
         ].join('\n');
@@ -457,8 +460,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
           const y0=nw.y+row*dy,y1=nw.y+r2*dy;
           // Only the DISPLAY height is multiplied. Solver water depth and
           // collision thresholds remain in unmodified physical metres.
-          const top=Math.max(0.10,Math.min(7.5,depth*4.0))*meter;
-          const floor=0.025*meter;
+          const top=Math.max(0.025,Math.min(4.0,depth*2.0))*meter;
+          const floor=0.008*meter;
           const p00=[x0,y0,top],p10=[x1,y0,top];
           const p11=[x1,y1,top],p01=[x0,y1,top];
           const contact=contacts?.[idx]?0.45:0;
@@ -472,7 +475,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           ];
           for(const [near,a,b,uva,uvb] of neighbours){
             if(near>=depth-0.015)continue;
-            const low=Math.max(floor,Math.min(top-0.005*meter,near*4.0*meter));
+            const low=Math.max(floor,Math.min(top-0.004*meter,near*2.0*meter));
             if(low>=top)continue;
             quad(
               a,b,[b[0],b[1],low],[a[0],a[1],low],
@@ -1719,7 +1722,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
       '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox" checked> 水流向量场</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
-      '<div class="site-hydro-mini">3D 水体厚度是计算水深的视觉 4 倍（最大显示 7.5 m）；波纹和建筑接触水花不影响物理计算或建筑碰撞阈值。</div>',
+      '<div class="site-hydro-mini">3D 水体厚度按真实计算水深视觉放大 2 倍（最大显示 4 m）；实际水深统计、碰撞阈值均保持原值。水花和波纹属于表现效果。</div>',
       '<div class="site-hydro-mini">水流箭头表示网格水位梯度方向，并非经过校准的流速数据。</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
