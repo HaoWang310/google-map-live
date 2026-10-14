@@ -266,6 +266,268 @@ function onceIdle(map,timeout=2200){
   });
 }
 
+
+// Volumetric water is a display-only custom MapLibre layer. Geometry is built
+// exclusively from the flood solver's obstacle-masked depth field, never from
+// arbitrary random flood shapes. Building collisions stay in the solver.
+function createFloodVolumeLayer(maplibregl,bounds){
+  const layer={
+    id:'focus-volumetric-water',
+    type:'custom',
+    renderingMode:'3d',
+    ready:false,
+    visible:true,
+    animate:false,
+    frame:null,
+    mesh:null,
+    dirty:false,
+    count:0,
+    lastBuildAt:0,
+    timeBase:performance.now(),
+    map:null,
+    context:null,
+    metreScale:1,
+    program:null,
+    buffer:null,
+    vao:null,
+    onAdd(map,gl){
+      this.map=map;
+      this.context=gl;
+      try{
+        const vertex=[
+          '#version 300 es',
+          'precision highp float;',
+          'in vec3 a_pos;',
+          'in vec4 a_meta;',
+          'in float a_contact;',
+          'uniform mat4 u_matrix;',
+          'uniform float u_time;',
+          'uniform float u_metres;',
+          'out vec4 v_meta;',
+          'out float v_contact;',
+          'void main(){',
+          'vec3 p=a_pos;',
+          'float depth=max(0.0,a_meta.z);',
+          'float shimmer=sin(a_meta.x*0.85+a_meta.y*0.42-u_time*2.3)*0.5+',
+          '  sin(a_meta.x*0.31-a_meta.y*1.15+u_time*1.7)*0.5;',
+          'float amplitude=min(0.15,depth*0.16+0.014);',
+          'if(a_meta.w<0.5)p.z+=shimmer*amplitude*u_metres;',
+          'gl_Position=u_matrix*vec4(p,1.0);',
+          'v_meta=a_meta;',
+          'v_contact=a_contact;',
+          '}'
+        ].join('\n');
+        const fragment=[
+          '#version 300 es',
+          'precision highp float;',
+          'in vec4 v_meta;',
+          'in float v_contact;',
+          'uniform float u_time;',
+          'out vec4 fragColor;',
+          'void main(){',
+          'float depth=max(v_meta.z,0.0);',
+          'float deep=smoothstep(0.015,0.95,depth);',
+          'vec3 shallow=vec3(0.19,0.80,0.91);',
+          'vec3 dark=vec3(0.015,0.31,0.57);',
+          'vec3 water=mix(shallow,dark,deep);',
+          'float w1=sin(v_meta.x*2.65+v_meta.y*0.86-u_time*2.8);',
+          'float w2=sin(v_meta.x*1.21-v_meta.y*1.72+u_time*2.1);',
+          'float w3=sin((v_meta.x+v_meta.y)*0.71-u_time*1.35);',
+          'float glint=pow(max(0.0,0.5+0.27*w1+0.18*w2+0.13*w3),4.0);',
+          'water=mix(water,vec3(0.77,0.98,1.0),glint*0.56);',
+          'float collisionFoam=clamp(v_contact*(0.34+0.25*(0.5+0.5*w1)),0.0,0.8);',
+          'water=mix(water,vec3(0.88,0.99,0.99),collisionFoam);',
+          'float alpha=mix(0.69,0.88,deep);',
+          'if(v_meta.w>0.5){water*=0.65;alpha=min(0.95,alpha+0.06);}',
+          'fragColor=vec4(water,alpha);',
+          '}'
+        ].join('\n');
+        const compile=(type,source)=>{
+          const shader=gl.createShader(type);
+          gl.shaderSource(shader,source);
+          gl.compileShader(shader);
+          if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS)){
+            const error=gl.getShaderInfoLog(shader);
+            gl.deleteShader(shader);
+            throw new Error('3D water shader: '+error);
+          }
+          return shader;
+        };
+        const vs=compile(gl.VERTEX_SHADER,vertex);
+        const fs=compile(gl.FRAGMENT_SHADER,fragment);
+        const program=gl.createProgram();
+        gl.attachShader(program,vs);
+        gl.attachShader(program,fs);
+        gl.linkProgram(program);
+        gl.deleteShader(vs);gl.deleteShader(fs);
+        if(!gl.getProgramParameter(program,gl.LINK_STATUS)){
+          const error=gl.getProgramInfoLog(program);
+          gl.deleteProgram(program);
+          throw new Error('3D water program: '+error);
+        }
+        this.program=program;
+        this.matrixLoc=gl.getUniformLocation(program,'u_matrix');
+        this.timeLoc=gl.getUniformLocation(program,'u_time');
+        this.metresLoc=gl.getUniformLocation(program,'u_metres');
+        this.buffer=gl.createBuffer();
+        this.vao=gl.createVertexArray();
+        gl.bindVertexArray(this.vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
+        const stride=8*4;
+        const coords=gl.getAttribLocation(program,'a_pos');
+        const meta=gl.getAttribLocation(program,'a_meta');
+        const contact=gl.getAttribLocation(program,'a_contact');
+        gl.enableVertexAttribArray(coords);
+        gl.vertexAttribPointer(coords,3,gl.FLOAT,false,stride,0);
+        gl.enableVertexAttribArray(meta);
+        gl.vertexAttribPointer(meta,4,gl.FLOAT,false,stride,3*4);
+        gl.enableVertexAttribArray(contact);
+        gl.vertexAttribPointer(contact,1,gl.FLOAT,false,stride,7*4);
+        gl.bindVertexArray(null);
+        gl.bindBuffer(gl.ARRAY_BUFFER,null);
+        const origin=maplibregl.MercatorCoordinate.fromLngLat(bounds[0]);
+        this.metreScale=origin.meterInMercatorCoordinateUnits();
+        this.ready=true;
+        if(this.frame)this.updateFrame(this.frame,true);
+      }catch(error){
+        this.ready=false;
+        this.failed=String(error?.message||error);
+        console.warn('3D flood renderer unavailable; using original raster water layer',error);
+      }
+    },
+    onRemove(map,gl){
+      this.ready=false;
+      if(this.vao)gl.deleteVertexArray(this.vao);
+      if(this.buffer)gl.deleteBuffer(this.buffer);
+      if(this.program)gl.deleteProgram(this.program);
+      this.vao=null;this.buffer=null;this.program=null;
+      this.map=null;this.mesh=null;
+    },
+    setVisible(on){
+      this.visible=Boolean(on);
+      if(this.visible&&this.map)this.map.triggerRepaint();
+    },
+    updateFrame(data,force=false){
+      this.frame=data;
+      if(!this.ready||!this.map||!data?.depthMm)return;
+      const now=performance.now();
+      // Limit geometry upload to about 6-7 Hz; waves continue on the GPU.
+      if(!force&&now-this.lastBuildAt<145)return;
+      this.lastBuildAt=now;
+      const widths=data.width,rows=data.height;
+      const buffer=data.depthMm;
+      const depths=new Uint16Array(buffer);
+      const contacts=data.contactMask?new Uint8Array(data.contactMask):null;
+      if(depths.length!==widths*rows)return;
+      const nw=maplibregl.MercatorCoordinate.fromLngLat(bounds[0]);
+      const ne=maplibregl.MercatorCoordinate.fromLngLat(bounds[1]);
+      const sw=maplibregl.MercatorCoordinate.fromLngLat(bounds[3]);
+      const dx=(ne.x-nw.x)/widths;
+      const dy=(sw.y-nw.y)/rows;
+      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/15000)));
+      const quads=[];
+      const at=(col,row)=>{
+        if(row<0||col<0||row>=rows||col>=widths)return 0;
+        return depths[row*widths+col]/1000;
+      };
+      const pushVertex=(v,uv,depth,side,foam)=>{
+        quads.push(v[0],v[1],v[2],uv[0],uv[1],depth,side,foam);
+      };
+      const quad=(v0,v1,v2,v3,uv0,uv1,uv2,uv3,depth,side,foam)=>{
+        pushVertex(v0,uv0,depth,side,foam);
+        pushVertex(v1,uv1,depth,side,foam);
+        pushVertex(v2,uv2,depth,side,foam);
+        pushVertex(v0,uv0,depth,side,foam);
+        pushVertex(v2,uv2,depth,side,foam);
+        pushVertex(v3,uv3,depth,side,foam);
+      };
+      const meter=this.metreScale;
+      for(let row=0;row<rows;row+=stride){
+        for(let col=0;col<widths;col+=stride){
+          // Use the centre cell for downsampled grids. A dry building cell must
+          // never acquire a fabricated wet top from neighbouring water.
+          const ri=Math.min(rows-1,row+Math.floor(stride/2));
+          const ci=Math.min(widths-1,col+Math.floor(stride/2));
+          const idx=ri*widths+ci;
+          const depth=depths[idx]/1000;
+          if(depth<0.008)continue;
+          const c2=Math.min(widths,col+stride);
+          const r2=Math.min(rows,row+stride);
+          const x0=nw.x+col*dx,x1=nw.x+c2*dx;
+          const y0=nw.y+row*dy,y1=nw.y+r2*dy;
+          // Only the DISPLAY height is multiplied. Solver water depth and
+          // collision thresholds remain in unmodified physical metres.
+          const top=Math.max(0.10,Math.min(7.5,depth*4.0))*meter;
+          const floor=0.025*meter;
+          const p00=[x0,y0,top],p10=[x1,y0,top];
+          const p11=[x1,y1,top],p01=[x0,y1,top];
+          const contact=contacts?.[idx]?0.45:0;
+          quad(p00,p10,p11,p01,
+            [col,row],[c2,row],[c2,r2],[col,r2],depth,0,contact);
+          const neighbours=[
+            [at(ci,ri-stride),p00,p10,[col,row],[c2,row]],
+            [at(ci+stride,ri),p10,p11,[c2,row],[c2,r2]],
+            [at(ci,ri+stride),p11,p01,[c2,r2],[col,r2]],
+            [at(ci-stride,ri),p01,p00,[col,r2],[col,row]]
+          ];
+          for(const [near,a,b,uva,uvb] of neighbours){
+            if(near>=depth-0.015)continue;
+            const low=Math.max(floor,Math.min(top-0.005*meter,near*4.0*meter));
+            if(low>=top)continue;
+            quad(
+              a,b,[b[0],b[1],low],[a[0],a[1],low],
+              uva,uvb,uvb,uva,depth,1,contact?0.7:0.24
+            );
+          }
+        }
+      }
+      this.mesh=new Float32Array(quads);
+      this.count=this.mesh.length/8;
+      this.dirty=true;
+      this.map.triggerRepaint();
+    },
+    render(gl,options){
+      if(!this.ready||!this.visible||this.count<=0)return;
+      const matrix=options?.defaultProjectionData?.mainMatrix||
+        options?.modelViewProjectionMatrix||options;
+      if(!matrix||matrix.length!==16)return;
+      const oldProgram=gl.getParameter(gl.CURRENT_PROGRAM);
+      const oldVao=gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+      const oldArray=gl.getParameter(gl.ARRAY_BUFFER_BINDING);
+      const blend=gl.isEnabled(gl.BLEND);
+      const depth=gl.isEnabled(gl.DEPTH_TEST);
+      const cull=gl.isEnabled(gl.CULL_FACE);
+      const oldDepthWrite=gl.getParameter(gl.DEPTH_WRITEMASK);
+      gl.useProgram(this.program);
+      gl.bindVertexArray(this.vao);
+      if(this.dirty&&this.mesh){
+        gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
+        gl.bufferData(gl.ARRAY_BUFFER,this.mesh,gl.DYNAMIC_DRAW);
+        this.dirty=false;
+        this.mesh=null;
+      }
+      gl.uniformMatrix4fv(this.matrixLoc,false,matrix);
+      gl.uniform1f(this.timeLoc,(performance.now()-this.timeBase)/1000);
+      gl.uniform1f(this.metresLoc,this.metreScale);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+      gl.disable(gl.CULL_FACE);
+      gl.drawArrays(gl.TRIANGLES,0,this.count);
+      gl.depthMask(oldDepthWrite);
+      if(!blend)gl.disable(gl.BLEND);
+      if(!depth)gl.disable(gl.DEPTH_TEST);
+      if(cull)gl.enable(gl.CULL_FACE);
+      gl.bindVertexArray(oldVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER,oldArray);
+      gl.useProgram(oldProgram);
+      if(this.animate&&this.visible&&this.map)this.map.triggerRepaint();
+    }
+  };
+  return layer;
+}
+
 export function createLocalFloodUI({
   map,maplibregl,assetUrl,demBounds,demWidth,demHeight,
   ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId,
