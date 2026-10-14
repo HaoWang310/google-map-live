@@ -313,6 +313,7 @@ async function setup(data){
   const sorted=perimeter.slice().sort((a,b)=>terrain[a]-terrain[b]);
   const lowCount=Math.max(1,Math.ceil(sorted.length*.1));
   sim.inletBoundaryCells=sorted.slice(0,lowCount);
+  await loadPublishedRiskForSite();
   postMessage({
     type:'setup-complete',
     requestId:data.requestId,
@@ -323,6 +324,7 @@ async function setup(data){
     terrainMinM:Number.isFinite(minZ)?minZ:null,
     terrainMaxM:Number.isFinite(maxZ)?maxZ:null,
     drainageAvailable:Boolean(upstreamCodes),
+    riskAvailable:Boolean(sim.riskAvailable),riskInfo:sim.riskInfo,
     boundsLngLat:[
       lngLat(box.left,box.top),
       lngLat(box.right,box.top),
@@ -333,6 +335,74 @@ async function setup(data){
   sendFrame();
 }
 
+
+
+/*
+ * EA present-day flood-risk overlay sampled at the SAME EPSG:3857 locations
+ * as the solver. This is the repository's official WMS-derived combined
+ * rivers/sea + surface-water ordinal raster, NOT a rainfall/depth map.
+ * It is used for spatial diagnostics, never converted to metres of water.
+ */
+async function loadPublishedRiskForSite(){
+  const ranks=new Uint8Array(sim.inside.length);
+  try{
+    if(!demConfig.riskMetaUrl||!Array.isArray(demConfig.riskTileUrls)||
+       demConfig.riskTileUrls.length!==4)throw Error('EA source assets missing');
+    const res=await fetch(demConfig.riskMetaUrl,{cache:'force-cache'});
+    if(!res.ok)throw Error('EA metadata HTTP '+res.status);
+    const meta=await res.json(),grid=meta.web_grid;
+    if(!grid?.bounds_m||grid.width!==5736||grid.height!==5750)
+      throw Error('EA raster alignment metadata differs');
+    const [left,bottom,right,top]=grid.bounds_m;
+    const tw=grid.width/2,th=grid.height/2;
+    const coords=Array.from({length:4},()=>[]);
+    for(let row=0;row<sim.rows;row++)for(let col=0;col<sim.cols;col++){
+      const i=row*sim.cols+col;
+      if(!sim.inside[i])continue;
+      const x=sim.left+(col+.5)*sim.cell;
+      const y=sim.top-(row+.5)*sim.cell;
+      const gx=Math.floor((x-left)/(right-left)*grid.width);
+      const gy=Math.floor((top-y)/(top-bottom)*grid.height);
+      if(gx<0||gy<0||gx>=grid.width||gy>=grid.height)continue;
+      const tile=(gy>=th?2:0)+(gx>=tw?1:0);
+      coords[tile].push([i,gx%tw,gy%th]);
+    }
+    const colours=[
+      [156,221,234,1],[247,211,89,2],[242,157,56,3],
+      [215,55,49,4],[153,156,158,5]
+    ];
+    for(let tile=0;tile<4;tile++){
+      if(!coords[tile].length)continue;
+      const resp=await fetch(demConfig.riskTileUrls[tile],{cache:'force-cache'});
+      if(!resp.ok)throw Error('EA risk tile HTTP '+resp.status);
+      const bitmap=await createImageBitmap(await resp.blob());
+      try{
+        if(bitmap.width!==tw||bitmap.height!==th)throw Error('EA tile dimensions');
+        const cv=new OffscreenCanvas(tw,th);
+        const ctx=cv.getContext('2d',{willReadFrequently:true});
+        ctx.drawImage(bitmap,0,0);
+        const rgba=ctx.getImageData(0,0,tw,th).data;
+        for(const [idx,px,py] of coords[tile]){
+          const n=(py*tw+px)*4;
+          if(rgba[n+3]<100)continue;
+          let best=0,bestD=Infinity;
+          for(const [r,g,b,c] of colours){
+            const d=(rgba[n]-r)**2+(rgba[n+1]-g)**2+(rgba[n+2]-b)**2;
+            if(d<bestD){bestD=d;best=c;}
+          }
+          if(bestD<1200)ranks[idx]=best;
+        }
+      }finally{bitmap.close();}
+    }
+    sim.riskRank=ranks;
+    sim.riskAvailable=true;
+    sim.riskInfo='EA official present-day combined surface-water and river/sea probability map (not depth)';
+  }catch(error){
+    sim.riskRank=ranks;
+    sim.riskAvailable=false;
+    sim.riskInfo='EA risk overlay not available: '+(error?.message||String(error));
+  }
+}
 
 const SPONGE_ASSUMPTIONS={
   rainGarden:{storageM:.18,extraInfilMmH:35},
@@ -578,6 +648,7 @@ function sendFrame(){
   const depthMm=new Uint16Array(cols*rows);
   const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
+  let riskOverlapCells=0,riskKnownCells=0;
   const depthCells=new Uint32Array(SIM_DEPTH_BOUNDS.length);
   const impacted=new Set();
   const markCollidingBuilding=cellIndex=>{
@@ -608,7 +679,11 @@ function sendFrame(){
     if(h>maxDepth)maxDepth=h;
     const depthBand=depthBandIndex(h);
     if(depthBand>=0)depthCells[depthBand]++;
-    if(h>=0.02){wetCells++;volume+=h*cell*cell;}
+    if(h>=0.02){
+      wetCells++;volume+=h*cell*cell;
+      if(sim.riskRank?.[i]>0&&sim.riskRank[i]<5)riskOverlapCells++;
+    }
+    if(sim.riskRank?.[i]>0&&sim.riskRank[i]<5)riskKnownCells++;
     const showFlow=params.showFlow!==false;
     const shouldArrow=showFlow&&h>.025&&row%6===3&&col%6===3&&vectors.length<180;
     const flow=(showFlow&&h>=.005)?flowVisual(sim,row,col,i):{
@@ -653,7 +728,10 @@ function sendFrame(){
       spongeInfiltrationM3:sim.spongeInfilM3,
       spongeCells:sim.spongeCellCount,
       spongeFacilities:sim.spongeFacilityCount,
-      impactedCount:impacted.size
+      impactedCount:impacted.size,
+      eaRiskOverlapPercent:wetCells>0?100*riskOverlapCells/wetCells:0,
+      eaRiskMappedCells:riskKnownCells,
+      eaRiskAvailable:Boolean(sim.riskAvailable)
     },
     impactedIds:[...impacted]
   },[pixels.buffer,depthMm.buffer,contactMask.buffer]);
@@ -708,7 +786,9 @@ onmessage=async({data})=>{
         demWidth:data.demWidth,
         demHeight:data.demHeight,
         demEncoding:data.demEncoding,
-        drainageUrl:data.drainageUrl||null
+        drainageUrl:data.drainageUrl||null,
+        riskMetaUrl:data.riskMetaUrl||null,
+        riskTileUrls:data.riskTileUrls||null
       };
       return;
     }
@@ -730,71 +810,66 @@ onmessage=async({data})=>{
       if(!sim)return;
       running=false;clearTimeout(timer);timer=null;
       const year=clamp(Math.round(Number(data.year)||2026),2026,2100);
-      const rain=clamp(Number(data.annualRainMm??250),0,3000);
-      const loss=clamp(Number(data.annualLossMm??210),0,3000);
+      const eventIntensity=clamp(Number(data.eventRainMmH)||0,0,150);
+      const duration=clamp(Number(data.durationMin)||60,15,240);
+      const infiltration=clamp(Number(data.infiltrationMmH)||5,0,100);
       const scenario=data.climateScenario==='upper'?'upper':'central';
-      const key=[rain,loss,scenario].join(':');
-
-      // Solve the end-horizon DEM/obstacle-informed *stress-test* once.
-      // The animation then stages the computed 2100 wet cells by relative
-      // low-elevation priority to achieve approximately LINEAR WET AREA
-      // growth. This staged area is a visualization interpolation, NOT a
-      // physically predicted annual depth or flood occurrence history.
+      const storm=data.stormProfile==='front'?'front':
+        data.stormProfile==='uniform'?'uniform':'peak';
+      const drainage=data.drainageGuide!==false;
+      const key=[eventIntensity,duration,infiltration,scenario,storm,drainage,
+        Number(data.drainageThreshold)||0].join(':');
       if(!annualRiskForecast||annualRiskForecast.key!==key){
         postMessage({type:'status',state:'preparing',
-          message:'正在计算 2100 年极端积水情景及逐年淹没面积序列…'});
-        sim.water.fill(0);sim.timeSec=0;sim.spongeInfilM3=0;
-        let total=0;
-        const factor=y=>1+Math.min(1,Math.max(0,(y-2026)/49))*
-          (scenario==='upper'?.40:.25);
-        for(let y=2027;y<=2100;y++)
-          total+=Math.max(0,rain*factor(y)-loss);
-        let weightSum=0;
-        for(let k=0;k<74;k++)weightSum+=.22+2.34*Math.pow((k+.5)/74,2);
-        params={...params,interventions:[]};
-        applySpongeInterventions();
-        for(let y=2027;y<=2100;y++){
-          const k=y-2027;
-          const weight=.22+2.34*Math.pow((k+.5)/74,2);
-          annualStorageStep({annualRainMm:total*weight/weightSum,
-            annualLossMm:0},false,true);
-        }
-        const finalDepth=new Float32Array(sim.water.length);
-        const ranked=[];
-        for(let i=0;i<sim.water.length;i++){
-          if(!sim.inside[i]||sim.obstacle[i])continue;
-          const d=Math.max(0,sim.water[i]-sim.svCapacity[i]);
-          finalDepth[i]=d;
-          if(d>=0.02)ranked.push(i);
-        }
-        // Lowest ground/strongest final depth first; stable tie-break.
-        ranked.sort((a,b)=>
-          (sim.terrain[a]-.35*Math.min(2,finalDepth[a]))-
-          (sim.terrain[b]-.35*Math.min(2,finalDepth[b])) || a-b);
-        annualRiskForecast={key,finalDepth,ranked,
-          finalWetAreaM2:ranked.length*sim.cell*sim.cell,
-          totalNetRainMm:total};
+          message:'正在运行两场独立暴雨事件（2026基准 / 2100气候情景），并校核EA风险空间…'});
+        const priorParams=params;
+        const runEvent=factor=>{
+          sim.water.fill(0);sim.delta.fill(0);
+          sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
+          params={...params,rainfall:eventIntensity*factor,
+            infiltration,duration,stormProfile:storm,
+            rainSeriesMm15:null,externalStageM:null,floodMode:'rain',
+            interventions:[],openBoundary:true,
+            drainageGuide:drainage,
+            drainageThreshold:Number(data.drainageThreshold)||0};
+          applySpongeInterventions();
+          const steps=Math.ceil(duration*60/12);
+          for(let i=0;i<steps;i++)
+            simulationStep(Math.min(12,duration*60-sim.timeSec));
+          return new Float32Array(sim.water);
+        };
+        try{
+          const baseline=runEvent(1);
+          const futureFactor=1+(scenario==='upper'?0.40:0.25);
+          const future=runEvent(futureFactor);
+          // A climate allowance changes DESIGN STORM INTENSITY; it does not
+          // imply that 74 years of rain accumulate on the surface.
+          annualRiskForecast={key,baseline,future,futureFactor,
+            eventIntensity,duration,infiltration,scenario,
+            riskAvailable:sim.riskAvailable};
+        }finally{params=priorParams;applySpongeInterventions();}
       }
-
       const forecast=annualRiskForecast;
-      const fraction=(year-2026)/74;
-      const targetCount=year===2100?forecast.ranked.length:
-        Math.round(fraction*forecast.ranked.length);
-      sim.water.fill(0);
-      // Both wet area and displayed water depth grow with the 74-year axis.
-      const depthScale=fraction;
-      for(let k=0;k<targetCount;k++){
-        const idx=forecast.ranked[k],d=forecast.finalDepth[idx];
-        sim.water[idx]=Math.min(d,Math.max(.0201,d*depthScale));
+      const progress=(year-2026)/74;
+      sim.water.fill(0);sim.delta.fill(0);
+      // Approximate evolution between independently solved physical events:
+      // never interpolate categorical flood probability into water depth.
+      for(let i=0;i<sim.water.length;i++){
+        if(!sim.inside[i]||sim.obstacle[i])continue;
+        sim.water[i]=Math.max(0,forecast.baseline[i]*(1-progress)+
+          forecast.future[i]*progress);
       }
       sim.timeSec=0;
       annualFrameYear=year;
       annualAreaStage={
-        kind:'area-interpolation',
-        year,fraction,
-        targetAreaM2:targetCount*sim.cell*sim.cell,
-        finalAreaM2:forecast.finalWetAreaM2,
-        totalNetRainMm:forecast.totalNetRainMm
+        kind:'rainfall-risk-scenario',year,fraction:progress,
+        baseRainMmH:forecast.eventIntensity,
+        designRainMmH:forecast.eventIntensity*
+          (1+(forecast.futureFactor-1)*progress),
+        durationMin:forecast.duration,
+        riskAvailable:forecast.riskAvailable,
+        riskReference:'EA present-day combined probability map; diagnostic only',
+        methodologicalNote:'Two DEM/OSM rainfall-runoff event outputs interpolated over scenario years; no annual accumulation.'
       };
       sendFrame();
       annualFrameYear=null;annualAreaStage=null;
@@ -832,7 +907,7 @@ onmessage=async({data})=>{
         params={...params,interventions:[]};
         applySpongeInterventions();
         annualFrameYear=2026;
-        annualAreaStage={kind:'area-interpolation',resetInitial:true,
+        annualAreaStage={kind:'rainfall-risk-scenario',resetInitial:true,
           year:2026,fraction:0,targetAreaM2:0,finalAreaM2:0,totalNetRainMm:0};
         sendFrame();
         annualFrameYear=null;annualAreaStage=null;
