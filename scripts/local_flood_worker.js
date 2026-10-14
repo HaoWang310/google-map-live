@@ -492,10 +492,10 @@ function simulationStep(dt=5){
   // total rainfall unchanged, rather than inventing additional rain volume.
   const eventSec=Math.max(60,(Number(params.duration)||60)*60);
   const progress=clamp(sim.timeSec/eventSec,0,1);
-  const profile=params.stormProfile==='front'?
-    (progress<0.25?2.2:progress<0.6?0.9:0.275):
-    params.stormProfile==='peak'?
-    (progress<0.25?0.40:progress<0.5?1.60:progress<0.75?1.60:0.40):1;
+  // v3.22.21: one fixed triangular design storm with a single maximum
+  // at 50% event elapsed time; time-mean profile = 1 (conserves event rain).
+  // A genuine 15-minute gauge series below still overrides this design curve.
+  const profile=0.25+1.5*(1-Math.abs(2*progress-1));
   const rain=params.floodMode==='external'?0:(Number.isFinite(observed)&&observed>=0
     ?observed/1000/900*dt
     :Math.max(0,Number(params.rainfall)||0)/1000/3600*dt*profile);
@@ -922,8 +922,7 @@ onmessage=async({data})=>{
       const infiltration=clamp(Number(data.infiltrationMmH)||5,0,100);
       const assumedUrbanDrainage=clamp(Number(data.assumedUrbanDrainageMmH??25),0,100);
       const scenario=(['low','central','upper'].includes(data.climateScenario)?data.climateScenario:'central');
-      const storm=data.stormProfile==='front'?'front':
-        data.stormProfile==='uniform'?'uniform':'peak';
+      const storm='peak'; // only the single-maximum design storm is available
       const drainage=data.drainageGuide!==false;
       const mode=['rain','rain-risk','external','coupled'].includes(data.floodMode)?
         data.floodMode:'rain';
