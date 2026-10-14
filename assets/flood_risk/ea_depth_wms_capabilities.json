@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-10-14T20:38:57.814215+00:00",
+  "generated_utc": "2026-10-14T20:39:59.582522+00:00",
   "agency": "Environment Agency",
   "aep_official_percent": [
     3.3,
@@ -20,6 +20,78 @@
               "name": "Surface_Water_Spatial_Planning_1in1000_Depths_25_03_2026",
               "title": "Surface_Water_Spatial_Planning_Depths"
             }
+          ],
+          "official_depth_rules": [
+            {
+              "rule": "_150mm",
+              "title": "<150mm",
+              "literal_filters": [
+                "<150mm"
+              ],
+              "fills": [
+                "#fdd0a2"
+              ]
+            },
+            {
+              "rule": "150_300mm",
+              "title": "150-300mm",
+              "literal_filters": [
+                "150-300mm"
+              ],
+              "fills": [
+                "#fdae6b"
+              ]
+            },
+            {
+              "rule": "300_600mm",
+              "title": "300-600mm",
+              "literal_filters": [
+                "300-600mm"
+              ],
+              "fills": [
+                "#fd8d3c"
+              ]
+            },
+            {
+              "rule": "600_900mm",
+              "title": "600-900mm",
+              "literal_filters": [
+                "600-900mm"
+              ],
+              "fills": [
+                "#f16913"
+              ]
+            },
+            {
+              "rule": "900_1200mm",
+              "title": "900-1200mm",
+              "literal_filters": [
+                "900-1200mm"
+              ],
+              "fills": [
+                "#d94801"
+              ]
+            },
+            {
+              "rule": "1200_2300mm",
+              "title": "1200-2300mm",
+              "literal_filters": [
+                "1200-2300mm"
+              ],
+              "fills": [
+                "#a63603"
+              ]
+            },
+            {
+              "rule": "_2300mm",
+              "title": ">2300mm",
+              "literal_filters": [
+                ">2300mm"
+              ],
+              "fills": [
+                "#7f2704"
+              ]
+            }
           ]
         },
         {
@@ -30,6 +102,78 @@
               "name": "Surface_Water_Spatial_Planning_1in100_Depths_26_03_2026",
               "title": "Surface_Water_Spatial_Planning_Depths"
             }
+          ],
+          "official_depth_rules": [
+            {
+              "rule": "_150mm",
+              "title": "<150mm",
+              "literal_filters": [
+                "<150mm"
+              ],
+              "fills": [
+                "#fdd0a2"
+              ]
+            },
+            {
+              "rule": "150_300mm",
+              "title": "150-300mm",
+              "literal_filters": [
+                "150-300mm"
+              ],
+              "fills": [
+                "#fdae6b"
+              ]
+            },
+            {
+              "rule": "300_600mm",
+              "title": "300-600mm",
+              "literal_filters": [
+                "300-600mm"
+              ],
+              "fills": [
+                "#fd8d3c"
+              ]
+            },
+            {
+              "rule": "600_900mm",
+              "title": "600-900mm",
+              "literal_filters": [
+                "600-900mm"
+              ],
+              "fills": [
+                "#f16913"
+              ]
+            },
+            {
+              "rule": "900_1200mm",
+              "title": "900-1200mm",
+              "literal_filters": [
+                "900-1200mm"
+              ],
+              "fills": [
+                "#d94801"
+              ]
+            },
+            {
+              "rule": "1200_2300mm",
+              "title": "1200-2300mm",
+              "literal_filters": [
+                "1200-2300mm"
+              ],
+              "fills": [
+                "#a63603"
+              ]
+            },
+            {
+              "rule": "_2300mm",
+              "title": ">2300mm",
+              "literal_filters": [
+                ">2300mm"
+              ],
+              "fills": [
+                "#7f2704"
+              ]
+            }
           ]
         },
         {
@@ -39,6 +183,78 @@
             {
               "name": "Surface_Water_Spatial_Planning_1in30_Depths_25_03_2026",
               "title": "Surface_Water_Spatial_Planning_Depths"
+            }
+          ],
+          "official_depth_rules": [
+            {
+              "rule": "_150mm",
+              "title": "<150mm",
+              "literal_filters": [
+                "<150mm"
+              ],
+              "fills": [
+                "#fdd0a2"
+              ]
+            },
+            {
+              "rule": "150_300mm",
+              "title": "150-300mm",
+              "literal_filters": [
+                "150-300mm"
+              ],
+              "fills": [
+                "#fdae6b"
+              ]
+            },
+            {
+              "rule": "300_600mm",
+              "title": "300-600mm",
+              "literal_filters": [
+                "300-600mm"
+              ],
+              "fills": [
+                "#fd8d3c"
+              ]
+            },
+            {
+              "rule": "600_900mm",
+              "title": "600-900mm",
+              "literal_filters": [
+                "600-900mm"
+              ],
+              "fills": [
+                "#f16913"
+              ]
+            },
+            {
+              "rule": "900_1200mm",
+              "title": "900-1200mm",
+              "literal_filters": [
+                "900-1200mm"
+              ],
+              "fills": [
+                "#d94801"
+              ]
+            },
+            {
+              "rule": "1200_2300mm",
+              "title": "1200-2300mm",
+              "literal_filters": [
+                "1200-2300mm"
+              ],
+              "fills": [
+                "#a63603"
+              ]
+            },
+            {
+              "rule": "_2300mm",
+              "title": ">2300mm",
+              "literal_filters": [
+                ">2300mm"
+              ],
+              "fills": [
+                "#7f2704"
+              ]
             }
           ]
         }
@@ -56,6 +272,78 @@
               "name": "Surface_Water_Spatial_Planning_1in1000_Depths_CCP1_25_03_2026",
               "title": "Surface_Water_Spatial_Planning_Depths_CCP1"
             }
+          ],
+          "official_depth_rules": [
+            {
+              "rule": "_150mm",
+              "title": "<150mm",
+              "literal_filters": [
+                "<150mm"
+              ],
+              "fills": [
+                "#fdd0a2"
+              ]
+            },
+            {
+              "rule": "150_300mm",
+              "title": "150-300mm",
+              "literal_filters": [
+                "150-300mm"
+              ],
+              "fills": [
+                "#fdae6b"
+              ]
+            },
+            {
+              "rule": "300_600mm",
+              "title": "300-600mm",
+              "literal_filters": [
+                "300-600mm"
+              ],
+              "fills": [
+                "#fd8d3c"
+              ]
+            },
+            {
+              "rule": "600_900mm",
+              "title": "600-900mm",
+              "literal_filters": [
+                "600-900mm"
+              ],
+              "fills": [
+                "#f16913"
+              ]
+            },
+            {
+              "rule": "900_1200mm",
+              "title": "900-1200mm",
+              "literal_filters": [
+                "900-1200mm"
+              ],
+              "fills": [
+                "#d94801"
+              ]
+            },
+            {
+              "rule": "1200_2300mm",
+              "title": "1200-2300mm",
+              "literal_filters": [
+                "1200-2300mm"
+              ],
+              "fills": [
+                "#a63603"
+              ]
+            },
+            {
+              "rule": "_2300mm",
+              "title": ">2300mm",
+              "literal_filters": [
+                ">2300mm"
+              ],
+              "fills": [
+                "#7f2704"
+              ]
+            }
           ]
         },
         {
@@ -66,6 +354,78 @@
               "name": "Surface_Water_Spatial_Planning_1in100_Depths_CCP1_25_03_2026",
               "title": "Surface_Water_Spatial_Planning_Depths_CCP1"
             }
+          ],
+          "official_depth_rules": [
+            {
+              "rule": "_150mm",
+              "title": "<150mm",
+              "literal_filters": [
+                "<150mm"
+              ],
+              "fills": [
+                "#fdd0a2"
+              ]
+            },
+            {
+              "rule": "150_300mm",
+              "title": "150-300mm",
+              "literal_filters": [
+                "150-300mm"
+              ],
+              "fills": [
+                "#fdae6b"
+              ]
+            },
+            {
+              "rule": "300_600mm",
+              "title": "300-600mm",
+              "literal_filters": [
+                "300-600mm"
+              ],
+              "fills": [
+                "#fd8d3c"
+              ]
+            },
+            {
+              "rule": "600_900mm",
+              "title": "600-900mm",
+              "literal_filters": [
+                "600-900mm"
+              ],
+              "fills": [
+                "#f16913"
+              ]
+            },
+            {
+              "rule": "900_1200mm",
+              "title": "900-1200mm",
+              "literal_filters": [
+                "900-1200mm"
+              ],
+              "fills": [
+                "#d94801"
+              ]
+            },
+            {
+              "rule": "1200_2300mm",
+              "title": "1200-2300mm",
+              "literal_filters": [
+                "1200-2300mm"
+              ],
+              "fills": [
+                "#a63603"
+              ]
+            },
+            {
+              "rule": "_2300mm",
+              "title": ">2300mm",
+              "literal_filters": [
+                ">2300mm"
+              ],
+              "fills": [
+                "#7f2704"
+              ]
+            }
           ]
         },
         {
@@ -75,6 +435,78 @@
             {
               "name": "Surface_Water_Spatial_Planning_1in30_Depths_CCP1_25_03_2026",
               "title": "Surface_Water_Spatial_Planning_Depths_CCP1"
+            }
+          ],
+          "official_depth_rules": [
+            {
+              "rule": "_150mm",
+              "title": "<150mm",
+              "literal_filters": [
+                "<150mm"
+              ],
+              "fills": [
+                "#fdd0a2"
+              ]
+            },
+            {
+              "rule": "150_300mm",
+              "title": "150-300mm",
+              "literal_filters": [
+                "150-300mm"
+              ],
+              "fills": [
+                "#fdae6b"
+              ]
+            },
+            {
+              "rule": "300_600mm",
+              "title": "300-600mm",
+              "literal_filters": [
+                "300-600mm"
+              ],
+              "fills": [
+                "#fd8d3c"
+              ]
+            },
+            {
+              "rule": "600_900mm",
+              "title": "600-900mm",
+              "literal_filters": [
+                "600-900mm"
+              ],
+              "fills": [
+                "#f16913"
+              ]
+            },
+            {
+              "rule": "900_1200mm",
+              "title": "900-1200mm",
+              "literal_filters": [
+                "900-1200mm"
+              ],
+              "fills": [
+                "#d94801"
+              ]
+            },
+            {
+              "rule": "1200_2300mm",
+              "title": "1200-2300mm",
+              "literal_filters": [
+                "1200-2300mm"
+              ],
+              "fills": [
+                "#a63603"
+              ]
+            },
+            {
+              "rule": "_2300mm",
+              "title": ">2300mm",
+              "literal_filters": [
+                ">2300mm"
+              ],
+              "fills": [
+                "#7f2704"
+              ]
             }
           ]
         }
