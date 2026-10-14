@@ -919,7 +919,7 @@ onmessage=async({data})=>{
       const duration=clamp(Number(data.durationMin)||60,15,240);
       const infiltration=clamp(Number(data.infiltrationMmH)||5,0,100);
       const assumedUrbanDrainage=clamp(Number(data.assumedUrbanDrainageMmH??25),0,100);
-      const scenario=data.climateScenario==='upper'?'upper':'central';
+      const scenario=(['low','central','upper'].includes(data.climateScenario)?data.climateScenario:'central');
       const storm=data.stormProfile==='front'?'front':
         data.stormProfile==='uniform'?'uniform':'peak';
       const drainage=data.drainageGuide!==false;
@@ -960,7 +960,7 @@ onmessage=async({data})=>{
         };
         try{
           const baseline=runEvent(1);
-          const futureFactor=1+(scenario==='upper'?0.40:0.25);
+          const futureFactor=1+({low:0.10,central:0.25,upper:0.40}[scenario]??0.25);
           const future=runEvent(futureFactor);
           // Compute both scenario storms for reference, but the VIDEO timeline
           // starts at a NO-ADDITIONAL-WATER scene in 2026. This is a visual
