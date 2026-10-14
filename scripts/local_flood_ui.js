@@ -655,7 +655,9 @@ export function createLocalFloodUI({
   let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null;
   let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
   let annualPlaying=false,annualAdvanceTimer=null;
-  let longTermMode=false,annualBudget=null;
+  let longTermMode=true,annualBudget=null;
+  // The standalone 2026–2100 timeline now uses one coherent annual
+  // accumulation scenario; its removed checkbox is no longer required.
   const yearFrames=new Map();
   let applyingYearFrame=false;
   let pendingBaselineFrame=false;
@@ -671,8 +673,9 @@ export function createLocalFloodUI({
     stopAnnual();
     futureYear=Math.max(2026,Math.min(2100,Math.round(Number(value)||2026)));
     simYearDisplay();
-    if(longTermMode){
-      if(!showCachedYear(futureYear))status('该年份尚未计算。请先运行至 2100 年以生成可回放快照。');
+    if(longTermMode&&!showCachedYear(futureYear)){
+      ensureSimulator().seekYear({year:futureYear,annualRainMm:250,annualLossMm:210,climateScenario});
+      status('正在计算 '+futureYear+' 年的蓄水情景 · 示例假设 250 mm 有效降雨 / 210 mm 损失');
     }
   };
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
@@ -2063,7 +2066,10 @@ export function createLocalFloodUI({
         stopAnnual();clearYearFrames();futureYear=2026;
         simulator?.reset(true);annualBudget=null;
         simYearDisplay();
-        const netRain=Number(siteHud('siteHudAnnualRain').value),loss=Number(siteHud('siteHudAnnualLoss').value);
+        // The former experimental input panel was intentionally removed.
+        // Preserve explicit labelled baseline assumptions until real local
+        // annual water-budget datasets are integrated.
+        const netRain=250,loss=210;
         if(!Number.isFinite(netRain)||!Number.isFinite(loss)||netRain<0||loss<0){status('请输入有效的年度降雨和损失假设。',true);return;}
         annualPlaying=true;clearRiskEnvelope();
         // Reserve the baseline year: no modeled additional accumulation yet.
@@ -2904,11 +2910,13 @@ export function createLocalFloodUI({
 
   function handleFrame(data){
     if(!canvas||!canvasContext)return;
-    if(longTermMode&&annualPlaying&&!applyingYearFrame&&data?.depthMm){
+    if(longTermMode&&!applyingYearFrame&&data?.depthMm){
       // Structured cloning is unnecessary: each worker frame owns transferred
       // ArrayBuffers which remain valid after receipt. Retain one per year.
-      yearFrames.set(pendingBaselineFrame?2026:futureYear,data);
+      const snapshotYear=Number.isInteger(data.scenarioYear)?data.scenarioYear:(pendingBaselineFrame?2026:futureYear);
+      yearFrames.set(snapshotYear,data);
       pendingBaselineFrame=false;
+      if(!annualPlaying&&snapshotYear!==futureYear)return;
     }
     // In the 2026–2100 baseline playback, show the maximum inundation
     // envelope observed up to the selected year. Never clear risk patches
