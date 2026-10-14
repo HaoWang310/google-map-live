@@ -2058,6 +2058,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" style="margin:8px 0;border:1px solid #426279;border-radius:7px;padding:8px">',
       '<strong>EA 官方外部洪水数据</strong> · <a href="https://www.data.gov.uk/dataset/67a734bb-2b7b-491a-aafd-3f7e52c8d7f3/rivers-and-sea-defended-and-undefended-flood-risk-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化深度数据集</a>',
       '<div id="siteHudEaStageStatus" style="margin:5px 0">尚未查询场地附近官方河流水位站。</div>',
+      '<div id="siteHudEaFloodZoneStatus" style="margin:5px 0">尚未查询 EA 官方 Flood Zone 2 / 3 场地覆盖。</div>',
+      '<button type="button" class="site-hydro-btn" id="siteHudQueryEaZones">查询 EA 官方洪水区</button>',
       '<button type="button" class="site-hydro-btn" id="siteHudQueryEaStage">查询附近 EA 实测水位</button>',
       '<div style="margin-top:5px">注意：站点读数可能是 mASD（相对站点零点），不能代入 DEM；即使 mAOD，也必须验证水力连接及高程基准，不能作为任意地块外部边界。官方洪水深度分级不代表实时边界水位。</div>',
       '</div>',
@@ -2255,6 +2257,32 @@ export function createLocalFloodUI({
     };
     siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
+    siteHud('siteHudQueryEaZones').onclick=async()=>{
+      const output=siteHud('siteHudEaFloodZoneStatus');
+      const ring=polygon?.[0];
+      if(!output||!ring?.length){if(output)output.textContent='场地边界不可用';return;}
+      const pts=ring.map(p=>[Number(p[0]),Number(p[1])]);
+      const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
+      const bbox=[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)];
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),16000);
+      output.textContent='查询 Environment Agency 官方 Flood Zone 2、3…';
+      try{
+        const base='https://services1.arcgis.com/JZM7qJpmv7vJ0Hzx/ArcGIS/rest/services/Flood_Map_for_Planning/FeatureServer/';
+        const geometry=encodeURIComponent(JSON.stringify({xmin:bbox[0],ymin:bbox[1],xmax:bbox[2],ymax:bbox[3],spatialReference:{wkid:4326}}));
+        const query=n=>fetch(base+n+'/query?geometry='+geometry+
+          '&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&returnCountOnly=true&f=json',
+          {signal:controller.signal}).then(r=>{if(!r.ok)throw Error('HTTP '+r.status);return r.json();});
+        const results=await Promise.all([query(1),query(2)]);
+        if(results.some(x=>x.error||!Number.isFinite(x.count)))
+          throw Error(results.find(x=>x.error)?.error?.message||'EA 空间服务未返回有效数量');
+        output.textContent='EA 官方洪水区查询完成：Zone 3 '+results[0].count+
+          ' 个相交图斑；Zone 2 '+results[1].count+
+          ' 个相交图斑（基于地块外包矩形，初步筛查，非精确地块交集或洪水深度）。'
+          +'数据来源：EA Flood Map for Planning (Rivers and Sea)。此结果不提供动态边界水位。';
+      }catch(e){
+        output.textContent='EA 官方洪水区查询失败：'+(e?.message||String(e))+'。未生成虚构洪水数据。';
+      }finally{clearTimeout(timer);}
+    };
     siteHud('siteHudQueryEaStage').onclick=async()=>{
       const output=siteHud('siteHudEaStageStatus');
       const ring=polygon?.[0];
