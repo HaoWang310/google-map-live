@@ -708,6 +708,11 @@ function sendFrame(){
   // Visual 3D water uses the SAME obstacle-masked solver depths. Quantized
   // millimetres avoid a second high-bandwidth float field per frame.
   const depthMm=new Uint16Array(cols*rows);
+  // Exact solver-cell visibility mask for antialiased rendering: prevent
+  // water softness from bleeding over building footprints or off the parcel.
+  const validMask=new Uint8Array(cols*rows);
+  for(let i=0;i<validMask.length;i++)
+    validMask[i]=inside[i]&&!obstacle[i]?1:0;
   const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
   let riskOverlapCells=0,riskKnownCells=0;
@@ -768,7 +773,7 @@ function sendFrame(){
     Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
     Math.max(0,Number(params.rainfall)||0);
   const flowField=buildHydroFlowField();
-  const buffers=[pixels.buffer,depthMm.buffer,contactMask.buffer];
+  const buffers=[pixels.buffer,depthMm.buffer,contactMask.buffer,validMask.buffer];
   if(flowField)buffers.push(flowField.vx.buffer,
     flowField.vy.buffer,flowField.intensity.buffer);
   postMessage({
@@ -776,6 +781,7 @@ function sendFrame(){
     annualAreaStage,
     width:cols,height:rows,pixels:pixels.buffer,
     depthMm:depthMm.buffer,contactMask:contactMask.buffer,
+    validMask:validMask.buffer,
     flowField:flowField?{
       cols:flowField.cols,rows:flowField.rows,units:'relative',
       vx:flowField.vx.buffer,vy:flowField.vy.buffer,
