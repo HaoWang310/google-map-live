@@ -279,7 +279,7 @@
     /* The city sidebar is only the selection step; all simulation controls live
        in the independent site view. Source inputs stay mounted for backward
        compatibility with the existing simulation and 3D building pipeline. */
-    #localFloodSimItem > :not(#localFloodSelectHeader):not(#localFloodSelectActions):not(#localFloodStatus){
+    #localFloodSimItem > :not(#localFloodSelectHeader):not(#localFloodSelectActions):not(#parcelGeneratorEntry):not(#localFloodStatus){
       display:none!important;
     }
     #localFloodSelectActions{padding:3px 9px 10px}
@@ -400,7 +400,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.87</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.21.88</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -608,6 +608,9 @@
             <button id="localFloodFinish" class="secondary" type="button" disabled title="完成当前边界并立即生成橙色建筑；生成后可继续拖动锚点并按 Enter 重新生成">确定范围</button>
             <button id="localFloodClear" class="secondary" type="button" disabled>清除</button>
           </div>
+          <div class="simButtonRow" id="parcelGeneratorEntry" style="padding-top:0">
+            <button id="parcelGeneratorOpen" class="secondary" style="width:100%;flex:1" type="button" disabled>Parcel Generator · 道路与地块生成</button>
+          </div>
           <div class="simParamRow">
             <span>降雨强度</span>
             <input id="localFloodRain" type="range" min="0" max="150" step="5" value="50">
@@ -752,10 +755,11 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.87';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.21.88';
+  import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.21.87';
+  const APP_VERSION='3.21.88';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1082,6 +1086,7 @@
   let floodAppliedOpacity=null;
 
   let localFloodUI=null;
+  let parcelGenerator=null;
 
   // Lightweight, viewport-scoped street vehicles. They never participate in flood
   // building selection or simulation geometry.
@@ -7649,7 +7654,15 @@
             threshold:networkThreshold
           }),
           getFocusReferenceTile:(type,request,controller)=>
-            type==='ea'?detailLoader(request,controller):hydrologyLoader(request,controller)
+            type==='ea'?detailLoader(request,controller):hydrologyLoader(request,controller),
+          onOpenParcelGenerator:({polygon})=>{
+            if(!parcelGenerator)parcelGenerator=createParcelGenerator({
+              maplibregl,assetUrl,demBounds:DRAINAGE_3857,
+              demWidth:DRAINAGE_3857.baseWidth50m,
+              demHeight:DRAINAGE_3857.baseHeight50m
+            });
+            parcelGenerator.open({polygon});
+          }
         });
       }
       $('localFloodDraw').disabled=false;
