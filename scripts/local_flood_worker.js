@@ -454,32 +454,49 @@ function simulationStep(dt=5){
   sim.timeSec+=dt;
 }
 
+// Depth-encoded map colours. The reference EA probability map is NOT used to
+// generate these values: each pixel comes from simulated water in metres.
+const SIM_DEPTH_BOUNDS=[0.005,0.05,0.15,0.30,0.60,1.20];
+const SIM_DEPTH_COLOURS=[
+  [184,239,245,95],  // <5 cm: very shallow, nearly transparent
+  [106,218,223,145], // 5–15 cm: cyan
+  [37,184,198,184],  // 15–30 cm: turquoise
+  [36,124,201,207],  // 30–60 cm: medium blue
+  [34,75,170,229],   // 60–120 cm: dark blue
+  [28,41,104,241]    // >=120 cm: deep navy
+];
+
+function depthBandIndex(depth){
+  if(!(depth>=SIM_DEPTH_BOUNDS[0]))return -1;
+  for(let i=1;i<SIM_DEPTH_BOUNDS.length;i++){
+    if(depth<SIM_DEPTH_BOUNDS[i])return i-1;
+  }
+  return SIM_DEPTH_BOUNDS.length-1;
+}
+
 function depthColour(depth,pulse=0,flowStrength=0){
-  if(depth<0.005)return [0,0,0,0];
-  const stops=[
-    [0.005,160,232,255,38],
-    [0.03,82,207,255,112],
-    [0.10,31,163,255,165],
-    [0.30,16,116,222,198],
-    [0.60,18,73,167,220],
-    [1.20,13,44,110,238]
+  const band=depthBandIndex(depth);
+  if(band<0)return [0,0,0,0];
+  const current=SIM_DEPTH_COLOURS[band];
+  const next=SIM_DEPTH_COLOURS[Math.min(band+1,SIM_DEPTH_COLOURS.length-1)];
+  const begin=SIM_DEPTH_BOUNDS[band];
+  const end=SIM_DEPTH_BOUNDS[Math.min(band+1,SIM_DEPTH_BOUNDS.length-1)];
+  // Continuous hue at depth transitions prevents harsh fake risk-grid edges.
+  const t=band===SIM_DEPTH_BOUNDS.length-1?
+    0:clamp((depth-begin)/Math.max(0.0001,end-begin),0,1);
+  const blend=t*t*(3-2*t);
+  let red=current[0]+(next[0]-current[0])*blend;
+  let green=current[1]+(next[1]-current[1])*blend;
+  let blue=current[2]+(next[2]-current[2])*blend;
+  const alpha=current[3]+(next[3]-current[3])*blend;
+  // Subtle display-only shimmer; no random patches or changes to water mass.
+  const shimmer=clamp((pulse*0.5+0.5)*(0.012+0.045*flowStrength),0,0.07);
+  red+=(240-red)*shimmer;
+  green+=(250-green)*shimmer;
+  blue+=(255-blue)*shimmer;
+  return [
+    Math.round(red),Math.round(green),Math.round(blue),Math.round(alpha)
   ];
-  let a=stops[0],b=stops[stops.length-1];
-  for(let i=1;i<stops.length;i++)if(depth<=stops[i][0]){a=stops[i-1];b=stops[i];break;}
-  const t=clamp((depth-a[0])/(b[0]-a[0]||1),0,1);
-  let r=a[1]+(b[1]-a[1])*t;
-  let g=a[2]+(b[2]-a[2])*t;
-  let blue=a[3]+(b[3]-a[3])*t;
-  let alpha=a[4]+(b[4]-a[4])*t;
-
-  // Display-only moving highlight: the hydrodynamic state remains unchanged.
-  const glint=clamp((pulse*.5+.5)*(0.05+0.18*flowStrength),0,0.24);
-  r=r+(255-r)*glint;
-  g=g+(255-g)*glint;
-  blue=blue+(255-blue)*glint*.75;
-  alpha*=0.88+0.12*(pulse*.5+.5);
-
-  return [Math.round(r),Math.round(g),Math.round(blue),Math.round(alpha)];
 }
 
 function flowVisual(simulation,row,col,i){
@@ -517,6 +534,7 @@ function sendFrame(){
   const depthMm=new Uint16Array(cols*rows);
   const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
+  const depthCells=new Uint32Array(SIM_DEPTH_BOUNDS.length);
   const impacted=new Set();
   const markCollidingBuilding=cellIndex=>{
     if(!obstacle[cellIndex])return;
@@ -544,6 +562,8 @@ function sendFrame(){
     }
     retainedM3+=Math.min(water[i],svCapacity[i])*cell*cell;
     if(h>maxDepth)maxDepth=h;
+    const depthBand=depthBandIndex(h);
+    if(depthBand>=0)depthCells[depthBand]++;
     if(h>=0.02){wetCells++;volume+=h*cell*cell;}
     const showFlow=params.showFlow!==false;
     const shouldArrow=showFlow&&h>.025&&row%6===3&&col%6===3&&vectors.length<180;
@@ -578,6 +598,7 @@ function sendFrame(){
     stats:{
       currentRainMmH,
       timeMin:sim.timeSec/60,
+      depthCells:Array.from(depthCells),
       maxDepthM:maxDepth,
       wetAreaM2:wetCells*cell*cell,
       volumeM3:volume,
