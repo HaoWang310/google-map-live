@@ -826,7 +826,7 @@ export function createLocalFloodUI({
   const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;};
   // London management catchment 1% AEP design rainfall reference:
   // 2070s central +25%, upper end +40%; reference allowances, not yearly forecasts.
-  const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/74))*(climateScenario==='upper'?.40:.25);
+  const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/74))*({low:.10,central:.25,upper:.40}[climateScenario]??.25);
   const siteHydroHistory=[];
   let siteFacilities=[];
   let nextFacilityId=1;
@@ -2065,7 +2065,7 @@ export function createLocalFloodUI({
       '<div style="margin-top:5px">注意：站点读数可能是 mASD（相对站点零点），不能代入 DEM；即使 mAOD，也必须验证水力连接及高程基准，不能作为任意地块外部边界。官方洪水深度分级不代表实时边界水位。</div>',
       '</div>',
       '<div id="siteHudStageHint" class="site-hydro-mini" style="margin:3px 0 8px;color:#edc98a">外部洪水模式须输入外部边界绝对水位（m，须与 DEM 同一高程基准）；不提供时只能保留选择，不能产生可信水深。</div>',
-      '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
+      '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="low">低暴雨增幅情景 +10%（研究假设）</option><option value="central">中等暴雨增幅情景 +25%</option><option value="upper">高暴雨增幅情景 +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
       '<div class="site-hydro-actions"><button type="button" class="site-hydro-btn" id="siteHudUseRiskGuide">使用 EA 风险引导（无外部水位）</button></div>',
       '<div id="siteHudRiskFusionNote" class="site-hydro-mini">EA 风险分类反映现状洪涝概率，不代表积水水深。可与 DEM 降雨流动做探索性空间引导。</div>',
