@@ -824,7 +824,9 @@ export function createLocalFloodUI({
     simYearDisplay();
     if(longTermMode&&!showCachedYear(futureYear)){
       if(requestYear(futureYear))
-        status('正在加载 '+futureYear+' 年的设计暴雨与 EA 风险引导情景…');
+        status('正在加载 '+futureYear+' 年'+
+          (floodMode==='rain-risk'?'降雨＋EA 风险引导':
+            floodMode==='rain'?'仅降雨':'外部水位')+'情景…');
     }
   };
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
@@ -2364,7 +2366,9 @@ export function createLocalFloodUI({
         stopAnnual();annualPlaying=true;futureYear=2026;
         clearRiskEnvelope();clearYearFrames();simYearDisplay();
         if(requestYear(2026))
-          status('正在计算降雨、DEM 与 EA 风险空间引导的 2100 年终态，随后逐年显示至 2100 年…');
+          status('正在计算'+(floodMode==='rain-risk'?'降雨＋EA 风险引导':
+            floodMode==='rain'?'仅降雨':'外部水位')+
+            '情景的 2100 年终态，并按年份展示到 2100 年。');
         return;
       }
       if(!resolveFloodModeForPlayback())return;
