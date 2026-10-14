@@ -43,7 +43,9 @@ export function createLocalFloodSimulator(config){
       demWidth:config.demWidth,
       demHeight:config.demHeight,
       demEncoding:config.demEncoding,
-      drainageUrl:config.drainageUrl||null
+      drainageUrl:config.drainageUrl||null,
+      riskMetaUrl:config.riskMetaUrl||null,
+      riskTileUrls:config.riskTileUrls||null
     });
   }
 
