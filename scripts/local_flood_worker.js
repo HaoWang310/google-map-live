@@ -950,10 +950,13 @@ onmessage=async({data})=>{
             ?'正在计算 DEM 降雨汇流，并以 EA 现状风险等级轻度引导下坡流动（非水深校准）…'
             :'正在运行两场独立设计事件，并对照 EA 洪涝风险位置…'});
         const priorParams=params;
-        const runEvent=factor=>{
+        try{
+          // v3.22.25: solve ONE physical 2-hour storm, caching its evolving
+          // water depths. This replaces synthetic rank-ordered cell reveal.
+          // Years remain a presentation timeline, not annual flood forecasts.
           sim.water.fill(0);sim.delta.fill(0);
           sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
-          params={...params,rainfall:mode==='external'?0:eventIntensity*factor,
+          params={...params,rainfall:mode==='external'?0:eventIntensity,
             infiltration,duration,stormProfile:storm,
             assumedUrbanDrainageMmH:assumedUrbanDrainage,
             rainSeriesMm15:null,externalStageM:externalStage,floodMode:mode,
@@ -964,96 +967,63 @@ onmessage=async({data})=>{
             drainageGuide:drainage,
             drainageThreshold:Number(data.drainageThreshold)||0};
           applySpongeInterventions();
-          const steps=Math.ceil(duration*60/12);
-          for(let i=0;i<steps;i++)
+          const steps=Math.ceil(duration*60/12),framesCount=38;
+          const snapshots=[new Float32Array(sim.water)];
+          for(let step=1;step<=steps;step++){
             simulationStep(Math.min(12,duration*60-sim.timeSec));
-          return new Float32Array(sim.water);
-        };
-        try{
-          const baseline=runEvent(1);
-          const futureFactor=1; // v3.22.22: only selected, reference-based 2h rainfall scenario; no hidden +10/+25/+40 uplift
-          const future=runEvent(futureFactor);
-          // Compute both scenario storms for reference, but the VIDEO timeline
-          // starts at a NO-ADDITIONAL-WATER scene in 2026. This is a visual
-          // baseline, NOT a claim of zero real-world flood risk in 2026.
-          // Year 2100 uses exactly the event-solver's future result. Intermediate
-          // frames reveal equal fractions of FINAL mapped inundation. Never
-          // synthesize flood cells outside the independently calculated future.
-          const visibleWet=[],visibleShallow=[];
-          let finalWetCount=0;
-          const colourThreshold=.001,wetThreshold=.02;
-          for(let i=0;i<sim.water.length;i++){
-            if(!sim.inside[i]||sim.obstacle[i])continue;
-            const depth=future[i]-sim.svCapacity[i];
-            if(depth>=wetThreshold){visibleWet.push(i);finalWetCount++;}
-            else if(depth>=colourThreshold)visibleShallow.push(i);
+            // Quantized display snapshots each 1/37th of the actual event,
+            // including its start and end; no invented intermediate flood.
+            const shouldHave=Math.floor(step*(framesCount-1)/steps)+1;
+            while(snapshots.length<shouldHave)
+              snapshots.push(new Float32Array(sim.water));
           }
-          const risk=i=>{
-            const code=sim.riskRank?.[i]||0;
-            return code>=1&&code<=4?code:0;
+          const future=snapshots[snapshots.length-1];
+          let finalWetCount=0;
+          for(let i=0;i<future.length;i++){
+            if(sim.inside[i]&&!sim.obstacle[i]&&
+               future[i]-sim.svCapacity[i]>=0.02)finalWetCount++;
+          }
+          annualRiskForecast={
+            key,snapshots,future,eventIntensity,duration,
+            infiltration,assumedUrbanDrainage,scenario,mode,
+            riskAvailable:sim.riskAvailable,finalWetCount,
+            futureFactor:1
           };
-          const sortByRiskAndLowTerrain=(a,b)=>
-            risk(b)-risk(a)||
-            sim.terrain[a]-sim.terrain[b]||
-            future[b]-future[a]||a-b;
-          visibleWet.sort(sortByRiskAndLowTerrain);
-          visibleShallow.sort(sortByRiskAndLowTerrain);
-          annualRiskForecast={key,baseline,future,futureFactor,
-            eventIntensity,duration,infiltration,assumedUrbanDrainage,
-            scenario,mode,riskAvailable:sim.riskAvailable,
-            visibleWet,visibleShallow,finalWetCount,
-            wetThreshold,colourThreshold};
         }finally{params=priorParams;applySpongeInterventions();}
       }
       const forecast=annualRiskForecast;
       const progress=(year-2026)/74;
       sim.water.fill(0);sim.delta.fill(0);
-      // BOTH wet-area and shallow-colour cells are revealed in 74 equal
-      // yearly fractions. Water depths increase towards the computed final
-      // field. No 2026 model flood is displayed; none of these interim years
-      // is a physically solved future annual flood.
-      const wetVisible=Math.round(progress*forecast.visibleWet.length);
-      const shallowVisible=Math.round(progress*forecast.visibleShallow.length);
-      const reveal=(sorted,count,threshold)=>{
-        for(let k=0;k<count;k++){
-          const i=sorted[k],finalDepth=Math.max(0,forecast.future[i]);
-          // Newly visible cells begin near their respective display
-          // thresholds then deepen; never exceed the final computed depth.
-          const birth=(k+.5)/Math.max(1,sorted.length);
-          const age=Math.max(0,Math.min(1,
-            (progress-birth)/Math.max(1/74,1-birth)));
-          const depth=Math.min(finalDepth,
-            Math.max(threshold,finalDepth*(.20+.80*age)));
-          sim.water[i]=depth;
-        }
-      };
-      if(year>2026){
-        reveal(forecast.visibleWet,wetVisible,forecast.wetThreshold+.0001);
-        reveal(forecast.visibleShallow,shallowVisible,forecast.colourThreshold+.0001);
+      // Read actual solved depths at event time represented by the slider.
+      // Only interpolate between two adjacent physical solver snapshots;
+      // the water path, barriers and fill/overflow all come from the solver.
+      const framePos=progress*(forecast.snapshots.length-1);
+      const frame0=Math.floor(framePos),frame1=Math.min(frame0+1,forecast.snapshots.length-1);
+      const t=framePos-frame0,a=forecast.snapshots[frame0],b=forecast.snapshots[frame1];
+      let wetVisible=0;
+      for(let i=0;i<sim.water.length;i++){
+        sim.water[i]=a[i]*(1-t)+b[i]*t;
+        if(sim.inside[i]&&!sim.obstacle[i]&&
+           sim.water[i]-sim.svCapacity[i]>=0.02)wetVisible++;
       }
-      // The animation begins dry and ends exactly on the computed result.
-      if(year===2100)sim.water.set(forecast.future);
-      sim.timeSec=0;
+      sim.timeSec=progress*forecast.duration*60;
       annualFrameYear=year;
       annualAreaStage={
         kind:'rainfall-risk-scenario',year,fraction:progress,
         floodMode:forecast.mode,
         baseRainMmH:forecast.mode==='external'?0:forecast.eventIntensity,
-        designRainMmH:forecast.mode==='external'?0:forecast.eventIntensity*
-          (1+(forecast.futureFactor-1)*progress),
+        designRainMmH:forecast.mode==='external'?0:forecast.eventIntensity,
         durationMin:forecast.duration,
         assumedUrbanDrainageMmH:forecast.assumedUrbanDrainage,
         baselineWetAreaM2:0,
         finalWetAreaM2:forecast.finalWetCount*sim.cell*sim.cell,
         targetWetAreaM2:wetVisible*sim.cell*sim.cell,
-        addedCellCount:forecast.visibleWet.length,
+        addedCellCount:forecast.finalWetCount,
         removedCellCount:0,
         zeroWaterAt2026:true,areaStaging:true,
         riskAvailable:forecast.riskAvailable,
-        riskReference:'EA RoFSW surface-water ordinal categories; guidance only; RoFRS excluded',
-        methodologicalNote:mode==='rain-risk'
-          ?'Rainfall supplies water; DEM/buildings/drainage govern movement. Mapped EA ordinal flood-risk classes guide downhill path preference and visual ordering, never add flood depth or boundary inflow. 2026 is a dry visual start, not actual historical flood conditions.'
-          :'2026 is a zero-additional-water PRESENTATION baseline. 2100 is an independently modeled design storm; mapped cells and depth build gradually over 74 steps. EA risk guides ordering only. This is NOT a historical or annual flood prediction.'
+        riskReference:'EA RoFSW present-day surface-water ordinal risk; directional guidance only',
+        methodologicalNote:'A 2-hour DEM/obstacle solver supplies conservative water transport, cached as 38 event snapshots. The 2026–2100 slider replays storm time for presentation ONLY; it is NOT a year-by-year flood projection. No synthetic wet cells, external water input, or EA-derived water depth.'
       };
       sendFrame();
       annualFrameYear=null;annualAreaStage=null;
