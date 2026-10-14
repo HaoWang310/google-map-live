@@ -9,7 +9,7 @@ let timer=null;
 let params={
   rainfall:50,infiltration:5,duration:60,openBoundary:true,
   drainageGuide:true,drainageThreshold:1,rainSeriesMm15:null,
-  interventions:[],showFlow:true
+  interventions:[],showFlow:true,floodMode:'rain',externalStageM:null
 };
 
 function mercator(lng,lat){
@@ -389,9 +389,9 @@ function simulationStep(dt=5){
     ?params.rainSeriesMm15:null;
   const slot=Math.min(15,Math.max(0,Math.floor(sim.timeSec/900)));
   const observed=series&&sim.timeSec<4*3600?Number(series[slot]):NaN;
-  const rain=Number.isFinite(observed)&&observed>=0
+  const rain=params.floodMode==='external'?0:(Number.isFinite(observed)&&observed>=0
     ?observed/1000/900*dt
-    :Math.max(0,Number(params.rainfall)||0)/1000/3600*dt;
+    :Math.max(0,Number(params.rainfall)||0)/1000/3600*dt);
   const infil=Math.max(0,Number(params.infiltration)||0)/1000/3600*dt;
 
   for(let i=0;i<water.length;i++){
@@ -402,6 +402,17 @@ function simulationStep(dt=5){
     sim.spongeInfilM3+=spongeLoss*cell*cell;
   }
 
+  // Manually supplied external stage is an exploratory boundary condition,
+  // never inferred from a static EA flood-probability raster.
+  if((params.floodMode==='external'||params.floodMode==='coupled')&&
+     params.externalStageM!==null&&Number.isFinite(Number(params.externalStageM))){
+    const stage=Number(params.externalStageM);
+    for(let i=0;i<water.length;i++){
+      if(!inside[i]||obstacle[i]||!boundary[i])continue;
+      const target=Math.max(0,stage-terrain[i]);
+      water[i]+=Math.min(Math.max(0,target-water[i]),0.025*dt);
+    }
+  }
   delta.fill(0);
   for(let row=0;row<rows;row++){
     for(let col=0;col<cols;col++){
@@ -441,7 +452,7 @@ function simulationStep(dt=5){
         }
       }
 
-      if(params.openBoundary&&boundary[i]){
+      if(params.openBoundary&&boundary[i]&&params.floodMode==='rain'){
         delta[i]-=Math.min(Math.max(0,h+delta[i]),h*0.035);
       }
     }
