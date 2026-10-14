@@ -656,6 +656,8 @@ export function createLocalFloodUI({
   let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
   let annualPlaying=false,annualAdvanceTimer=null;
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
+  let riskEnvelope=null; // maximum predicted depth encountered through the current year
+  const clearRiskEnvelope=()=>{riskEnvelope=null;};
   const WATER_BLEND_MS=580;
   const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;};
   // London management catchment 1% AEP design rainfall reference:
@@ -1569,9 +1571,9 @@ export function createLocalFloodUI({
       const el=siteHud('siteDepthBin'+i);
       if(el)el.dataset.wet=ha>0?'true':'false';
     }
-    setSiteHud('siteHudFloodPhase',!v||v.timeMin===0?
-      '尚未运行 · 无动态积水':
-      '模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化');
+    setSiteHud('siteHudFloodPhase',annualPlaying?
+      futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
+      (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
       setSiteHud('siteHudDepth',v.maxDepthM.toFixed(2)+' m');
       setSiteHud('siteHudArea',(v.wetAreaM2/1e4).toFixed(2)+' ha');
@@ -1884,7 +1886,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-timeline"><div style="display:flex;justify-content:space-between">',
       '<strong id="siteHudClock">2026 年 / 2100 年</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
-      '<div class="site-hydro-mini" id="siteHudNotice">自动播放 2026—2100 年度设计事件（加速近似计算，并非逐年真实洪水预报）</div></div></footer>'
+      '<div class="site-hydro-mini" id="siteHudNotice">2026—2100 无新增干预：最大淹没风险包络逐年扩展（情景推算，非连续积水）</div></div></footer>'
     ].join('');
     container.appendChild(shell);
     const bounds=bboxLngLat(polygon[0]);
@@ -1901,7 +1903,7 @@ export function createLocalFloodUI({
     };
     updateSiteHydroDashboard();
     const resetFuture=()=>{
-      stopAnnual();
+      stopAnnual();clearRiskEnvelope();
       simulator?.reset();siteHydroHistory.length=0;lastHydroFrame=null;hydroState='reset';
       updateSiteHydroDashboard();
     };
@@ -2008,7 +2010,8 @@ export function createLocalFloodUI({
       if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
         status('必须先填写有依据的外部洪水边界水位。',true);return;
       }
-      if(futureYear>=2100)futureYear=2026;
+      if(futureYear>=2100){futureYear=2026;clearRiskEnvelope();}
+      if(!annualPlaying&&futureYear===2026)clearRiskEnvelope();
       annualPlaying=true;
       simulator?.reset(true);
       ensureSimulator().start({...currentParams(),annualPreview:true});
@@ -2018,7 +2021,7 @@ export function createLocalFloodUI({
       stopAnnual();simulator?.pause();updateSiteHydroDashboard();
     };
     siteHud('siteHudReset').onclick=()=>{
-      stopAnnual();simulator?.reset();futureYear=2026;
+      stopAnnual();clearRiskEnvelope();simulator?.reset();futureYear=2026;
       hydroState='reset';lastHydroFrame=null;siteHydroHistory.length=0;
       simYearDisplay();
     };
@@ -2292,7 +2295,7 @@ export function createLocalFloodUI({
   }
 
   function clearSimulation(keepSelection=false){
-    stopAnnual();
+    stopAnnual();clearRiskEnvelope();
     hideAreaPopup();
     if(isolatedSelection)exitSelectionIsolate(false);
     if(!keepSelection){
@@ -2804,6 +2807,38 @@ export function createLocalFloodUI({
 
   function handleFrame(data){
     if(!canvas||!canvasContext)return;
+    // In the 2026–2100 baseline playback, show the maximum inundation
+    // envelope observed up to the selected year. Never clear risk patches
+    // when a new representative storm starts. This is a design-risk envelope,
+    // NOT 74 years of continuously retained physical floodwater.
+    if(annualPlaying&&data.depthMm){
+      const current=new Uint16Array(data.depthMm);
+      const rgba=new Uint8ClampedArray(data.pixels);
+      const contact=data.contactMask?new Uint8Array(data.contactMask):null;
+      if(!riskEnvelope||riskEnvelope.depth.length!==current.length){
+        riskEnvelope={depth:new Uint16Array(current.length),
+          rgba:new Uint8ClampedArray(rgba.length),
+          contacts:new Uint8Array(current.length),
+          impacted:new Set(),maxDepthM:0,wetAreaM2:0,volumeM3:0};
+      }
+      const env=riskEnvelope;
+      for(let i=0;i<current.length;i++){
+        if(current[i]>env.depth[i]){
+          env.depth[i]=current[i];
+          env.rgba.set(rgba.subarray(i*4,i*4+4),i*4);
+        }
+        if(contact?.[i])env.contacts[i]=1;
+      }
+      for(const id of data.impactedIds||[])env.impacted.add(id);
+      env.maxDepthM=Math.max(env.maxDepthM,data.stats?.maxDepthM||0);
+      env.wetAreaM2=Math.max(env.wetAreaM2,data.stats?.wetAreaM2||0);
+      env.volumeM3=Math.max(env.volumeM3,data.stats?.volumeM3||0);
+      data={...data,pixels:env.rgba.buffer,depthMm:env.depth.buffer,
+        contactMask:env.contacts.buffer,impactedIds:[...env.impacted],
+        stats:{...data.stats,maxDepthM:env.maxDepthM,
+          wetAreaM2:env.wetAreaM2,volumeM3:env.volumeM3,
+          impactedCount:env.impacted.size}};
+    }
     const pixels=new Uint8ClampedArray(data.pixels);
     if(isolatedSelection&&volumetricWater?.ready&&data.depthMm){
       volumetricWater.updateFrame(data);
