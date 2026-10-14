@@ -652,6 +652,25 @@ function sendFrame(){
   },[pixels.buffer,depthMm.buffer,contactMask.buffer]);
 }
 
+function annualStorageStep(data){
+  if(!sim)return;
+  const rainMm=clamp(Number(data.annualRainMm)||0,0,5000);
+  const lossMm=clamp(Number(data.annualLossMm)||0,0,5000);
+  const input=Math.max(0,rainMm-lossMm)/1000;
+  const depletion=Math.max(0,lossMm-rainMm)/1000;
+  for(let i=0;i<sim.water.length;i++){
+    if(!sim.inside[i]||sim.obstacle[i])continue;
+    sim.water[i]=Math.max(0,sim.water[i]+input-depletion);
+  }
+  // Relax the retained water along DEM gradients without injecting a new
+  // hourly rainstorm. Reuses the existing routing solver with zero sources.
+  const oldParams=params;
+  params={...params,rainfall:0,infiltration:0,rainSeriesMm15:null,floodMode:'rain',openBoundary:false};
+  for(let n=0;n<16;n++)simulationStep(5);
+  params=oldParams;
+  sendFrame();
+}
+
 function tick(){
   if(!running||!sim)return;
   const endSec=Math.max(1,Number(params.duration)||60)*60;
@@ -692,6 +711,10 @@ onmessage=async({data})=>{
       if(changed)applySpongeInterventions();
       if(sim&&!running)sendFrame();
       return;
+    }
+    if(data.type==='annual-step'){
+      if(running)throw new Error('请先暂停短时模拟，再运行年度蓄水情景');
+      annualStorageStep(data);return;
     }
     if(data.type==='start'){
       params={...params,...data.params};
