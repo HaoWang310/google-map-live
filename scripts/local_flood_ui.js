@@ -427,60 +427,117 @@ function createFloodVolumeLayer(maplibregl,bounds){
       const sw=maplibregl.MercatorCoordinate.fromLngLat(bounds[3]);
       const dx=(ne.x-nw.x)/widths;
       const dy=(sw.y-nw.y)/rows;
-      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/15000)));
+      // Water simulation remains on its original physical grid. Only the
+      // display mesh uses contour interpolation between measured solver cells.
+      // This avoids square steps along flooded edges and does NOT add water to
+      // the worker grid or alter collision/hydrology statistics.
+      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/18000)));
+      const meshCols=Math.ceil(widths/stride),meshRows=Math.ceil(rows/stride);
+      const sampled=new Float32Array(meshCols*meshRows);
+      const foam=new Float32Array(meshCols*meshRows);
+      for(let rr=0;rr<meshRows;rr++){
+        for(let cc=0;cc<meshCols;cc++){
+          let peak=0,sum=0,amount=0,hit=0;
+          for(let y=rr*stride;y<Math.min(rows,(rr+1)*stride);y++){
+            for(let x=cc*stride;x<Math.min(widths,(cc+1)*stride);x++){
+              const i=y*widths+x,d=depths[i]/1000;
+              peak=Math.max(peak,d);
+              sum+=d;amount++;
+              if(contacts?.[i])hit++;
+            }
+          }
+          const id=rr*meshCols+cc;
+          // No averaging at native resolution. At larger study sites, carry
+          // some channel peaks through the performance downsampling step.
+          sampled[id]=stride===1?peak:Math.max(sum/Math.max(1,amount),peak*0.72);
+          foam[id]=Math.min(1,hit/Math.max(1,amount)*1.1);
+        }
+      }
+      const cutoff=0.008;
+      const metre=this.metreScale;
       const quads=[];
-      const at=(col,row)=>{
-        if(row<0||col<0||row>=rows||col>=widths)return 0;
-        return depths[row*widths+col]/1000;
+      const visualHeight=depth=>Math.max(0.025,Math.min(4,depth*2))*metre;
+      const makeVertex=(point,side,zOverride)=>{
+        const z=zOverride===undefined?visualHeight(point.d):zOverride;
+        quads.push(point.x,point.y,z,point.u,point.v,point.d,side,point.foam);
       };
-      const pushVertex=(v,uv,depth,side,foam)=>{
-        quads.push(v[0],v[1],v[2],uv[0],uv[1],depth,side,foam);
+      const triangle=(a,b,c,side=0)=>{
+        makeVertex(a,side);makeVertex(b,side);makeVertex(c,side);
       };
-      const quad=(v0,v1,v2,v3,uv0,uv1,uv2,uv3,depth,side,foam)=>{
-        pushVertex(v0,uv0,depth,side,foam);
-        pushVertex(v1,uv1,depth,side,foam);
-        pushVertex(v2,uv2,depth,side,foam);
-        pushVertex(v0,uv0,depth,side,foam);
-        pushVertex(v2,uv2,depth,side,foam);
-        pushVertex(v3,uv3,depth,side,foam);
+      const physicalNode=(col,row)=>{
+        const valid=col>=0&&row>=0&&col<meshCols&&row<meshRows;
+        const idx=row*meshCols+col;
+        const u=Math.max(0,Math.min(widths,(col+.5)*stride));
+        const v=Math.max(0,Math.min(rows,(row+.5)*stride));
+        return {
+          x:nw.x+u*dx,y:nw.y+v*dy,u,v,
+          d:valid?sampled[idx]:0,
+          foam:valid?foam[idx]*.45:0,
+          contour:false
+        };
       };
-      const meter=this.metreScale;
-      for(let row=0;row<rows;row+=stride){
-        for(let col=0;col<widths;col+=stride){
-          // Use the centre cell for downsampled grids. A dry building cell must
-          // never acquire a fabricated wet top from neighbouring water.
-          const ri=Math.min(rows-1,row+Math.floor(stride/2));
-          const ci=Math.min(widths-1,col+Math.floor(stride/2));
-          const idx=ri*widths+ci;
-          const depth=depths[idx]/1000;
-          if(depth<0.008)continue;
-          const c2=Math.min(widths,col+stride);
-          const r2=Math.min(rows,row+stride);
-          const x0=nw.x+col*dx,x1=nw.x+c2*dx;
-          const y0=nw.y+row*dy,y1=nw.y+r2*dy;
-          // Only the DISPLAY height is multiplied. Solver water depth and
-          // collision thresholds remain in unmodified physical metres.
-          const top=Math.max(0.025,Math.min(4.0,depth*2.0))*meter;
-          const floor=0.008*meter;
-          const p00=[x0,y0,top],p10=[x1,y0,top];
-          const p11=[x1,y1,top],p01=[x0,y1,top];
-          const contact=contacts?.[idx]?0.45:0;
-          quad(p00,p10,p11,p01,
-            [col,row],[c2,row],[c2,r2],[col,r2],depth,0,contact);
-          const neighbours=[
-            [at(ci,ri-stride),p00,p10,[col,row],[c2,row]],
-            [at(ci+stride,ri),p10,p11,[c2,row],[c2,r2]],
-            [at(ci,ri+stride),p11,p01,[c2,r2],[col,r2]],
-            [at(ci-stride,ri),p01,p00,[col,r2],[col,row]]
-          ];
-          for(const [near,a,b,uva,uvb] of neighbours){
-            if(near>=depth-0.015)continue;
-            const low=Math.max(floor,Math.min(top-0.004*meter,near*2.0*meter));
-            if(low>=top)continue;
-            quad(
-              a,b,[b[0],b[1],low],[a[0],a[1],low],
-              uva,uvb,uvb,uva,depth,1,contact?0.7:0.24
-            );
+      const interpolate=(a,b)=>{
+        const t=Math.max(0,Math.min(1,(cutoff-a.d)/(b.d-a.d||1)));
+        return {
+          x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,
+          u:a.u+(b.u-a.u)*t,v:a.v+(b.v-a.v)*t,
+          d:cutoff,foam:a.foam+(b.foam-a.foam)*t,
+          contour:true
+        };
+      };
+      const clipWetPolygon=vertices=>{
+        const output=[];
+        let prev=vertices[vertices.length-1];
+        let prevWet=prev.d>=cutoff;
+        for(const current of vertices){
+          const wet=current.d>=cutoff;
+          if(wet!==prevWet)output.push(interpolate(prev,current));
+          if(wet)output.push(current);
+          prev=current;prevWet=wet;
+        }
+        return output;
+      };
+      const emitPoly=poly=>{
+        if(poly.length<3)return;
+        // Non-overlapping triangulation of the clipped water surface.
+        for(let i=1;i+1<poly.length;i++)triangle(poly[0],poly[i],poly[i+1]);
+        // Only the true wet/dry contour receives a water edge wall. Internal
+        // triangulation edges must not grow vertical dark streaks.
+        for(let k=0;k<poly.length;k++){
+          const a=poly[k],b=poly[(k+1)%poly.length];
+          if(!a.contour||!b.contour)continue;
+          const bottom=.008*metre;
+          makeVertex(a,1);makeVertex(b,1);
+          makeVertex(b,1,bottom);
+          makeVertex(a,1);makeVertex(b,1,bottom);
+          makeVertex(a,1,bottom);
+        }
+      };
+      for(let row=-1;row<meshRows;row++){
+        for(let col=-1;col<meshCols;col++){
+          const a=physicalNode(col,row),b=physicalNode(col+1,row);
+          const c=physicalNode(col+1,row+1),d=physicalNode(col,row+1);
+          const n=[a,b,c,d];
+          const mask=n.map(p=>p.d>=cutoff);
+          const count=mask.filter(Boolean).length;
+          if(!count)continue;
+          if(count===4){
+            triangle(a,b,c);triangle(a,c,d);continue;
+          }
+          // Marching-squares-like clipping on four triangles around the
+          // cell centre makes smooth diagonal contours, even at saddle points.
+          const middle={
+            x:(a.x+c.x)*.5,y:(a.y+c.y)*.5,
+            u:(a.u+c.u)*.5,v:(a.v+c.v)*.5,
+            d:(a.d+b.d+c.d+d.d)*.25,
+            foam:(a.foam+b.foam+c.foam+d.foam)*.25,
+            contour:false
+          };
+          for(let k=0;k<4;k++){
+            const tri=[n[k],n[(k+1)%4],middle];
+            const wet=tri.map(v=>v.d>=cutoff);
+            if(wet.every(Boolean))emitPoly(tri);
+            else if(wet.some(Boolean))emitPoly(clipWetPolygon(tri));
           }
         }
       }
