@@ -468,13 +468,13 @@ function depthColour(depth,pulse=0,flowStrength=0){
 }
 
 function flowVisual(simulation,row,col,i){
-  const {cols,rows,terrain,inside,obstacle,water,visualPhase}=simulation;
-  const head=terrain[i]+water[i];
+  const {cols,rows,terrain,inside,obstacle,water,visualPhase,svCapacity}=simulation;
+  const head=terrain[i]+Math.max(0,water[i]-svCapacity[i]);
   const getHead=(r,c)=>{
     if(r<0||c<0||r>=rows||c>=cols)return head;
     const j=r*cols+c;
     if(!inside[j]||obstacle[j])return head;
-    return terrain[j]+water[j];
+    return terrain[j]+Math.max(0,water[j]-svCapacity[j]);
   };
   const left=getHead(row,col-1),right=getHead(row,col+1);
   const up=getHead(row-1,col),down=getHead(row+1,col);
@@ -488,7 +488,8 @@ function flowVisual(simulation,row,col,i){
   const ripple=Math.sin((col+row)*0.52-visualPhase*1.9);
   return {
     pulse:stripe*0.72+ripple*0.28,
-    flowStrength:Math.max(0.16,flowStrength)
+    flowStrength:Math.max(0.16,flowStrength),
+    nx,ny,gradient:mag
   };
 }
 
@@ -498,6 +499,7 @@ function sendFrame(){
   const pixels=new Uint8ClampedArray(cols*rows*4);
   let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
   const impacted=new Set();
+  const vectors=[];
   sim.visualPhase+=0.19;
 
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
@@ -508,7 +510,14 @@ function sendFrame(){
     retainedM3+=Math.min(water[i],svCapacity[i])*cell*cell;
     if(h>maxDepth)maxDepth=h;
     if(h>=0.02){wetCells++;volume+=h*cell*cell;}
-    const flow=params.showFlow!==false?flowVisual(sim,row,col,i):{pulse:0,flowStrength:0};
+    const showFlow=params.showFlow!==false;
+    const shouldArrow=showFlow&&h>.025&&row%6===3&&col%6===3&&vectors.length<180;
+    const flow=(showFlow&&h>=.005)?flowVisual(sim,row,col,i):{
+      pulse:0,flowStrength:0,nx:0,ny:0,gradient:0
+    };
+    if(shouldArrow&&flow.gradient>0.001){
+      vectors.push([col,row,flow.nx,flow.ny]);
+    }
     const colour=depthColour(h,flow.pulse,flow.flowStrength);
     const p=i*4;
     pixels[p]=colour[0];pixels[p+1]=colour[1];pixels[p+2]=colour[2];pixels[p+3]=colour[3];
@@ -529,6 +538,7 @@ function sendFrame(){
     Math.max(0,Number(params.rainfall)||0);
   postMessage({
     type:'frame',width:cols,height:rows,pixels:pixels.buffer,
+    vectors,
     stats:{
       currentRainMmH,
       timeMin:sim.timeSec/60,
