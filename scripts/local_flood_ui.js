@@ -1654,18 +1654,23 @@ export function createLocalFloodUI({
     if(stage?.resetInitial){
       setSiteHud('siteHudAreaProgress','2026 年 · 已重置 · 0.00 ha');
     }else if(stage){
+      const baseHa=(stage.baselineWetAreaM2||0)/10000;
+      const nowHa=(v?.wetAreaM2||0)/10000;
+      const finalHa=(stage.finalWetAreaM2||0)/10000;
+      const pct=(stage.fraction*100).toFixed(1);
       const riskText=stage.riskAvailable
-        ?'与 EA 已绘制风险格重合 '+(v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
-        :'EA 风险数据暂不可用（未校核）';
-      setSiteHud('siteHudAreaProgress',futureYear+' 年 · '+
-        (stage.floodMode==='external'?'外部水位情景':'设计雨强 '+
-        (stage.designRainMmH||0).toFixed(1)+' mm/h')+' · '+riskText);
+        ?'EA 风险重合 '+(v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
+        :'EA 风险暂不可用';
+      setSiteHud('siteHudAreaProgress',
+        futureYear+' 年 / '+pct+'% · 淹没 '+nowHa.toFixed(2)+
+        ' ha（2026 '+baseHa.toFixed(2)+' → 2100 '+finalHa.toFixed(2)+
+        ' ha） · '+riskText);
     }else{
       setSiteHud('siteHudAreaProgress',longTermMode
         ?'等待该年份的淹没面积快照':'');
     }
     setSiteHud('siteHudFloodPhase',longTermMode?
-      futureYear+' 年 · 极端降雨事件水深：OS DEM + 建筑 + 假设排水；EA 现状风险作空间对照':annualPlaying?
+      futureYear+' 年 · 2026 基准和 2100 设计暴雨终态之间按年份均分新增淹没面积；仅分期展示，非逐年实测洪水':annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
@@ -1891,7 +1896,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
-      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">请选择年份计算设计暴雨情景 · EA 风险校核</div>',
+      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 基准 → 2100 终态 · 新增淹没面积按年份分配</div>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水</option></select></label>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
@@ -2022,7 +2027,7 @@ export function createLocalFloodUI({
       siteHud('siteHudFutureStage').disabled=floodMode==='rain';
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])siteHud(id).disabled=floodMode==='rain';
       setSiteHud('siteHudFutureNote',longTermMode?
-        '本模式按选定设计雨强分别计算 2026、2100 两场独立洪水事件；年份连续插值，并非多年降雨累积。EA 现状合并洪涝概率图用于空间校核（不是水深）；实际地下管网数据缺失，排水能力为用户可调假设。EA 4h 实测雨量不等于未来设计暴雨。':
+        '先以指定设计暴雨、真实DEM、建筑和假设排水分别计算2026基准与2100远期结果；仅将二者新增的淹没面积平均分期至2026—2100年，水深保持两端计算值并平滑过渡。EA现状风险等级只辅助排序和空间校核，不能直接当作水深。本动画不是未来每年真实洪水预测。':
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
@@ -2126,7 +2131,7 @@ export function createLocalFloodUI({
         stopAnnual();annualPlaying=true;futureYear=2026;
         clearRiskEnvelope();clearYearFrames();simYearDisplay();
         requestYear(2026);
-        status('正在根据选定降雨强度计算 2026 基准与 2100 气候情景；EA 现状风险用于空间对照。');
+        status('正在计算 2026 与 2100 的设计洪水终态，并把新增淹没范围均匀分配到 74 个年度步骤…');
         return;
       }
       if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
@@ -3137,7 +3142,7 @@ export function createLocalFloodUI({
         },165);
       }else{
         stopAnnual();
-        status('2100 年设计暴雨情景演示完成 · 可拖动年份轴比较洪水水深与面积');
+        status('2026—2100 年度面积分期演示完成 · 可拖动时间轴逐年回放');
       }
     }
     $('localFloodStats').textContent=
