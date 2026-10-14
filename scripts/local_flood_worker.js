@@ -643,6 +643,64 @@ function flowVisual(simulation,row,col,i){
   };
 }
 
+
+/**
+ * Display-only hydrological direction and RELATIVE intensity field.
+ * Gradients use DEM + modeled water depth; buildings and the site boundary
+ * are impermeable. No velocity calibration is implied by these values.
+ * Eight-neighbour downhill integration allows water to turn around structures
+ * while forbidding diagonal shortcuts through blocked corners.
+ */
+function buildHydroFlowField(){
+  if(!sim||params.showFlow===false)return null;
+  const {cols,rows,cell,terrain,inside,obstacle,water,svCapacity}=sim;
+  const length=cols*rows;
+  const vx=new Int8Array(length),vy=new Int8Array(length);
+  const intensity=new Uint8Array(length);
+  const directions=[
+    [-1,0],[1,0],[0,-1],[0,1],
+    [-1,-1],[1,-1],[-1,1],[1,1]
+  ];
+  for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
+    const i=row*cols+col;
+    if(!inside[i]||obstacle[i])continue;
+    const depth=Math.max(0,water[i]-svCapacity[i]);
+    if(depth<0.008)continue;
+    const head=terrain[i]+depth;
+    let sumX=0,sumY=0,meanSlope=0,totalWeight=0;
+    for(const [dx,dy] of directions){
+      const x=col+dx,y=row+dy;
+      if(x<0||x>=cols||y<0||y>=rows)continue;
+      const j=y*cols+x;
+      if(!inside[j]||obstacle[j])continue;
+      // No streamline may cut a diagonal corner through a building.
+      if(dx&&dy){
+        const sideX=row*cols+x,sideY=y*cols+col;
+        if(!inside[sideX]||!inside[sideY]||
+           obstacle[sideX]||obstacle[sideY])continue;
+      }
+      const neighbourHead=terrain[j]+Math.max(0,water[j]-svCapacity[j]);
+      const distance=Math.hypot(dx,dy);
+      const slope=Math.max(0,(head-neighbourHead)/(cell*distance));
+      if(slope<1e-7)continue;
+      const weight=Math.sqrt(slope);
+      sumX+=dx/distance*weight;
+      sumY+=dy/distance*weight;
+      totalWeight+=weight;
+      meanSlope+=slope*weight;
+    }
+    const directionMagnitude=Math.hypot(sumX,sumY);
+    if(directionMagnitude<1e-7||totalWeight===0)continue;
+    const gradient=meanSlope/totalWeight;
+    // Unitless relative intensity proxy, NOT measured m/s.
+    const strength=clamp(2.5*Math.sqrt(9.81*depth*gradient),0,1);
+    vx[i]=Math.round(sumX/directionMagnitude*127);
+    vy[i]=Math.round(sumY/directionMagnitude*127);
+    intensity[i]=Math.max(6,Math.round(strength*255));
+  }
+  return {cols,rows,vx,vy,intensity,units:'relative'};
+}
+
 function sendFrame(){
   if(!sim)return;
   const {cols,rows,inside,obstacle,buildingIds,water,cell,svCapacity}=sim;
@@ -662,7 +720,6 @@ function sendFrame(){
     const overlaps=sim.overlappingBuildingIds.get(cellIndex);
     if(overlaps)for(const id of overlaps)impacted.add(id-1);
   };
-  const vectors=[];
   sim.visualPhase+=0.19;
 
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
@@ -689,13 +746,9 @@ function sendFrame(){
     }
     if(sim.riskRank?.[i]>0&&sim.riskRank[i]<5)riskKnownCells++;
     const showFlow=params.showFlow!==false;
-    const shouldArrow=showFlow&&h>.025&&row%6===3&&col%6===3&&vectors.length<180;
     const flow=(showFlow&&h>=.005)?flowVisual(sim,row,col,i):{
       pulse:0,flowStrength:0,nx:0,ny:0,gradient:0
     };
-    if(shouldArrow&&flow.gradient>0.001){
-      vectors.push([col,row,flow.nx,flow.ny]);
-    }
     const colour=depthColour(h,flow.pulse,flow.flowStrength);
     const p=i*4;
     pixels[p]=colour[0];pixels[p+1]=colour[1];pixels[p+2]=colour[2];pixels[p+3]=colour[3];
@@ -714,12 +767,20 @@ function sendFrame(){
   const currentRainMmH=activeSeries?
     Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
     Math.max(0,Number(params.rainfall)||0);
+  const flowField=buildHydroFlowField();
+  const buffers=[pixels.buffer,depthMm.buffer,contactMask.buffer];
+  if(flowField)buffers.push(flowField.vx.buffer,
+    flowField.vy.buffer,flowField.intensity.buffer);
   postMessage({
     type:'frame',scenarioYear:annualFrameYear,
     annualAreaStage,
     width:cols,height:rows,pixels:pixels.buffer,
     depthMm:depthMm.buffer,contactMask:contactMask.buffer,
-    vectors,
+    flowField:flowField?{
+      cols:flowField.cols,rows:flowField.rows,units:'relative',
+      vx:flowField.vx.buffer,vy:flowField.vy.buffer,
+      intensity:flowField.intensity.buffer
+    }:null,
     stats:{
       currentRainMmH,
       timeMin:sim.timeSec/60,
@@ -738,7 +799,7 @@ function sendFrame(){
       eaRiskAvailable:Boolean(sim.riskAvailable)
     },
     impactedIds:[...impacted]
-  },[pixels.buffer,depthMm.buffer,contactMask.buffer]);
+  },buffers);
 }
 
 function annualStorageStep(data,emit=true,facilitiesReady=false){
