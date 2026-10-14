@@ -341,8 +341,8 @@ async function setup(data){
 
 /*
  * EA present-day flood-risk overlay sampled at the SAME EPSG:3857 locations
- * as the solver. This is the repository's official WMS-derived combined
- * rivers/sea + surface-water ordinal raster, NOT a rainfall/depth map.
+ * as the solver. This is the independently decoded EA Surface Water
+ * (RoFSW) ordinal raster, NOT river/sea flood risk or a water-depth map.
  * It is used for spatial diagnostics, never converted to metres of water.
  */
 async function loadPublishedRiskForSite(){
@@ -353,6 +353,8 @@ async function loadPublishedRiskForSite(){
     const res=await fetch(demConfig.riskMetaUrl,{cache:'force-cache'});
     if(!res.ok)throw Error('EA metadata HTTP '+res.status);
     const meta=await res.json(),grid=meta.web_grid;
+    if(meta.source_type!=='surface_water'||!Array.isArray(meta.products)||meta.products.length!==4)
+      throw Error('仅允许独立 EA Surface Water 分类风险栅格；禁止综合或河流/海洋图作为降雨引导');
     if(!grid?.bounds_m||grid.width!==5736||grid.height!==5750)
       throw Error('EA raster alignment metadata differs');
     const [left,bottom,right,top]=grid.bounds_m;
@@ -405,8 +407,8 @@ async function loadPublishedRiskForSite(){
     sim.riskMappedCount=mapped;
     sim.riskAvailable=mapped>0;
     sim.riskInfo=mapped>0
-      ?'EA present-day ordinal probability classes mapped (NOT flood depth)'
-      :'EA raster contains no mapped risk cells for this site';
+      ?'EA Surface Water (RoFSW) official classes mapped; rivers/sea excluded (NOT flood depth)'
+      :'EA Surface Water source contains no classified risk cells for this site';
   }catch(error){
     sim.riskRank=ranks;
     sim.riskMappedCount=0;
