@@ -8,6 +8,8 @@ let running=false;
 const annualStateCache=new Map();
 let annualCacheKey='';
 let annualFrameYear=null;
+let annualRiskForecast=null;
+let annualAreaStage=null;
 let timer=null;
 let params={
   rainfall:50,infiltration:5,duration:60,openBoundary:true,
@@ -634,7 +636,9 @@ function sendFrame(){
     Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
     Math.max(0,Number(params.rainfall)||0);
   postMessage({
-    type:'frame',scenarioYear:annualFrameYear,width:cols,height:rows,pixels:pixels.buffer,
+    type:'frame',scenarioYear:annualFrameYear,
+    annualAreaStage,
+    width:cols,height:rows,pixels:pixels.buffer,
     depthMm:depthMm.buffer,contactMask:contactMask.buffer,
     vectors,
     stats:{
@@ -708,6 +712,7 @@ onmessage=async({data})=>{
     }
     if(data.type==='setup'){
       annualStateCache.clear();annualCacheKey='';annualFrameYear=null;
+      annualRiskForecast=null;annualAreaStage=null;
       running=false;clearTimeout(timer);timer=null;
       await setup(data);
       return;
@@ -723,28 +728,71 @@ onmessage=async({data})=>{
       if(!sim)return;
       running=false;clearTimeout(timer);timer=null;
       const year=clamp(Math.round(Number(data.year)||2026),2026,2100);
-      const rain=clamp(Number(data.annualRainMm)||250,0,3000);
-      const loss=clamp(Number(data.annualLossMm)||210,0,3000);
+      const rain=clamp(Number(data.annualRainMm??250),0,3000);
+      const loss=clamp(Number(data.annualLossMm??210),0,3000);
       const scenario=data.climateScenario==='upper'?'upper':'central';
       const key=[rain,loss,scenario].join(':');
-      if(key!==annualCacheKey){annualStateCache.clear();annualCacheKey=key;
+
+      // Solve the end-horizon DEM/obstacle-informed *stress-test* once.
+      // The animation then stages the computed 2100 wet cells by relative
+      // low-elevation priority to achieve approximately LINEAR WET AREA
+      // growth. This staged area is a visualization interpolation, NOT a
+      // physically predicted annual depth or flood occurrence history.
+      if(!annualRiskForecast||annualRiskForecast.key!==key){
+        postMessage({type:'status',state:'preparing',
+          message:'正在计算 2100 年极端积水情景及逐年淹没面积序列…'});
         sim.water.fill(0);sim.timeSec=0;sim.spongeInfilM3=0;
-        annualStateCache.set(2026,new Float32Array(sim.water));}
-      if(!annualStateCache.has(year)){
-        let nearest=2026;
-        for(const y of annualStateCache.keys())if(y<=year&&y>nearest)nearest=y;
-        sim.water.set(annualStateCache.get(nearest));
-        const factor=y=>1+Math.min(1,Math.max(0,(y-2026)/49))*(scenario==='upper'?.40:.25);
-        let total=0;for(let y=2027;y<=2100;y++)total+=Math.max(0,rain*factor(y)-loss);
-        let sum=0;for(let k=0;k<74;k++)sum+=.22+2.34*Math.pow((k+.5)/74,2);
-        for(let y=nearest+1;y<=year;y++){
-          const weight=.22+2.34*Math.pow((y-2027+.5)/74,2);
-          annualStorageStep({annualRainMm:total*weight/sum,annualLossMm:0},false);
-          annualStateCache.set(y,new Float32Array(sim.water));
+        let total=0;
+        const factor=y=>1+Math.min(1,Math.max(0,(y-2026)/49))*
+          (scenario==='upper'?.40:.25);
+        for(let y=2027;y<=2100;y++)
+          total+=Math.max(0,rain*factor(y)-loss);
+        let weightSum=0;
+        for(let k=0;k<74;k++)weightSum+=.22+2.34*Math.pow((k+.5)/74,2);
+        for(let y=2027;y<=2100;y++){
+          const k=y-2027;
+          const weight=.22+2.34*Math.pow((k+.5)/74,2);
+          annualStorageStep({annualRainMm:total*weight/weightSum,
+            annualLossMm:0},false);
         }
+        const finalDepth=new Float32Array(sim.water.length);
+        const ranked=[];
+        for(let i=0;i<sim.water.length;i++){
+          if(!sim.inside[i]||sim.obstacle[i])continue;
+          const d=Math.max(0,sim.water[i]-sim.svCapacity[i]);
+          finalDepth[i]=d;
+          if(d>=0.02)ranked.push(i);
+        }
+        // Lowest ground/strongest final depth first; stable tie-break.
+        ranked.sort((a,b)=>
+          (sim.terrain[a]-.35*Math.min(2,finalDepth[a]))-
+          (sim.terrain[b]-.35*Math.min(2,finalDepth[b])) || a-b);
+        annualRiskForecast={key,finalDepth,ranked,
+          finalWetAreaM2:ranked.length*sim.cell*sim.cell,
+          totalNetRainMm:total};
       }
-      sim.water.set(annualStateCache.get(year));
-      annualFrameYear=year;sendFrame();annualFrameYear=null;
+
+      const forecast=annualRiskForecast;
+      const fraction=(year-2026)/74;
+      const targetCount=year===2100?forecast.ranked.length:
+        Math.round(fraction*forecast.ranked.length);
+      sim.water.fill(0);
+      const depthScale=.45+.55*fraction;
+      for(let k=0;k<targetCount;k++){
+        const idx=forecast.ranked[k],d=forecast.finalDepth[idx];
+        sim.water[idx]=Math.min(d,Math.max(.0201,d*depthScale));
+      }
+      sim.timeSec=0;
+      annualFrameYear=year;
+      annualAreaStage={
+        kind:'area-interpolation',
+        year,fraction,
+        targetAreaM2:targetCount*sim.cell*sim.cell,
+        finalAreaM2:forecast.finalWetAreaM2,
+        totalNetRainMm:forecast.totalNetRainMm
+      };
+      sendFrame();
+      annualFrameYear=null;annualAreaStage=null;
       return;
     }
     if(data.type==='annual-step'){
