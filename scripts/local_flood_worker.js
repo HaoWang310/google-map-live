@@ -599,6 +599,7 @@ function sendFrame(){
       currentRainMmH,
       timeMin:sim.timeSec/60,
       depthCells:Array.from(depthCells),
+      depthAreaM2:Array.from(depthCells,n=>n*cell*cell),
       maxDepthM:maxDepth,
       wetAreaM2:wetCells*cell*cell,
       volumeM3:volume,
