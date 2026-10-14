@@ -187,7 +187,21 @@ function rasterizeBuilding(simulation,building){
         const x=simulation.left+(col+.5)*simulation.cell;
         if(polygonIntersectsCell(x,y,simulation.cell,rings)){
           simulation.obstacle[i]=1;
-          simulation.buildingIds[i]=building.id+1;
+          const nextId=building.id+1;
+          const previousId=simulation.buildingIds[i];
+          // Several OSM vector-tile fragments can occupy the same hydrology
+          // cell. Never overwrite the first building id and lose the others:
+          // every overlaid footprint must receive the same flood collision.
+          if(previousId&&previousId!==nextId){
+            let extras=simulation.overlappingBuildingIds.get(i);
+            if(!extras){
+              extras=new Set([previousId]);
+              simulation.overlappingBuildingIds.set(i,extras);
+            }
+            extras.add(nextId);
+          }else if(!previousId){
+            simulation.buildingIds[i]=nextId;
+          }
         }
       }
     }
@@ -248,6 +262,7 @@ async function setup(data){
   sim={
     left:box.left,right:box.right,bottom:box.bottom,top:box.top,
     cols,rows,cell,terrain,inside,obstacle,buildingIds,boundary,
+    overlappingBuildingIds:new Map(),
     accumulation,drainageAvailable:Boolean(upstreamCodes),
     water:new Float32Array(cols*rows),
     delta:new Float32Array(cols*rows),
@@ -499,6 +514,13 @@ function sendFrame(){
   const pixels=new Uint8ClampedArray(cols*rows*4);
   let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
   const impacted=new Set();
+  const markCollidingBuilding=cellIndex=>{
+    if(!obstacle[cellIndex])return;
+    const primaryId=buildingIds[cellIndex];
+    if(primaryId)impacted.add(primaryId-1);
+    const overlaps=sim.overlappingBuildingIds.get(cellIndex);
+    if(overlaps)for(const id of overlaps)impacted.add(id-1);
+  };
   const vectors=[];
   sim.visualPhase+=0.19;
 
@@ -523,10 +545,10 @@ function sendFrame(){
     pixels[p]=colour[0];pixels[p+1]=colour[1];pixels[p+2]=colour[2];pixels[p+3]=colour[3];
 
     if(h>=0.05){
-      if(row>0&&obstacle[i-cols]&&buildingIds[i-cols])impacted.add(buildingIds[i-cols]-1);
-      if(col<cols-1&&obstacle[i+1]&&buildingIds[i+1])impacted.add(buildingIds[i+1]-1);
-      if(row<rows-1&&obstacle[i+cols]&&buildingIds[i+cols])impacted.add(buildingIds[i+cols]-1);
-      if(col>0&&obstacle[i-1]&&buildingIds[i-1])impacted.add(buildingIds[i-1]-1);
+      if(row>0)markCollidingBuilding(i-cols);
+      if(col<cols-1)markCollidingBuilding(i+1);
+      if(row<rows-1)markCollidingBuilding(i+cols);
+      if(col>0)markCollidingBuilding(i-1);
     }
   }
 
