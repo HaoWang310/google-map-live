@@ -460,7 +460,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
       }
       // Temporal low-pass on displayed depth avoids hard mesh jumps between
       // yearly scenarios; calculation values and statistics remain unchanged.
-      if(force||data.annualAreaStage?.kind==='area-interpolation'||
+      if(force||data.annualAreaStage?.kind==='rainfall-risk-scenario'||
          !this.displayDepth||this.displayDepth.length!==sampled.length)
         this.displayDepth=sampled.slice();
       else for(let i=0;i<sampled.length;i++){
@@ -677,14 +677,30 @@ export function createLocalFloodUI({
     try{handleFrame(frame);}finally{applyingYearFrame=false;}
     return true;
   };
+  const scenarioRequest=year=>({
+    year,climateScenario,floodMode,
+    eventRainMmH:rainfallMode==='feh-manual'&&Number.isFinite(manualFourHourMm)
+      ?manualFourHourMm/4:Number($('localFloodRain')?.value)||0,
+    durationMin:Number($('localFloodDuration')?.value)||60,
+    infiltrationMmH:Number($('localFloodInfil')?.value)||5,
+    stormProfile,drainageGuide:$('localFloodDrainageGuide')?.checked!==false,
+    drainageThreshold:Number($('networkThreshold')?.value)||0,
+    externalStageM,externalRiseMin,externalFallMin,externalInlet
+  });
+  const requestYear=year=>{
+    if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
+      status('外部洪水或耦合情景需先输入有依据的绝对边界水位。',true);
+      stopAnnual();return;
+    }
+    ensureSimulator().seekYear(scenarioRequest(year));
+  };
   const seekYear=value=>{
     stopAnnual();
     futureYear=Math.max(2026,Math.min(2100,Math.round(Number(value)||2026)));
     simYearDisplay();
     if(longTermMode&&!showCachedYear(futureYear)){
-      ensureSimulator().seekYear({year:futureYear,annualRainMm:250,
-        annualLossMm:210,climateScenario});
-      status('正在加载 '+futureYear+' 年按面积校准的淹没范围…');
+      requestYear(futureYear);
+      status('正在加载 '+futureYear+' 年的设计暴雨洪水情景…');
     }
   };
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
@@ -1632,23 +1648,20 @@ export function createLocalFloodUI({
       const el=siteHud('siteDepthBin'+i);
       if(el)el.dataset.wet=ha>0?'true':'false';
     }
-    const stage=longTermMode&&frame?.annualAreaStage?.kind==='area-interpolation'
+    const stage=longTermMode&&frame?.annualAreaStage?.kind==='rainfall-risk-scenario'
       ?frame.annualAreaStage:null;
     if(stage?.resetInitial){
-      setSiteHud('siteHudAreaProgress','2026 年 · 初始状态 · 0.00 ha');
+      setSiteHud('siteHudAreaProgress','2026 年 · 已重置 · 0.00 ha');
     }else if(stage){
-      const finalHa=stage.finalAreaM2/10000;
-      const nowHa=(v?.wetAreaM2||0)/10000;
-      const share=finalHa>0?100*nowHa/finalHa:0;
-      setSiteHud('siteHudAreaProgress',
-        futureYear+' 年 · '+share.toFixed(1)+'% · '+
-        nowHa.toFixed(2)+' / '+finalHa.toFixed(2)+' ha（2100 终态）');
+      const riskText=stage.riskAvailable?'EA 现状风险已空间对照':'EA 空间风险暂不可用';
+      setSiteHud('siteHudAreaProgress',futureYear+' 年 · 设计雨强 '+
+        (stage.designRainMmH||0).toFixed(1)+' mm/h · '+riskText);
     }else{
       setSiteHud('siteHudAreaProgress',longTermMode
         ?'等待该年份的淹没面积快照':'');
     }
     setSiteHud('siteHudFloodPhase',longTermMode?
-      futureYear+' 年 · 按 2100 终态进行面积分期演示（仅视觉情景，并非逐年洪水预测）':annualPlaying?
+      futureYear+' 年 · 设计暴雨情景水深（2026 与 2100 独立求解，年份插值，非逐年实测）':annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
@@ -2003,7 +2016,7 @@ export function createLocalFloodUI({
       siteHud('siteHudFutureStage').disabled=floodMode==='rain';
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])siteHud(id).disabled=floodMode==='rain';
       setSiteHud('siteHudFutureNote',longTermMode?
-        '年度面积均匀演示：先用 DEM、现有建筑与假设净蓄水量计算 2100 极端情景，再按低高程优先逐年揭示淹没区域。此为风险可视化插值，不是逐年真实洪水预测；短时模式计算独立。':
+        '设计暴雨推演：根据场地雨强、DEM、建筑及排水条件分别计算基准与 2100 情景；中间年份插值。EA 官方现状风险图用于空间交叉校核，不作为虚构水深。雨强不是未来每年实测预报。':
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
@@ -2098,18 +2111,14 @@ export function createLocalFloodUI({
     siteHud('siteHudRun').onclick=()=>{
       if(!prepared)return;
       if(longTermMode){
-        stopAnnual();
-        annualPlaying=true;
-        futureYear=2026;
-        clearRiskEnvelope();
-        simYearDisplay();
-        // The Worker solves the 2100 end-state once and serves deterministic,
-        // roughly equal-area yearly slices of that DEM-constrained footprint.
-        // Frames are acknowledged before advancing so playback cannot outrun
-        // the solver and show the previous year's water under a new label.
-        ensureSimulator().seekYear({year:2026,annualRainMm:250,
-          annualLossMm:210,climateScenario});
-        status('正在生成 2026—2100 年渐进淹没序列（基于 2100 结果的面积插值）…');
+        if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
+          status('外部洪水与耦合情景需要真实边界水位，不能根据 EA 风险概率虚构。',true);
+          return;
+        }
+        stopAnnual();annualPlaying=true;futureYear=2026;
+        clearRiskEnvelope();clearYearFrames();simYearDisplay();
+        requestYear(2026);
+        status('正在根据选定降雨强度计算 2026 基准与 2100 气候情景；EA 现状风险用于空间对照。');
         return;
       }
       if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
@@ -2723,6 +2732,13 @@ export function createLocalFloodUI({
       demWidth,
       demHeight,
       demEncoding:{minimum:-100,step:0.1},
+      riskMetaUrl:new URL(assetUrl('assets/london_flood_risk_metadata.json'),location.href).href,
+      riskTileUrls:[
+        new URL(assetUrl('assets/flood_risk/flood_0-0.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/flood_0-1.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/flood_1-0.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/flood_1-1.webp'),location.href).href
+      ],
       onFrame:handleFrame,
       onStatus:data=>{
         hydroState=data.state;
@@ -2963,7 +2979,7 @@ export function createLocalFloodUI({
       if(volumetricWater){volumetricWater.displayDepth=null;volumetricWater.count=0;volumetricWater.dirty=true;}
     }
     if(longTermMode&&!applyingYearFrame){
-      if(data?.annualAreaStage?.kind==='area-interpolation'&&
+      if(data?.annualAreaStage?.kind==='rainfall-risk-scenario'&&
          Number.isInteger(data.scenarioYear)){
         yearFrames.set(data.scenarioYear,data);
         // Ignore stale Worker results received after a rapid slider movement.
@@ -3040,7 +3056,7 @@ export function createLocalFloodUI({
     const paintBlend=()=>{
       if(!canvasContext||!canvas)return;
       const alpha=Math.min(1,(performance.now()-waterBlendStart)/
-        (data.annualAreaStage?.kind==='area-interpolation'?150:WATER_BLEND_MS));
+        (data.annualAreaStage?.kind==='rainfall-risk-scenario'?150:WATER_BLEND_MS));
       canvasContext.clearRect(0,0,outWidth,outHeight);
       canvasContext.globalAlpha=1;
       canvasContext.drawImage(oldFrame,0,0);
@@ -3100,7 +3116,7 @@ export function createLocalFloodUI({
     }
     updateSiteHydroDashboard(data);
     if(longTermMode&&annualPlaying&&!applyingYearFrame&&
-       data.annualAreaStage?.kind==='area-interpolation'&&
+       data.annualAreaStage?.kind==='rainfall-risk-scenario'&&
        data.scenarioYear===futureYear){
       clearTimeout(annualAdvanceTimer);
       if(futureYear<2100){
@@ -3108,12 +3124,11 @@ export function createLocalFloodUI({
           if(!annualPlaying||!isolatedSelection)return;
           futureYear++;
           simYearDisplay();
-          ensureSimulator().seekYear({year:futureYear,
-            annualRainMm:250,annualLossMm:210,climateScenario});
+          requestYear(futureYear);
         },165);
       }else{
         stopAnnual();
-        status('2100 年极端情景演示完成 · 可拖动年份轴回放各年份的淹没面积');
+        status('2100 年设计暴雨情景演示完成 · 可拖动年份轴比较洪水水深与面积');
       }
     }
     $('localFloodStats').textContent=
