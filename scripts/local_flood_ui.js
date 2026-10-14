@@ -781,6 +781,9 @@ export function createLocalFloodUI({
     updateFocusAnalysisLayers();
     setSiteHud('siteHudRiskFusionNote',
       '当前使用降雨＋EA 风险引导：官方现状概率等级仅轻度引导向低处流动，不作为外部洪水水位或水深。');
+    if(siteHud('siteHudFutureStage'))siteHud('siteHudFutureStage').disabled=true;
+    for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
+      if(siteHud(id))siteHud(id).disabled=true;
     status('缺少外部边界水位，已明确改为「降雨＋EA 风险引导」；这不是外部洪水耦合结果。');
     return true;
   };
@@ -1800,7 +1803,8 @@ export function createLocalFloodUI({
       const finalHa=(stage.finalWetAreaM2||0)/10000;
       const pct=(stage.fraction*100).toFixed(1);
       const riskText=stage.riskAvailable
-        ?'EA 风险重合 '+(v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
+        ?(floodMode==='rain-risk'?'EA 风险引导 · ':'EA 风险对照 · ')+
+          '淹没格重合 '+(v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
         :'EA 风险暂不可用';
       setSiteHud('siteHudAreaProgress',
         futureYear+' 年 / '+pct+'% · 淹没 '+nowHa.toFixed(2)+
@@ -2209,7 +2213,9 @@ export function createLocalFloodUI({
         :'没有核实的外部洪水位时，可选「降雨＋EA 风险引导」；它不等同真正的外部洪水耦合。');
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
-        '本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。':
+        (floodMode==='rain-risk'
+          ?'本模式以实际配准的 EA 综合现状风险等级轻度引导已计算降雨水量沿 DEM 下坡移动，并显示独立风险底图。水深不是 EA 官方预测，2026 为零新增水量的视觉起点，至 2100 仅进行设计情景分期演示。'
+          :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
@@ -3124,6 +3130,12 @@ export function createLocalFloodUI({
       ensureSimulator().setParams(currentParams());
       const info=await ensureSimulator().setup({polygon,buildings});
       siteRiskAvailable=Boolean(info.riskAvailable&&info.riskMappedCells>0);
+      if(siteHud('siteHudUseRiskGuide'))
+        siteHud('siteHudUseRiskGuide').disabled=!siteRiskAvailable;
+      if(siteHud('siteHudRiskFusionNote'))
+        setSiteHud('siteHudRiskFusionNote',siteRiskAvailable
+          ?'场地内 EA 现状洪涝风险栅格已配准，可与降雨、DEM、建筑进行空间引导；风险等级不是水深。'
+          :'该场地没有取得可辨识的 EA 风险等级，不能使用风险引导模式。');
       prepared=true;
       ensureWaterLayer(info);
       publishBuildingScene();
