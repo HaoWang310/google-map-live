@@ -302,6 +302,10 @@ export function createLocalFloodUI({
   let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
   let lastHydroFrame=null,hydroState='ready';
   const siteHydroHistory=[];
+  let siteFacilities=[];
+  let nextFacilityId=1;
+  let spongeTool='navigate';
+  let hydroDisplay={depth:true,flow:true,collision:true};
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -410,6 +414,9 @@ export function createLocalFloodUI({
   const FOCUS_DRAINAGE_LAYER='focus-drainage-context';
   const FOCUS_RAIN_SOURCE='focus-dynamic-rain-source';
   const FOCUS_RAIN_LAYER='focus-dynamic-rain-layer';
+  const FOCUS_SPONGE_SOURCE='focus-sponge-source';
+  const FOCUS_SPONGE_FILL='focus-sponge-fill';
+  const FOCUS_SPONGE_LINE='focus-sponge-line';
 
 
   const focusReferenceTileSize=512;
@@ -796,6 +803,135 @@ export function createLocalFloodUI({
     };
   }
 
+
+  const SPONGE_DESIGN_OPTIONS={
+    navigate:{label:'导航 / 旋转',radiusM:0,color:'#5cbbc5'},
+    rainGarden:{label:'雨水花园',radiusM:12,color:'#3da99f'},
+    wetland:{label:'人工湿地',radiusM:28,color:'#65baaa'},
+    agriculture:{label:'农业滞洪',radiusM:42,color:'#a6b665'},
+    floodPark:{label:'蓄洪公园',radiusM:35,color:'#469dcf'},
+    permeable:{label:'透水铺装',radiusM:16,color:'#b8bd98'},
+    erase:{label:'擦除干预',radiusM:0,color:'#d76a7a'}
+  };
+  const spongeCollection=features=>({type:'FeatureCollection',features});
+
+  function siteSpongeFeature(item){
+    const [cx,cy]=mercator(item.lng,item.lat);
+    const projected=item.radiusM/Math.max(.15,Math.cos(item.lat*Math.PI/180));
+    const ring=[];
+    for(let i=0;i<32;i++){
+      const angle=Math.PI*2*i/32;
+      ring.push(unmercator(cx+Math.cos(angle)*projected,cy+Math.sin(angle)*projected));
+    }
+    ring.push(ring[0]);
+    // Clip the visual footprint to the exact georeferenced study parcel.
+    const clipped=splitBuildingBySelection({type:'Polygon',coordinates:[ring]},polygon[0]).inside;
+    if(!clipped)return null;
+    return {type:'Feature',geometry:clipped,properties:{
+      id:item.id,type:item.type,color:SPONGE_DESIGN_OPTIONS[item.type].color
+    }};
+  }
+  function redrawSpongeSite(){
+    const source=isolateViewer?.getSource(FOCUS_SPONGE_SOURCE);
+    if(source){
+      source.setData(spongeCollection(siteFacilities.map(siteSpongeFeature).filter(Boolean)));
+    }
+    setSiteHud('siteHudSpongeCount',siteFacilities.length+' 处已布置');
+    const el=siteHud('siteHudSpongeHint');
+    if(el)el.textContent=spongeTool==='navigate'?
+      '导航模式：左键移动视角，右键旋转；点击设施模式后在地块内放置。':
+      spongeTool==='erase'?'擦除模式：单击场地内已有设施即可删除。':
+        '正在布置'+SPONGE_DESIGN_OPTIONS[spongeTool].label+
+        ' · 半径 '+SPONGE_DESIGN_OPTIONS[spongeTool].radiusM+' m（初始设计假设）';
+  }
+  function isBuildingGroundPoint(point){
+    for(const feat of sceneFeatures.values()){
+      if(!feat?.properties?.selected)continue;
+      const g=feat.geometry;
+      if(!g)continue;
+      const polys=g.type==='Polygon'?[g.coordinates]:
+        g.type==='MultiPolygon'?g.coordinates:[];
+      for(const rings of polys){
+        if(!rings?.length||!pointInRingLngLat(point,rings[0]))continue;
+        if(!rings.slice(1).some(hole=>pointInRingLngLat(point,hole)))return true;
+      }
+    }
+    return false;
+  }
+  function resetRunAfterSpongeChange(){
+    // Changing facilities mid-run would merge two different scenarios.
+    // Reset time/water first, then send revised facility assumptions.
+    simulator?.pause();
+    simulator?.reset();
+    simulator?.setParams(currentParams());
+    hydroState='reset';lastHydroFrame=null;
+    siteHydroHistory.length=0;
+    updateSiteHydroDashboard();
+    redrawSpongeSite();
+  }
+  function switchSpongeTool(type){
+    if(!SPONGE_DESIGN_OPTIONS[type])return;
+    spongeTool=type;
+    for(const btn of isolateViewerElement?.querySelectorAll('[data-sponge-tool]')||[]){
+      const on=btn.dataset.spongeTool===type;
+      btn.classList.toggle('active',on);
+      btn.setAttribute('aria-pressed',on?'true':'false');
+    }
+    const cv=isolateViewer?.getCanvas();
+    if(cv)cv.style.cursor=type==='navigate'?'grab':type==='erase'?'not-allowed':'crosshair';
+    redrawSpongeSite();
+  }
+  function onSpongeMapClick(event){
+    if(!isolatedSelection||!SPONGE_DESIGN_OPTIONS[spongeTool]||
+      spongeTool==='navigate')return;
+    const p=[event.lngLat.lng,event.lngLat.lat];
+    if(!pointInRingLngLat(p,polygon[0])){
+      setSiteHud('siteHudSpongeHint','操作必须位于红色地块边界内。');
+      return;
+    }
+    if(spongeTool==='erase'){
+      const [mx,my]=mercator(p[0],p[1]);
+      let closest=null,min=Infinity;
+      for(const item of siteFacilities){
+        const [x,y]=mercator(item.lng,item.lat);
+        const distance=Math.hypot(x-mx,y-my)*Math.cos(item.lat*Math.PI/180);
+        if(distance<item.radiusM+8&&distance<min){closest=item;min=distance;}
+      }
+      if(!closest){setSiteHud('siteHudSpongeHint','附近未找到可删除的设施。');return;}
+      siteFacilities=siteFacilities.filter(v=>v.id!==closest.id);
+    }else{
+      if(isBuildingGroundPoint(p)){
+        setSiteHud('siteHudSpongeHint','此处为真实建筑占地，请选择建筑外的空地。');
+        return;
+      }
+      const option=SPONGE_DESIGN_OPTIONS[spongeTool];
+      if(siteFacilities.length>=100){
+        setSiteHud('siteHudSpongeHint','场地最多允许布置 100 处设施。');
+        return;
+      }
+      siteFacilities.push({
+        id:nextFacilityId++,type:spongeTool,
+        lng:p[0],lat:p[1],radiusM:option.radiusM
+      });
+    }
+    resetRunAfterSpongeChange();
+  }
+  function updateHydroLayerVisibility(){
+    const viewer=isolateViewer;
+    if(!viewer)return;
+    if(viewer.getLayer(FOCUS_RAIN_LAYER)){
+      const display=hydroDisplay.depth?'visible':'none';
+      if(viewer.getLayoutProperty(FOCUS_RAIN_LAYER,'visibility')!==display)
+        viewer.setLayoutProperty(FOCUS_RAIN_LAYER,'visibility',display);
+    }
+    for(const id of [FOCUS_2D,FOCUS_3D]){
+      if(viewer.getLayer(id))viewer.setPaintProperty(id,
+        id===FOCUS_3D?'fill-extrusion-color':'fill-color',
+        hydroDisplay.collision?buildingColourExpression():'#ff9f1a');
+    }
+    simulator?.setParams(currentParams());
+  }
+
   function focusStyle(details){
     const analysis=focusContextSettings();
     const parcel={
@@ -813,6 +949,9 @@ export function createLocalFloodUI({
         [FOCUS_GREEN]:{type:'geojson',data:details.greens},
         [FOCUS_WATER]:{type:'geojson',data:details.waters},
         [FOCUS_ROADS]:{type:'geojson',data:details.roads},
+        [FOCUS_SPONGE_SOURCE]:{type:'geojson',data:spongeCollection(
+          siteFacilities.map(siteSpongeFeature).filter(Boolean)
+        )},
         [FOCUS_EA_SOURCE]:{
           type:'raster',tiles:[focusContextUrl('ea',analysis.threshold)],
           tileSize:512,minzoom:13,maxzoom:17
@@ -856,6 +995,10 @@ export function createLocalFloodUI({
               'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff'],
             'fill-opacity':1
           }},
+        {id:FOCUS_SPONGE_FILL,type:'fill',source:FOCUS_SPONGE_SOURCE,
+          paint:{'fill-color':['get','color'],'fill-opacity':0.78}},
+        {id:FOCUS_SPONGE_LINE,type:'line',source:FOCUS_SPONGE_SOURCE,
+          paint:{'line-color':'#175967','line-width':1.5}},
         ...(canvas&&focusWaterBounds?[{
           id:FOCUS_RAIN_LAYER,type:'raster',source:FOCUS_RAIN_SOURCE,
           paint:{'raster-opacity':0.94,'raster-resampling':'linear','raster-fade-duration':0}
@@ -1321,7 +1464,9 @@ export function createLocalFloodUI({
     isolateViewer=viewer;
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
+    switchSpongeTool('navigate');
     viewer.on('pitch',setFocusPitchMode);
+    viewer.on('click',onSpongeMapClick);
     viewer.once('load',()=>{
       if(isolateViewer!==viewer||!isolatedSelection)return;
       // First fit the parcel from its local geometry, then start the optional
@@ -2026,6 +2171,9 @@ export function createLocalFloodUI({
   function currentParams(){
     return {
       rainfall:Number($('localFloodRain').value),
+      interventions:siteFacilities.map(({id,type,lng,lat,radiusM})=>
+        ({id,type,lng,lat,radiusM})),
+      showFlow:hydroDisplay.flow,
       rainSeriesMm15:rainfallMode==='ea-observed'&&siteRainData?.complete&&siteRainData?.recent
         ?siteRainData.series15
         :rainfallMode==='feh-manual'&&Number.isFinite(manualFourHourMm)
