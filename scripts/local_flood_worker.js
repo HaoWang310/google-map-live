@@ -921,7 +921,7 @@ onmessage=async({data})=>{
       const duration=clamp(Number(data.durationMin)||60,15,240);
       const infiltration=clamp(Number(data.infiltrationMmH)||5,0,100);
       const assumedUrbanDrainage=clamp(Number(data.assumedUrbanDrainageMmH??25),0,100);
-      const scenario=(['low','central','upper'].includes(data.climateScenario)?data.climateScenario:'central');
+      const scenario='fixed-official-reference'; // user selects an absolute 2h rain event, not a climate increment
       const storm='peak'; // only the single-maximum design storm is available
       const drainage=data.drainageGuide!==false;
       const mode=['rain','rain-risk','external','coupled'].includes(data.floodMode)?
@@ -930,7 +930,7 @@ onmessage=async({data})=>{
       if((mode==='external'||mode==='coupled')&&!Number.isFinite(externalStage))
         throw Error('外部洪水需要可信的绝对边界水位。');
       if(mode==='rain-risk'&&!sim.riskAvailable)
-        throw Error('没有取得场地内的 EA 洪涝风险等级数据，请改用仅降雨模式。');
+        throw Error('未取得该场地 EA 官方地表水风险栅格及有效分类；本模式不能以河流/海洋风险替代。');
       const key=[eventIntensity,duration,infiltration,assumedUrbanDrainage,scenario,storm,drainage,mode,externalStage,
         data.externalRiseMin,data.externalFallMin,data.externalInlet,
         Number(data.drainageThreshold)||0].join(':');
@@ -961,7 +961,7 @@ onmessage=async({data})=>{
         };
         try{
           const baseline=runEvent(1);
-          const futureFactor=1+({low:0.10,central:0.25,upper:0.40}[scenario]??0.25);
+          const futureFactor=1; // v3.22.22: only selected, reference-based 2h rainfall scenario; no hidden +10/+25/+40 uplift
           const future=runEvent(futureFactor);
           // Compute both scenario storms for reference, but the VIDEO timeline
           // starts at a NO-ADDITIONAL-WATER scene in 2026. This is a visual
