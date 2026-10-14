@@ -739,7 +739,7 @@ export function createLocalFloodUI({
   let focusThresholdTimer=null;
   let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
   let lastHydroFrame=null,hydroState='ready';
-  let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null;
+  let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null,siteTerrainMinM=null;
   let siteRiskAvailable=false;
   let forceEaRiskOverlay=false;
   let siteRiskMappedCount=0;
@@ -2055,6 +2055,7 @@ export function createLocalFloodUI({
       '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 零新增积水展示起点 → 2100 计算终态</div>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="rain-risk">降雨 + EA 风险引导</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水（需水位）</option></select></label>',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
+      '<button type="button" class="site-hydro-btn" id="siteHudTrialStage">采用 DEM 低点 + 1.0 m（仅设计试验）</button>',
       '<div class="site-hydro-mini" style="margin:8px 0;border:1px solid #426279;border-radius:7px;padding:8px">',
       '<strong>EA 官方外部洪水数据</strong> · <a href="https://www.data.gov.uk/dataset/67a734bb-2b7b-491a-aafd-3f7e52c8d7f3/rivers-and-sea-defended-and-undefended-flood-risk-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化深度数据集</a>',
       '<div id="siteHudEaStageStatus" style="margin:5px 0">尚未查询场地附近官方河流水位站。</div>',
@@ -2336,6 +2337,17 @@ export function createLocalFloodUI({
         :'已恢复 EA 风险图默认显示设置。');
     };
     siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
+    siteHud('siteHudTrialStage').onclick=()=>{
+      if(!needsExternalStage()){status('请先选择仅外部洪水或降雨＋外部洪水模式。');return;}
+      if(!Number.isFinite(siteTerrainMinM)){
+        status('尚未取得场地 DEM 最低高程，请等地形准备完成后再试。',true);return;
+      }
+      externalStageM=Math.round((siteTerrainMinM+1)*100)/100;
+      siteHud('siteHudFutureStage').value=String(externalStageM);
+      syncFuture();
+      status('已设置设计试验外部边界水位 '+externalStageM.toFixed(2)+
+        ' m（场地 DEM 最低高程 + 1.0 m）。这是人为假设，不是 EA 官方洪水水位，也不是2100年预测。');
+    };
     siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();syncFuture();};
     siteHud('siteHudStormProfile').onchange=e=>{stormProfile=e.target.value;resetFuture();};
     siteHud('siteHudAssumedDrainage').onchange=()=>resetFuture();
@@ -3226,6 +3238,7 @@ export function createLocalFloodUI({
       hydroDisplay={depth:true,flow:false,collision:true,volume:true};
       ensureSimulator().setParams(currentParams());
       const info=await ensureSimulator().setup({polygon,buildings});
+      siteTerrainMinM=Number.isFinite(Number(info.terrainMinM))&&info.terrainMinM!==null?Number(info.terrainMinM):null;
       siteRiskMappedCount=Number(info.riskMappedCells)||0;
       siteRiskAvailable=Boolean(info.riskAvailable&&siteRiskMappedCount>0);
       if(siteHud('siteHudUseRiskGuide'))
