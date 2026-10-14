@@ -58,6 +58,7 @@ export function createLocalFloodSimulator(config){
     },
     start(params){ensureWorker();worker.postMessage({type:'start',params});},
     annualStep(params){ensureWorker();worker.postMessage({type:'annual-step',...params});},
+    seekYear(params){ensureWorker();worker.postMessage({type:'seek-year',...params});},
     pause(){worker?.postMessage({type:'pause'});},
     reset(silent=false){worker?.postMessage({type:'reset',silent:Boolean(silent)});},
     setParams(params){worker?.postMessage({type:'params',params});},
