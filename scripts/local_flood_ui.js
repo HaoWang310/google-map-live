@@ -2138,6 +2138,13 @@ export function createLocalFloodUI({
     map.triggerRepaint();
 
     try{
+      // A newly confirmed parcel is a fresh design scenario. Never reuse
+      // interventions placed on an older selection or in a different location.
+      siteFacilities=[];
+      nextFacilityId=1;
+      spongeTool='navigate';
+      hydroDisplay={depth:true,flow:true,collision:true};
+      ensureSimulator().setParams(currentParams());
       const info=await ensureSimulator().setup({polygon,buildings});
       prepared=true;
       ensureWaterLayer(info);
