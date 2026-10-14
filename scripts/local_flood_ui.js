@@ -460,7 +460,9 @@ function createFloodVolumeLayer(maplibregl,bounds){
       }
       // Temporal low-pass on displayed depth avoids hard mesh jumps between
       // yearly scenarios; calculation values and statistics remain unchanged.
-      if(!this.displayDepth||this.displayDepth.length!==sampled.length)this.displayDepth=sampled.slice();
+      if(force||data.annualAreaStage?.kind==='area-interpolation'||
+         !this.displayDepth||this.displayDepth.length!==sampled.length)
+        this.displayDepth=sampled.slice();
       else for(let i=0;i<sampled.length;i++){
         this.displayDepth[i]+=Math.max(-0.06,Math.min(0.06,(sampled[i]-this.displayDepth[i])*.28));
       }
@@ -1629,8 +1631,21 @@ export function createLocalFloodUI({
       const el=siteHud('siteDepthBin'+i);
       if(el)el.dataset.wet=ha>0?'true':'false';
     }
+    const stage=longTermMode&&frame?.annualAreaStage?.kind==='area-interpolation'
+      ?frame.annualAreaStage:null;
+    if(stage){
+      const finalHa=stage.finalAreaM2/10000;
+      const nowHa=(v?.wetAreaM2||0)/10000;
+      const share=finalHa>0?100*nowHa/finalHa:0;
+      setSiteHud('siteHudAreaProgress',
+        futureYear+' 年 · '+share.toFixed(1)+'% · '+
+        nowHa.toFixed(2)+' / '+finalHa.toFixed(2)+' ha（2100 终态）');
+    }else{
+      setSiteHud('siteHudAreaProgress',longTermMode
+        ?'等待该年份的淹没面积快照':'');
+    }
     setSiteHud('siteHudFloodPhase',longTermMode?
-      futureYear+' 年 · 淹没面积均匀扩张展示（按 2100 终态与地形排序，非逐年实测）':annualPlaying?
+      futureYear+' 年 · 按 2100 终态进行面积分期演示（仅视觉情景，并非逐年洪水预测）':annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
@@ -1849,6 +1864,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
+      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">等待年度面积计算</div>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水</option></select></label>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
@@ -2897,9 +2913,10 @@ export function createLocalFloodUI({
         yearFrames.set(data.scenarioYear,data);
         // Ignore stale Worker results received after a rapid slider movement.
         if(data.scenarioYear!==futureYear)return;
-      }else if(lastHydroFrame?.annualAreaStage||yearFrames.has(futureYear)){
-        // Ignore unrelated setup/reset or short-event frames while examining
-        // the area-interpolated 2026-2100 flood sequence.
+      }else{
+        // Annual interpolation must NEVER render an unrelated event/setup/
+        // paused-state worker frame (previously this leaked a full flood
+        // event into 2034 while the slider showed an early year).
         return;
       }
     }
@@ -2967,7 +2984,8 @@ export function createLocalFloodUI({
     oldFrame.getContext('2d').drawImage(canvas,0,0);
     const paintBlend=()=>{
       if(!canvasContext||!canvas)return;
-      const alpha=Math.min(1,(performance.now()-waterBlendStart)/WATER_BLEND_MS);
+      const alpha=Math.min(1,(performance.now()-waterBlendStart)/
+        (data.annualAreaStage?.kind==='area-interpolation'?150:WATER_BLEND_MS));
       canvasContext.clearRect(0,0,outWidth,outHeight);
       canvasContext.globalAlpha=1;
       canvasContext.drawImage(oldFrame,0,0);
