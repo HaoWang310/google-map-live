@@ -1563,15 +1563,15 @@ export function createLocalFloodUI({
       setSiteHud('siteHudExtraInfil',Math.round(v.spongeInfiltrationM3||0).toLocaleString('en-GB')+' m³');
     }
     const elapsed=v?.timeMin||0,duration=Number($('localFloodDuration')?.value)||60;
-    setSiteHud('siteHudClock',futureYear+' · '+simulationClock(elapsed)+' / '+simulationClock(duration));
+    setSiteHud('siteHudClock',futureYear+' 年 / 2100 年');
     if(v&&Number.isFinite(v.currentRainMmH)){
       setSiteHud('siteHudLiveRain',v.currentRainMmH.toFixed(1)+' mm/h');
     }
     const progress=siteHud('siteHudProgress');
-    if(progress)progress.style.width=Math.max(0,Math.min(100,elapsed/duration*100)).toFixed(1)+'%';
-    setSiteHud('siteHudRunState',{
-      ready:'准备就绪',running:'模拟运行中',paused:'已暂停',complete:'模拟完成',reset:'已重置'
-    }[hydroState]||'等待模拟');
+    if(progress)progress.style.width=((futureYear-2026)/74*100).toFixed(2)+'%';
+    setSiteHud('siteHudRunState',({
+      ready:'准备就绪',running:'洪水事件运行中',paused:'洪水事件已暂停',complete:'洪水事件完成',reset:'已重置'
+    }[hydroState]||'等待模拟')+' · 事件 '+simulationClock(elapsed)+' / '+simulationClock(duration));
     if(siteHud('siteHudRun'))siteHud('siteHudRun').disabled=!prepared||hydroState==='running';
     if(siteHud('siteHudPause'))siteHud('siteHudPause').disabled=!prepared||hydroState!=='running';
     const chart=siteHud('siteHudChart');
@@ -1860,8 +1860,8 @@ export function createLocalFloodUI({
       '<button id="siteHudPause" class="site-hydro-btn" style="flex:0 0 70px" type="button">Ⅱ 暂停</button>',
       '<button id="siteHudReset" class="site-hydro-btn" style="flex:0 0 75px" type="button">↺ 重置</button>',
       '<div class="site-hydro-timeline"><div style="display:flex;justify-content:space-between">',
-      '<strong id="siteHudClock">00:00 / 01:00</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
-      '</div><div class="site-hydro-track"><div id="siteHudProgress" class="site-hydro-progress"></div></div>',
+      '<strong id="siteHudClock">2026 年 / 2100 年</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
+      '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
       '<div class="site-hydro-mini" id="siteHudNotice">计算时间轴 · 不支持回放拖动</div></div></footer>'
     ].join('');
     container.appendChild(shell);
@@ -1884,6 +1884,8 @@ export function createLocalFloodUI({
     };
     const syncFuture=()=>{
       setSiteHud('siteHudYearText',String(futureYear));
+      siteHud('siteHudYear').value=String(futureYear);
+      siteHud('siteHudFooterYear').value=String(futureYear);
       setSiteHud('siteHudFutureFactor','伦敦 1% AEP 参考设计暴雨 ×'+climateRainFactor().toFixed(3));
       siteHud('siteHudFutureStage').disabled=floodMode==='rain';
       setSiteHud('siteHudFutureNote',floodMode==='rain'?
@@ -1892,6 +1894,7 @@ export function createLocalFloodUI({
       resetFuture();
     };
     siteHud('siteHudYear').oninput=e=>{futureYear=Number(e.target.value);syncFuture();};
+    siteHud('siteHudFooterYear').oninput=e=>{futureYear=Number(e.target.value);syncFuture();};
     siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();};
     siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
     siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();};
