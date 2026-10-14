@@ -656,6 +656,24 @@ export function createLocalFloodUI({
   let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
   let annualPlaying=false,annualAdvanceTimer=null;
   let longTermMode=false,annualBudget=null;
+  const yearFrames=new Map();
+  let applyingYearFrame=false;
+  const clearYearFrames=()=>yearFrames.clear();
+  const showCachedYear=(year)=>{
+    const frame=yearFrames.get(year);
+    if(!frame)return false;
+    applyingYearFrame=true;
+    try{handleFrame(frame);}finally{applyingYearFrame=false;}
+    return true;
+  };
+  const seekYear=value=>{
+    stopAnnual();
+    futureYear=Math.max(2026,Math.min(2100,Math.round(Number(value)||2026)));
+    simYearDisplay();
+    if(longTermMode){
+      if(!showCachedYear(futureYear))status('该年份尚未计算。请先运行至 2100 年以生成可回放快照。');
+    }
+  };
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
   let riskEnvelope=null; // maximum predicted depth encountered through the current year
   const clearRiskEnvelope=()=>{riskEnvelope=null;};
@@ -1938,7 +1956,7 @@ export function createLocalFloodUI({
     };
     updateSiteHydroDashboard();
     const resetFuture=()=>{
-      stopAnnual();clearRiskEnvelope();
+      stopAnnual();clearRiskEnvelope();clearYearFrames();
       simulator?.reset();siteHydroHistory.length=0;lastHydroFrame=null;hydroState='reset';
       updateSiteHydroDashboard();
     };
@@ -1954,9 +1972,9 @@ export function createLocalFloodUI({
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。');
       resetFuture();
     };
-    siteHud('siteHudLongTerm').onchange=e=>{longTermMode=e.target.checked;stopAnnual();simulator?.reset();clearRiskEnvelope();annualBudget=null;futureYear=2026;simYearDisplay();};
-    siteHud('siteHudYear').oninput=e=>{futureYear=Number(e.target.value);syncFuture();};
-    siteHud('siteHudFooterYear').oninput=e=>{futureYear=Number(e.target.value);syncFuture();};
+    siteHud('siteHudLongTerm').onchange=e=>{longTermMode=e.target.checked;stopAnnual();simulator?.reset();clearRiskEnvelope();clearYearFrames();annualBudget=null;futureYear=2026;simYearDisplay();};
+    siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
+    siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();};
     siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
     siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();};
@@ -2044,10 +2062,16 @@ export function createLocalFloodUI({
     siteHud('siteHudRun').onclick=()=>{
       if(!prepared)return;
       if(longTermMode){
-        if(futureYear>=2100){futureYear=2026;simulator?.reset(true);annualBudget=null;}
+        // Starting a long-term scenario always recomputes from the baseline;
+        // replay is handled by cached snapshots, not a reset of the displayed data.
+        stopAnnual();clearYearFrames();futureYear=2026;
+        simulator?.reset(true);annualBudget=null;
+        simYearDisplay();
         const netRain=Number(siteHud('siteHudAnnualRain').value),loss=Number(siteHud('siteHudAnnualLoss').value);
         if(!Number.isFinite(netRain)||!Number.isFinite(loss)||netRain<0||loss<0){status('请输入有效的年度降雨和损失假设。',true);return;}
         annualPlaying=true;clearRiskEnvelope();
+        // Reserve the baseline year: no modeled additional accumulation yet.
+        yearFrames.set(2026,null);
         // Distribute the full-horizon assumed net effective water input evenly
         // over the 74 annual steps. This controls presentation pacing; it does
         // not claim the real sequence of future storms is uniform.
@@ -2092,7 +2116,7 @@ export function createLocalFloodUI({
       stopAnnual();simulator?.pause();updateSiteHydroDashboard();
     };
     siteHud('siteHudReset').onclick=()=>{
-      stopAnnual();clearRiskEnvelope();annualBudget=null;simulator?.reset();futureYear=2026;
+      stopAnnual();clearRiskEnvelope();clearYearFrames();annualBudget=null;simulator?.reset();futureYear=2026;
       hydroState='reset';lastHydroFrame=null;siteHydroHistory.length=0;
       simYearDisplay();
     };
@@ -2878,6 +2902,11 @@ export function createLocalFloodUI({
 
   function handleFrame(data){
     if(!canvas||!canvasContext)return;
+    if(longTermMode&&annualPlaying&&!applyingYearFrame&&data?.depthMm){
+      // Structured cloning is unnecessary: each worker frame owns transferred
+      // ArrayBuffers which remain valid after receipt. Retain one per year.
+      yearFrames.set(futureYear,data);
+    }
     // In the 2026–2100 baseline playback, show the maximum inundation
     // envelope observed up to the selected year. Never clear risk patches
     // when a new representative storm starts. This is a design-risk envelope,
@@ -2996,7 +3025,7 @@ export function createLocalFloodUI({
 
     const s=data.stats;
     lastHydroFrame=data;
-    if(!siteHydroHistory.length||s.timeMin-siteHydroHistory[siteHydroHistory.length-1][0]>=2){
+    if(!applyingYearFrame&&(!siteHydroHistory.length||s.timeMin-siteHydroHistory[siteHydroHistory.length-1][0]>=2)){
       siteHydroHistory.push([s.timeMin,s.maxDepthM]);
       if(siteHydroHistory.length>32)siteHydroHistory.shift();
     }
