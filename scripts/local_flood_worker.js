@@ -654,6 +654,9 @@ function sendFrame(){
 
 function annualStorageStep(data){
   if(!sim)return;
+  // Baseline means no proposed sponge installations are active.
+  params={...params,interventions:[]};
+  applySpongeInterventions();
   const rainMm=clamp(Number(data.annualRainMm)||0,0,5000);
   const lossMm=clamp(Number(data.annualLossMm)||0,0,5000);
   const input=Math.max(0,rainMm-lossMm)/1000;
