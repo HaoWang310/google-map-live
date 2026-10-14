@@ -2131,10 +2131,38 @@ export function createLocalFloodUI({
       updateFocusBuildings();
     };
     updateSiteHydroDashboard();
+    const clearPreviousFloodVisuals=()=>{
+      cancelAnimationFrame(waterBlendHandle);
+      previousWaterFrame=null;
+      waterBlendStart=0;
+      canvasContext?.clearRect(0,0,canvas?.width||0,canvas?.height||0);
+      lowResWaterContext?.clearRect(0,0,lowResWater?.width||0,lowResWater?.height||0);
+      if(volumetricWater){
+        volumetricWater.frame=null;
+        volumetricWater.mesh=null;
+        volumetricWater.count=0;
+        volumetricWater.dirty=false;
+        volumetricWater.displayDepth=null;
+        volumetricWater.lastScenarioYear=null;
+      }
+      isolateViewer?.getSource(FOCUS_FLOW_SOURCE)?.setData(spongeCollection([]));
+      lastFlowUpdateAt=0;
+      let changed=false;
+      for(const scene of sceneFeatures.values()){
+        if(scene?.properties?.selected&&scene.properties.impacted){
+          scene.properties.impacted=false;
+          changed=true;
+        }
+      }
+      if(changed){publishBuildingScene();updateFocusBuildings();}
+      map.triggerRepaint();isolateViewer?.triggerRepaint();
+    };
     const resetFuture=()=>{
       stopAnnual();clearRiskEnvelope();clearYearFrames();
-      simulator?.reset();siteHydroHistory.length=0;lastHydroFrame=null;hydroState='reset';
-      updateSiteHydroDashboard();
+      simulator?.reset();
+      siteHydroHistory.length=0;lastHydroFrame=null;hydroState='reset';
+      clearPreviousFloodVisuals();
+      updateSiteHydroDashboard(null);
     };
     const syncFuture=()=>{
       setSiteHud('siteHudYearText',String(futureYear));
@@ -2149,6 +2177,9 @@ export function createLocalFloodUI({
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
       resetFuture();
+      if(floodMode!=='rain'&&!Number.isFinite(externalStageM)){
+        status('外部洪水与耦合模式必须输入经核实的边界绝对高程；已清空上个情景的积水画面。',true);
+      }
     };
     siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
@@ -2166,7 +2197,8 @@ export function createLocalFloodUI({
       stopAnnual();clearYearFrames();clearRiskEnvelope();
       if(simulator){simulator.pause();simulator.reset();}
       hydroState='reset';siteHydroHistory.length=0;lastHydroFrame=null;
-      updateSiteHydroDashboard();
+      clearPreviousFloodVisuals();
+      updateSiteHydroDashboard(null);
     };
     siteHud('siteHudExit').onclick=()=>exitSelectionIsolate();
     siteHud('siteHudTop').onclick=()=>isolateViewer?.easeTo({
