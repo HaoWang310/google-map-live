@@ -564,12 +564,63 @@ export function createLocalFloodUI({
     },130);
   }
 
+  // OSM buildings can be represented by overlapping tile fragments. If a
+  // flooded fragment is red, orange geometry MUST NOT occupy that same 2D
+  // footprint: overlapping fill-extrusions otherwise z-fight and create orange
+  // streaks on red facades and roofs during camera rotation.
+  let visualSelectedBuildingCache=null;
+
+  function selectedBuildingVisuals(){
+    if(visualSelectedBuildingCache)return visualSelectedBuildingCache;
+    const features=[...sceneFeatures.values()].filter(feature=>
+      feature?.properties?.selected===true
+    );
+    const red=features.filter(feature=>feature.properties.impacted===true);
+    if(!red.length){
+      visualSelectedBuildingCache=features;
+      return features;
+    }
+    const origin=mercator(polygon[0][0][0],polygon[0][0][1]);
+    const redGeometries=red.map(feature=>({
+      box:geometryBBox(feature.geometry),
+      clip:geometryToLocalClipInput(feature.geometry,origin)
+    })).filter(item=>item.clip?.length);
+    const priority=[];
+    for(const feature of features){
+      if(feature.properties.impacted===true){
+        priority.push(feature);
+        continue;
+      }
+      const bbox=geometryBBox(feature.geometry);
+      const covering=redGeometries.filter(redItem=>
+        boxesIntersect(bbox,redItem.box)
+      );
+      if(!covering.length){
+        priority.push(feature);
+        continue;
+      }
+      try{
+        const source=geometryToLocalClipInput(feature.geometry,origin);
+        if(!source?.length)continue;
+        const freeArea=polygonClipping.difference(
+          source,...covering.map(item=>item.clip)
+        );
+        const remaining=clipOutputToGeometry(freeArea,origin);
+        if(remaining)priority.push({...feature,geometry:remaining});
+      }catch(error){
+        // Rendering a partially suppressed orange feature is worse than not
+        // rendering it; flooded red buildings retain visible priority.
+        console.warn('Red building priority geometry failed; hide overlapping orange fragment',error);
+      }
+    }
+    visualSelectedBuildingCache=priority;
+    return priority;
+  }
+
   function focusBuildingData(){
     return {
       type:'FeatureCollection',
-      features:hideSelectedBuildings?[]:[...sceneFeatures.values()].filter(f=>
-        f?.properties?.selected===true
-      )
+      features:hideSelectedBuildings?[]:selectedBuildingVisuals()
     };
   }
 
@@ -1697,9 +1748,13 @@ export function createLocalFloodUI({
 
     // Preserve the original city map's building scene when focus is open.
     // The separate focus viewer has its own selected-only GeoJSON source.
-    const features=[...sceneFeatures.values()].filter(feature=>
-      !hideSelectedBuildings||feature.properties?.selected!==true
-    );
+    visualSelectedBuildingCache=null;
+    const features=[
+      ...[...sceneFeatures.values()].filter(feature=>
+        feature?.properties?.selected!==true
+      ),
+      ...(hideSelectedBuildings?[]:selectedBuildingVisuals())
+    ];
 
     map.getSource(BUILDING_SCENE_SOURCE)?.setData({
       type:'FeatureCollection',
