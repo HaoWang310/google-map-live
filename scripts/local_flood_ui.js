@@ -1106,6 +1106,8 @@ export function createLocalFloodUI({
       setSiteHud('siteHudArea',(v.wetAreaM2/1e4).toFixed(2)+' ha');
       setSiteHud('siteHudImpacted',v.impactedCount+' 栋');
       setSiteHud('siteHudVolume',Math.round(v.volumeM3).toLocaleString('en-GB')+' m³');
+      setSiteHud('siteHudRetained',Math.round(v.retainedM3||0).toLocaleString('en-GB')+' m³');
+      setSiteHud('siteHudExtraInfil',Math.round(v.spongeInfiltrationM3||0).toLocaleString('en-GB')+' m³');
     }
     const elapsed=v?.timeMin||0,duration=Number($('localFloodDuration')?.value)||60;
     setSiteHud('siteHudClock',simulationClock(elapsed)+' / '+simulationClock(duration));
@@ -1322,25 +1324,41 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini">EA 雨量为 15 分钟累计观测，测站上传可能延迟；非实时场地雨强。FEH22 需在 ',
       '<a href="https://fehweb.ceh.ac.uk/" target="_blank" rel="noopener noreferrer" style="color:#8ce5ea">FEH 官网 ↗</a>',
       ' 查询后填入；EA 数据为附近测站实测，不能视为场地实测。</div></div>',
-      '<div class="site-hydro-section"><div class="site-hydro-section-title">02 · 三因素联合分析</div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">基础数据 · 三因素联合分析</div>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudEA" checked> EA 现状洪水风险等级（参考）</label>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudDrainage" checked> DEM 推导排水网络（参考）</label>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudGuide" checked> 汇水路径引导下坡流动</label>',
       '<div class="site-hydro-row">汇水阈值 <input id="siteHudThreshold" type="number" min="0" max="50" step="0.001" style="width:85px"> km²</div></div>',
-      '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 模拟参数</div>',
-      '<div class="site-hydro-row"><span>雨强</span><input id="siteHudRain" type="range" min="0" max="150" step="5">',
-      '<output id="siteHudRainValue">50 mm/h</output></div>',
-      '<div class="site-hydro-row"><span>下渗</span><input id="siteHudInfil" type="range" min="0" max="30" step="1">',
-      '<output id="siteHudInfilValue">5 mm/h</output></div>',
-      '<div class="site-hydro-row"><span>时长</span><input id="siteHudDuration" type="range" min="15" max="240" step="15">',
-      '<output id="siteHudDurationValue">60 min</output></div>',
-      '<div class="site-hydro-mini">50 m DEM + OSM 建筑障碍。无法反映局部排水管网、路缘石等微地形。</div></div></section>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">02 · 海绵城市设计',
+      '<span class="site-hydro-counter" id="siteHudSpongeCount">0 处已布置</span></div>',
+      '<div class="site-hydro-mini" style="margin-bottom:8px">在地块内点击布置设施。设施位置取自真实经纬度，默认尺寸和入渗/滞蓄能力属于可比较的概念设计假设。</div>',
+      '<div class="site-hydro-tool-grid">',
+      '<button type="button" class="site-hydro-tool active" data-sponge-tool="navigate" aria-pressed="true">✥ 导航 / 旋转</button>',
+      '<button type="button" class="site-hydro-tool" data-sponge-tool="rainGarden" aria-pressed="false"><i style="background:#3da99f"></i> 雨水花园</button>',
+      '<button type="button" class="site-hydro-tool" data-sponge-tool="wetland" aria-pressed="false"><i style="background:#65baaa"></i> 人工湿地</button>',
+      '<button type="button" class="site-hydro-tool" data-sponge-tool="agriculture" aria-pressed="false"><i style="background:#a6b665"></i> 农业滞洪</button>',
+      '<button type="button" class="site-hydro-tool" data-sponge-tool="floodPark" aria-pressed="false"><i style="background:#469dcf"></i> 蓄洪公园</button>',
+      '<button type="button" class="site-hydro-tool" data-sponge-tool="permeable" aria-pressed="false"><i style="background:#b8bd98"></i> 透水铺装</button>',
+      '<button type="button" class="site-hydro-tool" data-sponge-tool="erase" aria-pressed="false">⌫ 擦除干预</button>',
+      '<button type="button" class="site-hydro-tool" id="siteHudResetSponge">↺ 恢复默认</button>',
+      '</div>',
+      '<div class="site-hydro-mini" id="siteHudSpongeHint" style="margin-top:8px">选择一种设施，然后在场地上单击。</div>',
+      '<div class="site-hydro-mini" style="margin-top:6px">下雨模拟以 50 m DEM 为底图计算。设施的局部额外入渗和可容纳水深采用概念参数，不应视为现场试验值。</div>',
+      '</div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 显示</div>',
+      '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
+      '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox" checked> 水流向量场</label>',
+      '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
+      '<div class="site-hydro-mini">显示开关不删除模拟结果。水流纹理是流向示意，不是经过校准的流速矢量。</div>',
+      '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
       '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.00 m</b></div>',
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
       '<div class="site-hydro-metric"><small>IMPACTED BUILDINGS · 受影响建筑</small><b id="siteHudImpacted">0 栋</b></div>',
       '<div class="site-hydro-metric"><small>SURFACE WATER · 地表积水体积</small><b id="siteHudVolume">0 m³</b></div>',
+      '<div class="site-hydro-metric"><small>SPONGE STORAGE · 设施内滞蓄水量</small><b id="siteHudRetained">0 m³</b></div>',
+      '<div class="site-hydro-metric"><small>ADDITIONAL INFILTRATION · 设施额外累计下渗</small><b id="siteHudExtraInfil">0 m³</b></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">LIVE RAINFALL · 当前计算雨强</div>',
       '<div class="site-hydro-value" id="siteHudLiveRain">— mm/h</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAX DEPTH · 水深变化</div>',
@@ -1416,16 +1434,30 @@ export function createLocalFloodUI({
       copyHudControl('networkThresholdInput',Math.max(0,Math.min(50,Number.isFinite(n)?n:1)).toFixed(3),'change');
       syncSiteControls();
     };
-    for(const [hudId,actual] of [
-      ['siteHudRain','localFloodRain'],['siteHudInfil','localFloodInfil'],
-      ['siteHudDuration','localFloodDuration']
-    ])siteHud(hudId).oninput=e=>{
-      copyHudControl(actual,e.target.value);
-      if(actual!=='localFloodInfil'){
-        rainfallMode='manual';manualFourHourMm=null;
-        resetForNewRain();
-      }
-      syncSiteControls();updateSiteHydroDashboard();
+    // Five physical site-treatment tools; existing rainfall settings stay in
+    // the simulator state but no longer occupy the independent design panel.
+    for(const btn of container.querySelectorAll('[data-sponge-tool]')){
+      btn.onclick=()=>switchSpongeTool(btn.dataset.spongeTool);
+    }
+    siteHud('siteHudResetSponge').onclick=()=>{
+      siteFacilities=[];
+      hydroDisplay={depth:true,flow:true,collision:true};
+      for(const [id,flag] of [
+        ['siteHudShowDepth','depth'],
+        ['siteHudShowFlow','flow'],
+        ['siteHudShowCollision','collision']
+      ])siteHud(id).checked=hydroDisplay[flag];
+      switchSpongeTool('navigate');
+      resetRunAfterSpongeChange();
+      updateHydroLayerVisibility();
+    };
+    for(const [id,flag] of [
+      ['siteHudShowDepth','depth'],
+      ['siteHudShowFlow','flow'],
+      ['siteHudShowCollision','collision']
+    ])siteHud(id).onchange=e=>{
+      hydroDisplay[flag]=e.target.checked;
+      updateHydroLayerVisibility();
     };
     siteHud('siteHudRun').onclick=()=>$('localFloodRun').click();
     siteHud('siteHudPause').onclick=()=>$('localFloodPause').click();
@@ -1433,6 +1465,7 @@ export function createLocalFloodUI({
       $('localFloodReset').click();
       siteHydroHistory.length=0;hydroState='reset';updateSiteHydroDashboard();
     };
+    redrawSpongeSite();
     lookupSiteRainForSelection();
   }
 
