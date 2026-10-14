@@ -2055,6 +2055,12 @@ export function createLocalFloodUI({
       '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 零新增积水展示起点 → 2100 计算终态</div>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="rain-risk">降雨 + EA 风险引导</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水（需水位）</option></select></label>',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
+      '<div class="site-hydro-mini" style="margin:8px 0;border:1px solid #426279;border-radius:7px;padding:8px">',
+      '<strong>EA 官方外部洪水数据</strong> · <a href="https://www.data.gov.uk/dataset/67a734bb-2b7b-491a-aafd-3f7e52c8d7f3/rivers-and-sea-defended-and-undefended-flood-risk-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化深度数据集</a>',
+      '<div id="siteHudEaStageStatus" style="margin:5px 0">尚未查询场地附近官方河流水位站。</div>',
+      '<button type="button" class="site-hydro-btn" id="siteHudQueryEaStage">查询附近 EA 实测水位</button>',
+      '<div style="margin-top:5px">注意：站点读数可能是 mASD（相对站点零点），不能代入 DEM；即使 mAOD，也必须验证水力连接及高程基准，不能作为任意地块外部边界。官方洪水深度分级不代表实时边界水位。</div>',
+      '</div>',
       '<div id="siteHudStageHint" class="site-hydro-mini" style="margin:3px 0 8px;color:#edc98a">外部洪水模式须输入外部边界绝对水位（m，须与 DEM 同一高程基准）；不提供时只能保留选择，不能产生可信水深。</div>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
@@ -2249,6 +2255,40 @@ export function createLocalFloodUI({
     };
     siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
+    siteHud('siteHudQueryEaStage').onclick=async()=>{
+      const output=siteHud('siteHudEaStageStatus');
+      const ring=polygon?.[0];
+      if(!ring?.length){output.textContent='无法确定场地边界';return;}
+      const pts=ring.slice(0,-1);
+      const lng=pts.reduce((a,p)=>a+p[0],0)/pts.length;
+      const lat=pts.reduce((a,p)=>a+p[1],0)/pts.length;
+      output.textContent='正在查询 EA 官方附近水位站…';
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),12000);
+      try{
+        const query='https://environment.data.gov.uk/flood-monitoring/id/stations?parameter=level&lat='+lat.toFixed(6)+'&long='+lng.toFixed(6)+'&dist=10&_view=full&_limit=30';
+        const response=await fetch(query,{signal:controller.signal,headers:{Accept:'application/json'}});
+        if(!response.ok)throw new Error('HTTP '+response.status);
+        const data=await response.json();
+        const stations=(Array.isArray(data.items)?data.items:[])
+          .filter(x=>Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.long)))
+          .sort((a,b)=>geodesicDistanceM([lng,lat],[+a.long,+a.lat])-geodesicDistanceM([lng,lat],[+b.long,+b.lat]));
+        const station=stations[0];
+        if(!station){output.textContent='场地周边10 km没有可用 EA 水位站；未生成外部洪水边界。';return;}
+        const measures=Array.isArray(station.measures)?station.measures:(station.measures?[station.measures]:[]);
+        const lvl=measures.filter(x=>x.parameter==='level'||x.parameterName==='Water Level');
+        const measure=lvl.find(x=>String(x.unitName||'').includes('mAOD'))||lvl[0];
+        const latest=measure?.latestReading;
+        const distance=(geodesicDistanceM([lng,lat],[+station.long,+station.lat])/1000).toFixed(1);
+        const parts=[String(station.label||station.stationReference||'附近水位站'),distance+' km'];
+        if(Number.isFinite(Number(latest?.value))&&latest?.value!=null)
+          parts.push('最近读数 '+latest.value+' '+(measure?.unitName||'单位未声明')+' · '+(latest.dateTime||'日期未知'));
+        else parts.push('无可核实的最新读数');
+        output.textContent=parts.join('；')+'。仅作官方观测参考，不自动设为模拟边界水位。';
+      }catch(error){
+        output.textContent='EA 站点查询失败：'+(error?.message||String(error))+'。未替换为估计水位。';
+      }finally{clearTimeout(timeout);}
+    };
     siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();siteHud('siteHudFutureMode').value=floodMode;};
     siteHud('siteHudUseRiskGuide').onclick=()=>{
       if(enableEaRiskGuidance())syncFuture();
