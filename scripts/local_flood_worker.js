@@ -820,6 +820,26 @@ onmessage=async({data})=>{
       postMessage({type:'status',state:'paused'});
       return;
     }
+    if(data.type==='reset-initial'){
+      running=false;clearTimeout(timer);timer=null;
+      annualStateCache.clear();annualCacheKey='';
+      annualRiskForecast=null;
+      annualFrameYear=null;annualAreaStage=null;
+      if(sim){
+        sim.water.fill(0);
+        sim.delta.fill(0);
+        sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
+        params={...params,interventions:[]};
+        applySpongeInterventions();
+        annualFrameYear=2026;
+        annualAreaStage={kind:'area-interpolation',resetInitial:true,
+          year:2026,fraction:0,targetAreaM2:0,finalAreaM2:0,totalNetRainMm:0};
+        sendFrame();
+        annualFrameYear=null;annualAreaStage=null;
+      }
+      postMessage({type:'status',state:'reset'});
+      return;
+    }
     if(data.type==='reset'){
       annualFrameYear=null;
       running=false;clearTimeout(timer);timer=null;
