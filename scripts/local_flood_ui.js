@@ -646,6 +646,7 @@ export function createLocalFloodUI({
   let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
   let lastHydroFrame=null,hydroState='ready';
   let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null;
+  let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
   // London management catchment 1% AEP design rainfall reference:
   // 2070s central +25%, upper end +40%; reference allowances, not yearly forecasts.
   const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/49))*(climateScenario==='upper'?.40:.25);
@@ -1770,7 +1771,11 @@ export function createLocalFloodUI({
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水</option></select></label>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
+      '<label class="site-hydro-row">降雨事件过程 <select id="siteHudStormProfile" style="width:140px"><option value="peak">中段暴雨峰值</option><option value="front">前段强降雨</option><option value="uniform">均匀降雨</option></select></label>',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
+      '<label class="site-hydro-row">入流位置 <select id="siteHudExternalInlet" style="width:140px"><option value="low">边界低洼 10%（假设）</option><option value="all">全部边界（试验）</option></select></label>',
+      '<label class="site-hydro-row">涨水时间 <input id="siteHudRise" type="number" min="1" max="1440" value="30" style="width:88px"> min</label>',
+      '<label class="site-hydro-row">退水结束 <input id="siteHudFall" type="number" min="2" max="2880" value="90" style="width:88px"> min</label>',
       '<div id="siteHudFutureNote" class="site-hydro-mini">EA 伦敦 1% AEP 降雨设计增幅，2026—2075 插值，其后持平。外部边界水位须自行核实，EA 风险概率不是水位。每年对应短时洪水情景，非全年连续降雨。</div>',
       '</div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">01 · 位置降雨数据</div>',
@@ -1888,6 +1893,7 @@ export function createLocalFloodUI({
       siteHud('siteHudFooterYear').value=String(futureYear);
       setSiteHud('siteHudFutureFactor','伦敦 1% AEP 参考设计暴雨 ×'+climateRainFactor().toFixed(3));
       siteHud('siteHudFutureStage').disabled=floodMode==='rain';
+      for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])siteHud(id).disabled=floodMode==='rain';
       setSiteHud('siteHudFutureNote',floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。');
@@ -1898,6 +1904,10 @@ export function createLocalFloodUI({
     siteHud('siteHudFutureMode').onchange=e=>{floodMode=e.target.value;syncFuture();};
     siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
     siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();};
+    siteHud('siteHudStormProfile').onchange=e=>{stormProfile=e.target.value;resetFuture();};
+    siteHud('siteHudExternalInlet').onchange=e=>{externalInlet=e.target.value;resetFuture();};
+    siteHud('siteHudRise').onchange=e=>{externalRiseMin=Math.max(1,Number(e.target.value)||30);resetFuture();};
+    siteHud('siteHudFall').onchange=e=>{externalFallMin=Math.max(externalRiseMin+1,Number(e.target.value)||90);resetFuture();};
     syncFuture();
 
     const resetForNewRain=()=>{
@@ -2820,6 +2830,7 @@ export function createLocalFloodUI({
     return {
       rainfall:floodMode==='external'?0:Number($('localFloodRain').value)*climateRainFactor(),
       floodMode,externalStageM,climateYear:futureYear,
+      stormProfile,externalInlet,externalRiseMin,externalFallMin,
       interventions:siteFacilities.map(({id,type,lng,lat,radiusM})=>
         ({id,type,lng,lat,radiusM})),
       showFlow:hydroDisplay.flow,
