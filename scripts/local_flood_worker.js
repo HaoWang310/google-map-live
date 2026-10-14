@@ -363,7 +363,7 @@ function applySpongeInterventions(){
 
 function simulationStep(dt=5){
   if(!sim)return;
-  const {cols,rows,terrain,inside,obstacle,water,delta,boundary,accumulation,
+  const {cols,rows,cell,terrain,inside,obstacle,water,delta,boundary,accumulation,
     svCapacity,svInfilMmH}=sim;
   const useDrainage=Boolean(params.drainageGuide&&sim.drainageAvailable);
   const threshold=accumulationCode(params.drainageThreshold);
