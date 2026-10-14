@@ -609,7 +609,8 @@ export function createLocalFloodUI({
   map,maplibregl,assetUrl,demBounds,demWidth,demHeight,
   ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId,
   setCityBuildingFloodSelection,setCityIsolateMode,
-  getFocusAnalysisSettings,getFocusReferenceTile
+  getFocusAnalysisSettings,getFocusReferenceTile,
+  onOpenParcelGenerator
 }){
   let drawing=false;
   let editingSelection=false;
@@ -2086,6 +2087,9 @@ export function createLocalFloodUI({
   }
 
   function setButtons(){
+    const parcelButton=$('parcelGeneratorOpen');
+    if(parcelButton)parcelButton.disabled=!polygon?.[0]||polygon[0].length<4||
+      drawing||isPreparingSelection||dragVertexIndex>=0;
     $('localFloodFinish').disabled=!drawing||vertices.length<3||isPreparingSelection;
     const simulationLocked=!prepared||selectionDirty||isPreparingSelection;
     $('localFloodRun').disabled=simulationLocked;
@@ -3102,6 +3106,15 @@ export function createLocalFloodUI({
   };
   document.addEventListener('keydown',keydown);
 
+  $('parcelGeneratorOpen')?.addEventListener('click',()=>{
+    if(!polygon?.[0]||polygon[0].length<4||drawing||isPreparingSelection)return;
+    try{
+      const exactSite=polygon.map(r=>closeRing(r).map(([lng,lat])=>[lng,lat]));
+      onOpenParcelGenerator?.({polygon:exactSite});
+    }catch(error){
+      status('Parcel Generator 初始化失败：'+(error?.message||error),true);
+    }
+  });
   $('localFloodDraw').addEventListener('click',startDrawing);
   $('localFloodFinish').addEventListener('click',()=>finishAndConfirmSelection());
   $('localFloodClear').addEventListener('click',()=>{
