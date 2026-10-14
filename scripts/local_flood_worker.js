@@ -12,7 +12,7 @@ let annualRiskForecast=null;
 let annualAreaStage=null;
 let timer=null;
 let params={
-  rainfall:50,infiltration:5,duration:60,openBoundary:true,
+  rainfall:20,infiltration:0.5,duration:120,openBoundary:true,
   assumedUrbanDrainageMmH:0,
   drainageGuide:true,drainageThreshold:1,rainSeriesMm15:null,
   interventions:[],showFlow:true,floodMode:'rain',externalStageM:null,
@@ -921,8 +921,8 @@ onmessage=async({data})=>{
       const year=clamp(Math.round(Number(data.year)||2026),2026,2100);
       const eventIntensity=clamp(Number(data.eventRainMmH)||0,0,150);
       const duration=clamp(Number(data.durationMin)||60,15,240);
-      const infiltration=clamp(Number(data.infiltrationMmH)||5,0,100);
-      const assumedUrbanDrainage=clamp(Number(data.assumedUrbanDrainageMmH??25),0,100);
+      const infiltration=clamp(Number(data.infiltrationMmH??0.5),0,100);
+      const assumedUrbanDrainage=clamp(Number(data.assumedUrbanDrainageMmH??0),0,100);
       const scenario='fixed-official-reference'; // user selects an absolute 2h rain event, not a climate increment
       const storm='peak'; // only the single-maximum design storm is available
       const drainage=data.drainageGuide!==false;
