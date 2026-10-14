@@ -61,6 +61,7 @@ export function createLocalFloodSimulator(config){
     seekYear(params){ensureWorker();worker.postMessage({type:'seek-year',...params});},
     pause(){worker?.postMessage({type:'pause'});},
     reset(silent=false){worker?.postMessage({type:'reset',silent:Boolean(silent)});},
+    resetInitial(){worker?.postMessage({type:'reset-initial'});},
     setParams(params){worker?.postMessage({type:'params',params});},
     destroy(){
       for(const request of pending.values())request.reject(new Error('模拟已关闭'));
