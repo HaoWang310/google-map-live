@@ -2054,6 +2054,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
       '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 零新增积水展示起点 → 2100 计算终态</div>',
       '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:140px"><option value="rain">仅降雨</option><option value="rain-risk">降雨 + EA 风险引导</option><option value="external">仅外部洪水</option><option value="coupled">降雨 + 外部洪水（需水位）</option></select></label>',
+      '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
+      '<div id="siteHudStageHint" class="site-hydro-mini" style="margin:3px 0 8px;color:#edc98a">外部洪水模式须输入外部边界绝对水位（m，须与 DEM 同一高程基准）；不提供时只能保留选择，不能产生可信水深。</div>',
       '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="central">Central +25%</option><option value="upper">Upper +40%</option></select></label>',
       '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
       '<div class="site-hydro-actions"><button type="button" class="site-hydro-btn" id="siteHudUseRiskGuide">使用 EA 风险引导（无外部水位）</button></div>',
@@ -2067,7 +2069,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-row">假设雨水管网排水能力 <input id="siteHudAssumedDrainage" type="number" min="0" max="100" step="5" value="25" style="width:75px"> mm/h</label>',
       '<div class="site-hydro-mini">25 mm/h 为可调整的研究假设，不是 EA 测量的排水管网能力。仅用于改善缺失地下排水数据时的情景计算。</div>',
       '<label class="site-hydro-row">降雨事件过程 <select id="siteHudStormProfile" style="width:140px"><option value="peak">中段暴雨峰值</option><option value="front">前段强降雨</option><option value="uniform">均匀降雨</option></select></label>',
-      '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
+      
       '<label class="site-hydro-row">入流位置 <select id="siteHudExternalInlet" style="width:140px"><option value="low">边界低洼 10%（假设）</option><option value="all">全部边界（试验）</option></select></label>',
       '<label class="site-hydro-row">涨水时间 <input id="siteHudRise" type="number" min="1" max="1440" value="30" style="width:88px"> min</label>',
       '<label class="site-hydro-row">退水结束 <input id="siteHudFall" type="number" min="2" max="2880" value="90" style="width:88px"> min</label>',
@@ -2221,6 +2223,8 @@ export function createLocalFloodUI({
       setSiteHud('siteHudFutureFactor','2100 年设计雨强倍率 ×'+climateRainFactor().toFixed(3)+'（研究情景；需按场地流域核准）');
       const external=needsExternalStage();
       siteHud('siteHudFutureStage').disabled=!external;
+      const stageHint=siteHud('siteHudStageHint');
+      if(stageHint){stageHint.style.display=external?'block':'none';stageHint.textContent=Number.isFinite(externalStageM)?'已输入边界绝对水位 '+externalStageM.toFixed(2)+' m（请确认与 DEM 高程基准一致；该值为用户设定，不是 EA 实测水位）。':'此模式需要边界绝对水位：在此输入与 DEM 同基准的水位（m）；没有真实水位时不能计算外部洪水。';}
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
         siteHud(id).disabled=!external;
       if(siteHud('siteHudUseRiskGuide'))
@@ -2238,7 +2242,7 @@ export function createLocalFloodUI({
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
       resetFuture();
       if(needsExternalStage()&&!Number.isFinite(externalStageM)){
-        status('未提供外部洪水边界水位：点击运行时会明确切换至「降雨＋EA 风险引导」（有数据时），否则为「仅降雨」。');
+        status('已切换到外部洪水模式。请在模式下方输入外部边界绝对水位（m）再运行；未输入时不会运行或切换模式。');
       }
       if(floodMode==='rain-risk'&&!siteRiskAvailable)
         status('该场地没有可用的 EA 风险等级数据，暂不能使用引导模式。',true);
@@ -2264,7 +2268,7 @@ export function createLocalFloodUI({
         :'已恢复 EA 风险图默认显示设置。');
     };
     siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
-    siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();};
+    siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();syncFuture();};
     siteHud('siteHudStormProfile').onchange=e=>{stormProfile=e.target.value;resetFuture();};
     siteHud('siteHudAssumedDrainage').onchange=()=>resetFuture();
     siteHud('siteHudExternalInlet').onchange=e=>{externalInlet=e.target.value;resetFuture();};
