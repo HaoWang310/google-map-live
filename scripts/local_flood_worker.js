@@ -5,6 +5,9 @@ let demPromise=null;
 let drainagePromise=null;
 let sim=null;
 let running=false;
+const annualStateCache=new Map();
+let annualCacheKey='';
+let annualFrameYear=null;
 let timer=null;
 let params={
   rainfall:50,infiltration:5,duration:60,openBoundary:true,
@@ -631,7 +634,7 @@ function sendFrame(){
     Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
     Math.max(0,Number(params.rainfall)||0);
   postMessage({
-    type:'frame',width:cols,height:rows,pixels:pixels.buffer,
+    type:'frame',scenarioYear:annualFrameYear,width:cols,height:rows,pixels:pixels.buffer,
     depthMm:depthMm.buffer,contactMask:contactMask.buffer,
     vectors,
     stats:{
@@ -652,7 +655,7 @@ function sendFrame(){
   },[pixels.buffer,depthMm.buffer,contactMask.buffer]);
 }
 
-function annualStorageStep(data){
+function annualStorageStep(data,emit=true){
   if(!sim)return;
   // Baseline means no proposed sponge installations are active.
   params={...params,interventions:[]};
@@ -671,7 +674,7 @@ function annualStorageStep(data){
   params={...params,rainfall:0,infiltration:0,rainSeriesMm15:null,floodMode:'rain',openBoundary:false};
   for(let n=0;n<16;n++)simulationStep(5);
   params=oldParams;
-  sendFrame();
+  if(emit)sendFrame();
 }
 
 function tick(){
@@ -704,6 +707,7 @@ onmessage=async({data})=>{
       return;
     }
     if(data.type==='setup'){
+      annualStateCache.clear();annualCacheKey='';annualFrameYear=null;
       running=false;clearTimeout(timer);timer=null;
       await setup(data);
       return;
@@ -715,9 +719,38 @@ onmessage=async({data})=>{
       if(sim&&!running)sendFrame();
       return;
     }
+    if(data.type==='seek-year'){
+      if(!sim)return;
+      running=false;clearTimeout(timer);timer=null;
+      const year=clamp(Math.round(Number(data.year)||2026),2026,2100);
+      const rain=clamp(Number(data.annualRainMm)||250,0,3000);
+      const loss=clamp(Number(data.annualLossMm)||210,0,3000);
+      const scenario=data.climateScenario==='upper'?'upper':'central';
+      const key=[rain,loss,scenario].join(':');
+      if(key!==annualCacheKey){annualStateCache.clear();annualCacheKey=key;
+        sim.water.fill(0);sim.timeSec=0;sim.spongeInfilM3=0;
+        annualStateCache.set(2026,new Float32Array(sim.water));}
+      if(!annualStateCache.has(year)){
+        let nearest=2026;
+        for(const y of annualStateCache.keys())if(y<=year&&y>nearest)nearest=y;
+        sim.water.set(annualStateCache.get(nearest));
+        const factor=y=>1+Math.min(1,Math.max(0,(y-2026)/49))*(scenario==='upper'?.40:.25);
+        let total=0;for(let y=2027;y<=2100;y++)total+=Math.max(0,rain*factor(y)-loss);
+        let sum=0;for(let k=0;k<74;k++)sum+=.22+2.34*Math.pow((k+.5)/74,2);
+        for(let y=nearest+1;y<=year;y++){
+          const weight=.22+2.34*Math.pow((y-2027+.5)/74,2);
+          annualStorageStep({annualRainMm:total*weight/sum,annualLossMm:0},false);
+          annualStateCache.set(y,new Float32Array(sim.water));
+        }
+      }
+      sim.water.set(annualStateCache.get(year));
+      annualFrameYear=year;sendFrame();annualFrameYear=null;
+      return;
+    }
     if(data.type==='annual-step'){
+      annualFrameYear=Number(data.climateYear)||null;
       if(running)throw new Error('请先暂停短时模拟，再运行年度蓄水情景');
-      annualStorageStep(data);return;
+      annualStorageStep(data);annualFrameYear=null;return;
     }
     if(data.type==='start'){
       params={...params,...data.params};
@@ -735,6 +768,7 @@ onmessage=async({data})=>{
       return;
     }
     if(data.type==='reset'){
+      annualFrameYear=null;
       running=false;clearTimeout(timer);timer=null;
       if(sim){
         sim.water.fill(0);sim.timeSec=0;sim.visualPhase=0;
