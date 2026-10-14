@@ -524,8 +524,14 @@ function createFloodVolumeLayer(maplibregl,bounds){
           if(count===4){
             triangle(a,b,c);triangle(a,c,d);continue;
           }
-          // Marching-squares-like clipping on four triangles around the
-          // cell centre makes smooth diagonal contours, even at saddle points.
+          const hasSaddle=count===2&&mask[0]===mask[2]&&mask[1]===mask[3];
+          if(!hasSaddle){
+            // The common case: one clipped polygon per marching square.
+            // This sharply reduces triangles, memory uploads and frame drops.
+            emitPoly(clipWetPolygon(n));
+            continue;
+          }
+          // Only diagonal saddle crossings need a centre subdivision.
           const middle={
             x:(a.x+c.x)*.5,y:(a.y+c.y)*.5,
             u:(a.u+c.u)*.5,v:(a.v+c.v)*.5,
