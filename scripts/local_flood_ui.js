@@ -306,6 +306,7 @@ export function createLocalFloodUI({
   let nextFacilityId=1;
   let spongeTool='navigate';
   let hydroDisplay={depth:true,flow:true,collision:true};
+  let lastFlowUpdateAt=0;
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -417,6 +418,8 @@ export function createLocalFloodUI({
   const FOCUS_SPONGE_SOURCE='focus-sponge-source';
   const FOCUS_SPONGE_FILL='focus-sponge-fill';
   const FOCUS_SPONGE_LINE='focus-sponge-line';
+  const FOCUS_FLOW_SOURCE='focus-flow-source';
+  const FOCUS_FLOW_LAYER='focus-flow-arrows';
 
 
   const focusReferenceTileSize=512;
@@ -924,6 +927,12 @@ export function createLocalFloodUI({
       if(viewer.getLayoutProperty(FOCUS_RAIN_LAYER,'visibility')!==display)
         viewer.setLayoutProperty(FOCUS_RAIN_LAYER,'visibility',display);
     }
+    if(viewer.getLayer(FOCUS_FLOW_LAYER)){
+      const desired=hydroDisplay.flow?'visible':'none';
+      if(viewer.getLayoutProperty(FOCUS_FLOW_LAYER,'visibility')!==desired){
+        viewer.setLayoutProperty(FOCUS_FLOW_LAYER,'visibility',desired);
+      }
+    }
     for(const id of [FOCUS_2D,FOCUS_3D]){
       if(viewer.getLayer(id))viewer.setPaintProperty(id,
         id===FOCUS_3D?'fill-extrusion-color':'fill-color',
@@ -952,6 +961,7 @@ export function createLocalFloodUI({
         [FOCUS_SPONGE_SOURCE]:{type:'geojson',data:spongeCollection(
           siteFacilities.map(siteSpongeFeature).filter(Boolean)
         )},
+        [FOCUS_FLOW_SOURCE]:{type:'geojson',data:spongeCollection([])},
         [FOCUS_EA_SOURCE]:{
           type:'raster',tiles:[focusContextUrl('ea',analysis.threshold)],
           tileSize:512,minzoom:13,maxzoom:17
@@ -995,6 +1005,9 @@ export function createLocalFloodUI({
               'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff'],
             'fill-opacity':1
           }},
+        {id:FOCUS_FLOW_LAYER,type:'line',source:FOCUS_FLOW_SOURCE,
+          layout:{visibility:'visible'},
+          paint:{'line-color':'#f1fdff','line-width':1.5,'line-opacity':0.92}},
         {id:FOCUS_SPONGE_FILL,type:'fill',source:FOCUS_SPONGE_SOURCE,
           paint:{'fill-color':['get','color'],'fill-opacity':0.78}},
         {id:FOCUS_SPONGE_LINE,type:'line',source:FOCUS_SPONGE_SOURCE,
@@ -1497,6 +1510,7 @@ export function createLocalFloodUI({
     isolateViewer=viewer;
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
+    lastFlowUpdateAt=0;
     switchSpongeTool('navigate');
     viewer.on('pitch',setFocusPitchMode);
     viewer.on('click',onSpongeMapClick);
@@ -2143,6 +2157,46 @@ export function createLocalFloodUI({
     }
   }
 
+
+  function updateFocusFlowVectors(data){
+    if(!isolateViewer||!hydroDisplay.flow||!focusWaterBounds||
+      !Array.isArray(data.vectors))return;
+    const now=performance.now();
+    if(now-lastFlowUpdateAt<350&&data.stats?.timeMin>0)return;
+    lastFlowUpdateAt=now;
+    const source=isolateViewer.getSource(FOCUS_FLOW_SOURCE);
+    if(!source)return;
+    const nw=mercator(focusWaterBounds[0][0],focusWaterBounds[0][1]);
+    const ne=mercator(focusWaterBounds[1][0],focusWaterBounds[1][1]);
+    const sw=mercator(focusWaterBounds[3][0],focusWaterBounds[3][1]);
+    const cellX=(ne[0]-nw[0])/Math.max(1,data.width);
+    const cellY=(nw[1]-sw[1])/Math.max(1,data.height);
+    const size=Math.max(1,Math.min(Math.abs(cellX),Math.abs(cellY)));
+    const arrowSize=1.8*size;
+    const features=[];
+    for(const vec of data.vectors.slice(0,180)){
+      const [col,row,dx,dy]=vec;
+      if(![col,row,dx,dy].every(Number.isFinite))continue;
+      const x=nw[0]+(col+.5)*cellX;
+      const y=nw[1]-(row+.5)*cellY;
+      const mag=Math.hypot(dx,dy);
+      if(mag<.02)continue;
+      const nx=dx/mag,ny=-dy/mag;
+      const tipX=x+nx*arrowSize,tipY=y+ny*arrowSize;
+      const back=.42*arrowSize,side=.33*arrowSize;
+      const lx=tipX-nx*back-ny*side,ly=tipY-ny*back+nx*side;
+      const rx=tipX-nx*back+ny*side,ry=tipY-ny*back-nx*side;
+      features.push({type:'Feature',properties:{},geometry:{
+        type:'LineString',coordinates:[
+          unmercator(x,y),unmercator(tipX,tipY),
+          unmercator(lx,ly),unmercator(tipX,tipY),
+          unmercator(rx,ry)
+        ]
+      }});
+    }
+    source.setData(spongeCollection(features));
+  }
+
   function handleFrame(data){
     if(!canvas||!canvasContext)return;
     const pixels=new Uint8ClampedArray(data.pixels);
@@ -2154,6 +2208,7 @@ export function createLocalFloodUI({
     // The independent 3D viewer shares this very same simulation canvas.
     // Water is painted before buildings so roofs/facades stay unobscured.
     isolateViewer?.triggerRepaint();
+    updateFocusFlowVectors(data);
 
     const nextImpacted=new Set(data.impactedIds||[]);
 
