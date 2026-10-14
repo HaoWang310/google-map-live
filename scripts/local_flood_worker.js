@@ -797,9 +797,16 @@ function sendFrame(){
   const activeSeries=Array.isArray(params.rainSeriesMm15)&&params.rainSeriesMm15.length===16?
     params.rainSeriesMm15:null;
   const seriesSlot=Math.max(0,Math.min(15,Math.floor(Math.max(0,sim.timeSec-0.01)/900)));
-  const currentRainMmH=activeSeries?
-    Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
-    Math.max(0,Number(params.rainfall)||0);
+  // When the 2026–2100 slider replays a solved event, show the instantaneous
+  // storm intensity at that *event time*, not an unrelated stale worker param.
+  const playback=annualFrameYear!=null&&annualAreaStage?.kind==='rainfall-risk-scenario';
+  const eventPosition=playback?clamp(sim.timeSec/
+    Math.max(60,(Number(annualAreaStage.durationMin)||120)*60),0,1):0;
+  const eventProfile=0.25+1.5*(1-Math.abs(2*eventPosition-1));
+  const currentRainMmH=playback
+    ?Math.max(0,Number(annualAreaStage.baseRainMmH)||0)*eventProfile
+    :activeSeries?Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
+      Math.max(0,Number(params.rainfall)||0);
   const flowField=buildHydroFlowField();
   const buffers=[pixels.buffer,depthMm.buffer,contactMask.buffer,validMask.buffer];
   if(flowField)buffers.push(flowField.vx.buffer,
@@ -947,7 +954,7 @@ onmessage=async({data})=>{
       if(!annualRiskForecast||annualRiskForecast.key!==key){
         postMessage({type:'status',state:'preparing',
           message:mode==='rain-risk'
-            ?'正在计算 DEM 降雨汇流，并以 EA 现状风险等级轻度引导下坡流动（非水深校准）…'
+            ?'正在演算完整的两小时降雨过程，并按真实 DEM 水头与建筑障碍缓存水流快照（EA RoFSW 为弱引导）…'
             :'正在运行两场独立设计事件，并对照 EA 洪涝风险位置…'});
         const priorParams=params;
         try{
