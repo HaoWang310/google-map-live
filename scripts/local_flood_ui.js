@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.26';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.27';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -1808,6 +1808,21 @@ export function createLocalFloodUI({
   function updateSiteHydroDashboard(frame=lastHydroFrame){
     if(!isolatedSelection)return;
     const v=frame?.stats;
+    if(siteHud('siteHudOfficialAgreement')){
+      if(v?.officialDepthAvailable){
+        const ha=x=>(Number(x||0)/10000).toFixed(2)+' ha';
+        const overlap=ha(v.officialOverlapAreaM2);
+        const extra=ha(v.simulatedOutsideOfficialM2);
+        const missed=ha(v.officialNotSimulatedM2);
+        const iou=Number.isFinite(v.officialIoU)?(v.officialIoU*100).toFixed(1)+'%':'无可比淹没单元';
+        const band=Number.isFinite(v.officialBandAgreement)?(v.officialBandAgreement*100).toFixed(1)+'%':'暂无可比单元';
+        setSiteHud('siteHudOfficialAgreement',
+          '交集 '+overlap+' · 模拟范围超出 EA '+extra+
+          ' · EA 范围未覆盖 '+missed+' · 范围 IoU '+iou+
+          ' · 水深分级落在 EA 区间 '+band);
+      }else setSiteHud('siteHudOfficialAgreement',
+        '本次尚未读取到 EA 官方水深参考，无法对范围与水深作校核；不能据此宣称与官方吻合。');
+    }
     for(let i=0;i<6;i++){
       const ha=(v?.depthAreaM2?.[i]||0)/10000;
       setSiteHud('siteDepthArea'+i,ha.toFixed(2)+' ha');
@@ -2175,6 +2190,11 @@ export function createLocalFloodUI({
       '<span style="color:#f7d359">■</span> 低 0.1–&lt;1%<br>',
       '<span style="color:#f29d38">■</span> 中 1–&lt;3.3% · ',
       '<span style="color:#d73731">■</span> 高 ≥3.3%</div></div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">EA 官方范围校核 · 2070s Upper End</div>',
+      '<div id="siteHudOfficialStatus" class="site-hydro-mini">正在读取 EA 官方 0.1% AEP 水深与淹没范围…</div>',
+      '<div id="siteHudOfficialAgreement" class="site-hydro-mini">等待模拟。EA 官方范围和研究暴雨不是同一事件重现期。</div>',
+      '<div class="site-hydro-mini">比较口径：模拟水深 ≥ 0.02 m；EA 为官方 0.1% AEP 七档水深范围。EA 外范围出现的计算积水将标记为差异，不直接裁剪或伪造水量。</div>',
+      '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">© Environment Agency · 深度来源 ↗</a></div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAP DATA STATUS</div>',
       '<div id="siteHudEAStatus" class="site-hydro-mini">EA 风险：等待瓦片</div>',
       '<div id="siteHudDrainStatus" class="site-hydro-mini">地形网络：等待瓦片</div></div>',
@@ -3096,6 +3116,13 @@ export function createLocalFloodUI({
         new URL(assetUrl('assets/flood_risk/surface_water_1-0.webp'),location.href).href,
         new URL(assetUrl('assets/flood_risk/surface_water_1-1.webp'),location.href).href
       ],
+      depthMetaUrl:new URL(assetUrl('assets/flood_risk/ea_depth_cc_0p1_metadata.json'),location.href).href,
+      depthTileUrls:[
+        new URL(assetUrl('assets/flood_risk/ea_depth_cc_0p1_0-0.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/ea_depth_cc_0p1_0-1.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/ea_depth_cc_0p1_1-0.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/ea_depth_cc_0p1_1-1.webp'),location.href).href
+      ],
       onFrame:handleFrame,
       onFlowField:data=>{
         if(hydroDisplay.flow)updateFocusFlowVectors(data);
@@ -3271,6 +3298,9 @@ export function createLocalFloodUI({
       const info=await ensureSimulator().setup({polygon,buildings});
       siteTerrainMinM=Number.isFinite(Number(info.terrainMinM))&&info.terrainMinM!==null?Number(info.terrainMinM):null;
       siteRiskMappedCount=Number(info.riskMappedCells)||0;
+      setSiteHud('siteHudOfficialStatus',info.eaDepthAvailable?
+        '官方未来 0.1% AEP 水深分级已配准（'+(info.eaDepthMappedCells||0)+' 个有效单元），特大暴雨会在物理下坡流动条件下轻度参考官方范围。'
+        :(info.eaDepthInfo||'无 EA 官方未来水深数据；此次仅按 DEM 计算。'));
       floodMode='rain-risk';
       forceEaRiskOverlay=false;
       siteRiskAvailable=Boolean(info.riskAvailable&&siteRiskMappedCount>0);
