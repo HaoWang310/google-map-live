@@ -1,0 +1,84 @@
+{
+  "generated_utc": "2026-10-14T20:38:57.814215+00:00",
+  "agency": "Environment Agency",
+  "aep_official_percent": [
+    3.3,
+    1.0,
+    0.1
+  ],
+  "year_climate_note": "2070s Upper End (2061–2125) not an annual 2100 forecast",
+  "sources": {
+    "present": {
+      "url": "https://environment.data.gov.uk/spatialdata/fmfp-surface-water-depths/wms",
+      "layer_count": 3,
+      "layers": [
+        {
+          "name": "Surface_Water_Spatial_Planning_1in1000_Depths",
+          "title": "Surface Water Spatial Planning 1In1000 Depths",
+          "styles": [
+            {
+              "name": "Surface_Water_Spatial_Planning_1in1000_Depths_25_03_2026",
+              "title": "Surface_Water_Spatial_Planning_Depths"
+            }
+          ]
+        },
+        {
+          "name": "Surface_Water_Spatial_Planning_1in100_Depths",
+          "title": "Surface Water Spatial Planning 1In100 Depths",
+          "styles": [
+            {
+              "name": "Surface_Water_Spatial_Planning_1in100_Depths_26_03_2026",
+              "title": "Surface_Water_Spatial_Planning_Depths"
+            }
+          ]
+        },
+        {
+          "name": "Surface_Water_Spatial_Planning_1in30_Depths",
+          "title": "Surface Water Spatial Planning 1In30 Depths",
+          "styles": [
+            {
+              "name": "Surface_Water_Spatial_Planning_1in30_Depths_25_03_2026",
+              "title": "Surface_Water_Spatial_Planning_Depths"
+            }
+          ]
+        }
+      ]
+    },
+    "climate_2070_upper": {
+      "url": "https://environment.data.gov.uk/spatialdata/fmfp-surface-water-climate-change-depths/wms",
+      "layer_count": 3,
+      "layers": [
+        {
+          "name": "Surface_Water_Spatial_Planning_1in1000_Depths_CCP1",
+          "title": "Surface Water Spatial Planning 1In1000 Depths Ccp1",
+          "styles": [
+            {
+              "name": "Surface_Water_Spatial_Planning_1in1000_Depths_CCP1_25_03_2026",
+              "title": "Surface_Water_Spatial_Planning_Depths_CCP1"
+            }
+          ]
+        },
+        {
+          "name": "Surface_Water_Spatial_Planning_1in100_Depths_CCP1",
+          "title": "Surface Water Spatial Planning 1In100 Depths Ccp1",
+          "styles": [
+            {
+              "name": "Surface_Water_Spatial_Planning_1in100_Depths_CCP1_25_03_2026",
+              "title": "Surface_Water_Spatial_Planning_Depths_CCP1"
+            }
+          ]
+        },
+        {
+          "name": "Surface_Water_Spatial_Planning_1in30_Depths_CCP1",
+          "title": "Surface Water Spatial Planning 1In30 Depths Ccp1",
+          "styles": [
+            {
+              "name": "Surface_Water_Spatial_Planning_1in30_Depths_CCP1_25_03_2026",
+              "title": "Surface_Water_Spatial_Planning_Depths_CCP1"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
