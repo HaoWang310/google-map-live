@@ -658,6 +658,7 @@ export function createLocalFloodUI({
   let longTermMode=false,annualBudget=null;
   const yearFrames=new Map();
   let applyingYearFrame=false;
+  let pendingBaselineFrame=false;
   const clearYearFrames=()=>yearFrames.clear();
   const showCachedYear=(year)=>{
     const frame=yearFrames.get(year);
@@ -2071,7 +2072,8 @@ export function createLocalFloodUI({
         if(!Number.isFinite(netRain)||!Number.isFinite(loss)||netRain<0||loss<0){status('请输入有效的年度降雨和损失假设。',true);return;}
         annualPlaying=true;clearRiskEnvelope();
         // Reserve the baseline year: no modeled additional accumulation yet.
-        yearFrames.set(2026,null);
+        pendingBaselineFrame=true;
+        simulator?.reset();
         // Distribute the full-horizon assumed net effective water input evenly
         // over the 74 annual steps. This controls presentation pacing; it does
         // not claim the real sequence of future storms is uniform.
@@ -2084,16 +2086,21 @@ export function createLocalFloodUI({
         annualBudget={rain:netRain,loss,
           uniformNetMm:projectedTotalNetMm/74,
           projectedTotalNetMm};
+        // Late-weighted pacing prevents a large initial pulse. Integrates
+        // to the same total storage input at year 2100. It is a user-facing
+        // stress-test scenario, not official annual precipitation timing.
+        const weights=Array.from({length:74},(_,i)=>.22+2.34*Math.pow((i+.5)/74,2));
+        const sumWeights=weights.reduce((a,b)=>a+b,0);
+        annualBudget.yearlyNetMm=weights.map(weight=>projectedTotalNetMm*weight/sumWeights);
         setSiteHud('siteHudFutureNote',
           '长期累积压力测试：全期净蓄水 '+projectedTotalNetMm.toFixed(0)+
-          ' mm，均分 74 年，每年 '+annualBudget.uniformNetMm.toFixed(1)+
-          ' mm。此为演示节奏假设，不是实际逐年降雨预测。');
+          ' mm，按渐进式年度压力测试分配：前期较低，后期逐步增加，2100 年达到全期总量。不是官方逐年预报。');
         const advance=()=>{
           if(!annualPlaying||!isolatedSelection)return;
           if(futureYear>=2100){stopAnnual();status('2100 年长期蓄水情景计算完成。');return;}
           futureYear++;simYearDisplay();
           ensureSimulator().annualStep({
-            annualRainMm:annualBudget.uniformNetMm,
+            annualRainMm:annualBudget.yearlyNetMm[futureYear-2027],
             annualLossMm:0,
             climateYear:futureYear
           });
@@ -2905,7 +2912,8 @@ export function createLocalFloodUI({
     if(longTermMode&&annualPlaying&&!applyingYearFrame&&data?.depthMm){
       // Structured cloning is unnecessary: each worker frame owns transferred
       // ArrayBuffers which remain valid after receipt. Retain one per year.
-      yearFrames.set(futureYear,data);
+      yearFrames.set(pendingBaselineFrame?2026:futureYear,data);
+      pendingBaselineFrame=false;
     }
     // In the 2026–2100 baseline playback, show the maximum inundation
     // envelope observed up to the selected year. Never clear risk patches
