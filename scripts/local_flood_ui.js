@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.18';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.19';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -798,7 +798,7 @@ export function createLocalFloodUI({
       return false;
     }
     if(floodMode==='rain-risk'&&!siteRiskAvailable){
-      status('当前已选择「降雨＋EA 风险引导」，但该场地 EA 分类风险数据不可用。可改用仅降雨；当前选择不会被自动覆盖。',true);
+      status('当前已选择「降雨＋EA 风险引导」，但该场地独立 EA 地表水风险数据缺失或没有有效等级。不会用河流／海洋综合风险代替。',true);
       return false;
     }
     return true;
@@ -2241,12 +2241,12 @@ export function createLocalFloodUI({
       if(siteHud('siteHudUseRiskGuide'))
         siteHud('siteHudUseRiskGuide').disabled=!siteRiskAvailable;
       setSiteHud('siteHudRiskFusionNote',floodMode==='rain-risk'
-        ?'EA 已绘制的现状综合洪涝概率等级参与下坡汇流偏好；蓝色水深仍由降雨、DEM 和建筑求解，属于探索性情景，非 EA 官方水深。'
+        ?'EA 独立地表水洪涝概率等级参与下坡汇流偏好；蓝色水深仍由降雨、DEM 和建筑求解，属于探索性情景，非 EA 官方水深。'
         :'没有核实的外部洪水位时，可选「降雨＋EA 风险引导」；它不等同真正的外部洪水耦合。');
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
         (floodMode==='rain-risk'
-          ?'本模式以实际配准的 EA 综合现状风险等级轻度引导已计算降雨水量沿 DEM 下坡移动，但不显示独立风险底图。水深不是 EA 官方预测，2026 为零新增水量的视觉起点，至 2100 仅进行设计情景分期演示。'
+          ?'本模式以实际配准的 EA 地表水现状风险等级轻度引导已计算降雨水量沿 DEM 下坡移动，但不显示独立风险底图。水深不是 EA 官方预测，2026 为零新增水量的视觉起点，至 2100 仅进行设计情景分期演示。'
           :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
@@ -3057,12 +3057,12 @@ export function createLocalFloodUI({
       demWidth,
       demHeight,
       demEncoding:{minimum:-100,step:0.1},
-      riskMetaUrl:new URL(assetUrl('assets/london_flood_risk_metadata.json'),location.href).href,
+      riskMetaUrl:new URL(assetUrl('assets/flood_risk/surface_water_metadata.json'),location.href).href,
       riskTileUrls:[
-        new URL(assetUrl('assets/flood_risk/flood_0-0.webp'),location.href).href,
-        new URL(assetUrl('assets/flood_risk/flood_0-1.webp'),location.href).href,
-        new URL(assetUrl('assets/flood_risk/flood_1-0.webp'),location.href).href,
-        new URL(assetUrl('assets/flood_risk/flood_1-1.webp'),location.href).href
+        new URL(assetUrl('assets/flood_risk/surface_water_0-0.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/surface_water_0-1.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/surface_water_1-0.webp'),location.href).href,
+        new URL(assetUrl('assets/flood_risk/surface_water_1-1.webp'),location.href).href
       ],
       onFrame:handleFrame,
       onFlowField:data=>{
@@ -3250,15 +3250,15 @@ export function createLocalFloodUI({
       }
       if(siteHud('siteHudRiskFusionNote'))
         setSiteHud('siteHudRiskFusionNote',siteRiskAvailable
-          ?'场地内 EA 现状风险等级已配准（'+siteRiskMappedCount+' 个有效网格），可用于空间引导。风险等级不是水深。'
-          :'该场地没有取得可辨识的 EA 风险等级，不能使用风险引导模式。');
+          ?'场地内 EA 地表水风险等级已配准（'+siteRiskMappedCount+' 个有效网格），可用于空间引导。风险等级不是水深。'
+          :'该地块缺少独立 EA 地表水风险数据或有效风险等级，不能启用融合引导。');
       prepared=true;
       ensureWaterLayer(info);
       publishBuildingScene();
       $('localFloodGridInfo').textContent=
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑 · '+
         (info.drainageAvailable?'汇水路径数据就绪':'地形独立计算（汇水数据不可用）')+
-        ' · '+(siteRiskAvailable?'EA 风险 '+siteRiskMappedCount+' 格可用':'EA 风险未取到有效等级');
+        ' · '+(siteRiskAvailable?'EA 地表水 '+siteRiskMappedCount+' 格可用':'EA 地表水等级不可用');
       $('localFloodStats').textContent=
         '范围 '+(area/1e6).toFixed(2)+' km² · '+info.cellSizeM+' m 网格 · 圈内建筑 '+info.buildingCount+' 栋';
       setButtons();
