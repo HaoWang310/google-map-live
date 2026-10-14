@@ -1648,13 +1648,14 @@ export function createLocalFloodUI({
     }
     const progress=siteHud('siteHudProgress');
     if(progress)progress.style.width=((futureYear-2026)/74*100).toFixed(2)+'%';
+    if(longTermMode&&v&&hydroState==='preparing')hydroState='ready';
     setSiteHud('siteHudRunState',longTermMode?
       (annualPlaying?'逐年演化中 · ':'年份可回放 · ')+
       (v?.wetAreaM2!=null?(v.wetAreaM2/1e4).toFixed(2)+' ha':'等待计算') :
       (({ready:'准备就绪',running:'洪水事件运行中',paused:'洪水事件已暂停',complete:'洪水事件完成',reset:'已重置'}[hydroState]||'等待模拟')+
         ' · 事件 '+simulationClock(elapsed)+' / '+simulationClock(duration)));
-    if(siteHud('siteHudRun'))siteHud('siteHudRun').disabled=!prepared||hydroState==='running';
-    if(siteHud('siteHudPause'))siteHud('siteHudPause').disabled=!prepared||hydroState!=='running';
+    if(siteHud('siteHudRun'))siteHud('siteHudRun').disabled=!prepared||annualPlaying||hydroState==='running'||hydroState==='preparing';
+    if(siteHud('siteHudPause'))siteHud('siteHudPause').disabled=!prepared||(!annualPlaying&&hydroState!=='running');
     const chart=siteHud('siteHudChart');
     if(chart){
       chart.replaceChildren();
@@ -2936,7 +2937,7 @@ export function createLocalFloodUI({
     }
     const pixels=new Uint8ClampedArray(data.pixels);
     if(isolatedSelection&&volumetricWater?.ready&&data.depthMm){
-      volumetricWater.updateFrame(data);
+      volumetricWater.updateFrame(data,applyingYearFrame);
     }
     if(!lowResWater||!lowResWaterContext)return;
     if(lowResWater.width!==data.width||lowResWater.height!==data.height){
