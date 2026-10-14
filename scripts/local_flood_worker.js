@@ -539,41 +539,49 @@ function simulationStep(dt=5){
       const h=Math.max(0,water[i]-svCapacity[i]);
       if(h<0.0001||!inside[i]||obstacle[i])continue;
       const head=terrain[i]+h;
-      const neigh=[];
-      if(row>0)neigh.push(i-cols);
-      if(col<cols-1)neigh.push(i+1);
-      if(row<rows-1)neigh.push(i+cols);
-      if(col>0)neigh.push(i-1);
-
-      let sumDrop=0,sumWeight=0;
-      const weights=[];
-      for(const j of neigh){
-        if(!inside[j]||obstacle[j]){weights.push(0);continue;}
-        const drop=Math.max(0,head-(terrain[j]+Math.max(0,water[j]-svCapacity[j])));
-        sumDrop+=drop;
-        // Preserve strictly downhill transfer. A mapped D8 accumulation
-        // corridor only biases the distribution of EXISTING downhill flow;
-        // it never creates water or imposes a fictitious hydraulic head.
+      // Eight-neighbour surface transfer follows DEM + water-surface head.
+      // Diagonal flow is blocked if either orthogonal side is a building or
+      // outside the study site (no corner-cutting through walls).
+      // Water is moved between cells, not created by roads or EA risk classes.
+      const neighbours=[];
+      let sumWeight=0,maxDrop=0;
+      for(const [dx,dy] of [
+        [-1,0],[1,0],[0,-1],[0,1],
+        [-1,-1],[1,-1],[-1,1],[1,1]
+      ]){
+        const nc=col+dx,nr=row+dy;
+        if(nc<0||nc>=cols||nr<0||nr>=rows)continue;
+        const j=nr*cols+nc;
+        if(!inside[j]||obstacle[j])continue;
+        if(dx&&dy){
+          const ix=row*cols+nc,iy=nr*cols+col;
+          if(!inside[ix]||!inside[iy]||obstacle[ix]||obstacle[iy])continue;
+        }
+        const otherHead=terrain[j]+Math.max(0,water[j]-svCapacity[j]);
+        const drop=Math.max(0,head-otherHead);
+        if(drop<=1e-6)continue; // depressions must fill before overtopping
+        const distanceFactor=dx&&dy?Math.SQRT1_2:1;
         const preferCorridor=useDrainage&&accumulation[j]>=threshold&&
           accumulation[j]>accumulation[i];
-        // Existing DOWNHILL transfers only: EA categories softly bias the
-        // preference of already-eligible paths, NOT the water level or volume.
         const riskClass=params.floodMode==='rain-risk'&&sim.riskAvailable
           ?sim.riskRank?.[j]||0:0;
-        const riskBias=riskClass===4?1.28:riskClass===3?1.17:
-          riskClass===2?1.08:1;
-        const weight=drop*(preferCorridor?1.5:1)*riskBias;
-        weights.push(weight);
+        // Official risk is only a modest path preference; never rainfall input.
+        const riskBias=riskClass===4?1.20:riskClass===3?1.12:
+          riskClass===2?1.06:1;
+        const weight=drop*distanceFactor*(preferCorridor?1.35:1)*riskBias;
+        neighbours.push([j,weight]);
         sumWeight+=weight;
+        maxDrop=Math.max(maxDrop,drop);
       }
-
-      if(sumDrop>0&&sumWeight>0){
-        const transferable=Math.min(h*0.36,sumDrop*0.08);
-        for(let k=0;k<neigh.length;k++){
-          if(weights[k]<=0)continue;
-          const q=transferable*weights[k]/sumWeight;
+      if(sumWeight>0){
+        // Explicit conservative flux: loss from i equals gains to neighbours.
+        // dt-scaling retains comparable propagation under different step sizes.
+        const rate=Math.max(0.1,Math.min(1,dt/12));
+        const transferable=Math.min(h*0.34*rate,maxDrop*0.065*rate);
+        for(const [j,weight] of neighbours){
+          const q=transferable*weight/sumWeight;
           delta[i]-=q;
-          delta[neigh[k]]+=q;
+          delta[j]+=q;
         }
       }
 
