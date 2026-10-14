@@ -95,6 +95,8 @@ const STYLE = `
  border-radius:7px;padding:6px 10px;font-size:10px}
 .pg-option{display:flex;gap:8px;align-items:center;margin:10px 0}
 .pg-option input{accent-color:#45bdcc}
+.pg-field{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0}
+.pg-field input{width:105px;min-width:0;padding:6px;color:#ebfaff;background:#1c3547;border:1px solid #51758a;border-radius:5px}
 @media(max-width:950px){.pg-left{width:240px}.pg-right{width:220px}}
 @media(max-width:680px){.pg-left{width:43vw;left:4px;padding:8px}
  .pg-right{width:38vw;right:4px;padding:8px}.pg-panel{top:72px;bottom:115px}
@@ -116,7 +118,7 @@ const SOURCES=[
  ['Soils and crop yields','未接入：不可生成所谓真实农业适宜性']
 ];
 export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,demHeight}){
- let root=null,viewer=null,worker=null,current=0,ring=null,bng=null,terrain=null;
+ let root=null,viewer=null,worker=null,current=0,ring=null,bng=null,terrain=null,demand=null;
  const byId=id=>get(root,'#'+id);
  function status(message,error=false){
   const el=byId('pg-status');if(el){el.textContent=message;el.classList.toggle('error',error);}
@@ -125,7 +127,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
   current++;
   worker?.terminate();worker=null;
   viewer?.remove();viewer=null;
-  root?.remove();root=null;ring=null;bng=null;terrain=null;
+  root?.remove();root=null;ring=null;bng=null;terrain=null;demand=null;
   document.removeEventListener('keydown',key,true);
  }
  function key(e){
@@ -141,6 +143,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    setValue('pg-projection',
      'E '+Math.round(bng.e0)+'–'+Math.round(bng.e1)+
      ' / N '+Math.round(bng.n0)+'–'+Math.round(bng.n1));
+   updateDemand();
   }
   if(terrain){
    setValue('pg-elev',terrain.minElevationM+'–'+terrain.maxElevationM+' m');
@@ -151,11 +154,39 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    const cb=byId('pg-slope-toggle');if(cb)cb.disabled=!terrain.derivedPoints.length;
   }
  }
+
+ function calcAgriculturalDemand(input){
+  const p=Number(input.population),share=Number(input.share),consumption=Number(input.consumption),yieldHa=Number(input.yieldHa);
+  if(!(p>0&&share>=0&&share<=100&&consumption>0&&yieldHa>0)||
+     ![p,share,consumption,yieldHa].every(Number.isFinite))return null;
+  const annualKg=p*consumption*share/100;
+  const ha=annualKg/(yieldHa*1000);
+  return {people:p,foodSelfSufficiencyPercent:share,
+   annualConsumptionKgPerPerson:consumption,edibleYieldTonnesPerHaPerYear:yieldHa,
+   requiredAreaHa:ha,requiredAreaM2:ha*10000,
+   status:'Scenario estimate, user-entered assumptions; NOT measured local crop suitability'};
+ }
+ function updateDemand(){
+  if(!root)return;
+  demand=calcAgriculturalDemand({
+   population:byId('pg-pop')?.value,share:byId('pg-self')?.value,
+   consumption:byId('pg-food')?.value,yieldHa:byId('pg-yield')?.value
+  });
+  setValue('pg-agri-area',demand?
+   demand.requiredAreaHa.toFixed(2)+' ha / '+(demand.requiredAreaM2/1e6).toFixed(4)+' km²':'请先输入全部参数');
+  setValue('pg-agri-share',demand&&bng?
+   (100*demand.requiredAreaM2/bng.areaM2).toFixed(1)+'%':'—');
+  setValue('pg-agri-warning',!demand?
+    '需要用户提供人口、年人均消费量和作物单位面积年产量。':
+    bng&&demand.requiredAreaM2>bng.areaM2?
+    '警告：此假设所需农业占地大于当前地块面积。':
+    '仅为露天农业需求估算，尚未获取土壤、日照或灌溉条件。');
+ }
  function exportSite(){
   if(!ring||!bng)return;
   const result={type:'FeatureCollection',
    properties:{phase:'STEP 01',computationCRS:'EPSG:27700',
-   areaM2:bng.areaM2,perimeterM:bng.perimeterM,terrainStats:terrain,
+   areaM2:bng.areaM2,perimeterM:bng.perimeterM,terrainStats:terrain,agriculturalScenario:demand,
    reliability:'OSGB36 Proj4 Helmert approximation without OSTN15 grid: not survey grade',
    missing:['soil','crop yields','complete OSM road topology','flood constraint model'],
    roadsGenerated:false,parcelsGenerated:false},
@@ -259,6 +290,15 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    '<div class="pg-section"><div class="pg-label">图层</div>'+
    '<label class="pg-option"><input type="checkbox" id="pg-slope-toggle" disabled>'+
    'DEM 坡度采样显示</label></div>'+
+   '<div class="pg-section"><div class="pg-label">STEP 02 · AGRICULTURAL DEMAND (SCENARIO)</div>'+
+   '<p class="pg-note">农业需求预备输入：没有真实土壤和作物产量数据时，由用户明示假设，不能视为适宜性分析。</p>'+
+   '<label class="pg-field">规划服务人口<input id="pg-pop" type="number" min="1" step="1" placeholder="people"></label>'+
+   '<label class="pg-field">目标食品自给率<input id="pg-self" type="number" min="0" max="100" step="1" value="40">%</label>'+
+   '<label class="pg-field">年人均食品需求<input id="pg-food" type="number" min="0.1" step="1" placeholder="kg/person"></label>'+
+   '<label class="pg-field">年可食用产量<input id="pg-yield" type="number" min="0.01" step="0.1" placeholder="tonnes/ha"></label>'+
+   '<div class="pg-stat"><small>露天农业需求（用户假设）</small><b id="pg-agri-area">请先输入全部参数</b></div>'+
+   '<div class="pg-line">占当前地块比例 <strong id="pg-agri-share">—</strong></div>'+
+   '<p class="pg-note" id="pg-agri-warning">等待有效参数。</p></div>'+
    '<div class="pg-section"><div class="pg-label">DATA PROVENANCE</div>'+
    '<table class="pg-sources">'+SOURCES.map(v=>
       '<tr><td>'+v[0]+'</td><td>'+v[1]+'</td></tr>').join('')+'</table>'+
@@ -270,6 +310,8 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    '<button disabled>Compare Scenarios</button>'+
    '<span class="pg-note">阶段开发：首先检查数据，再生成具有可追溯依据的道路及地块。</span></footer>');
   document.body.append(root);
+  for(const id of ['pg-pop','pg-self','pg-food','pg-yield'])byId(id)?.addEventListener('input',updateDemand);
+  updateDemand();
   byId('pg-exit').onclick=exit;
   byId('pg-export').onclick=exportSite;
   byId('pg-slope-toggle').onchange=e=>{
