@@ -648,6 +648,8 @@ export function createLocalFloodUI({
   let futureYear=2026, floodMode='rain', climateScenario='central', externalStageM=null;
   let stormProfile='peak',externalInlet='low',externalRiseMin=30,externalFallMin=90;
   let annualPlaying=false,annualAdvanceTimer=null;
+  let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
+  const WATER_BLEND_MS=580;
   const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;};
   // London management catchment 1% AEP design rainfall reference:
   // 2070s central +25%, upper end +40%; reference allowances, not yearly forecasts.
@@ -2001,7 +2003,7 @@ export function createLocalFloodUI({
       }
       if(futureYear>=2100)futureYear=2026;
       annualPlaying=true;
-      simulator?.reset();
+      simulator?.reset(true);
       ensureSimulator().start({...currentParams(),annualPreview:true});
       updateSiteHydroDashboard();
     };
@@ -2274,6 +2276,7 @@ export function createLocalFloodUI({
   }
 
   function removeWaterLayers(){
+    cancelAnimationFrame(waterBlendHandle);previousWaterFrame=null;
     if(map.getLayer(WATER_LAYER))map.removeLayer(WATER_LAYER);
     if(map.getSource(WATER_SOURCE))map.removeSource(WATER_SOURCE);
     focusWaterBounds=null;
@@ -2587,7 +2590,7 @@ export function createLocalFloodUI({
               if(!annualPlaying||!isolatedSelection)return;
               futureYear++;
               simYearDisplay();
-              simulator?.reset();
+              simulator?.reset(true);
               simulator?.start({...currentParams(),annualPreview:true});
             },100);
           }else{
@@ -2806,11 +2809,38 @@ export function createLocalFloodUI({
     if(canvas.width!==outWidth||canvas.height!==outHeight){
       canvas.width=outWidth;canvas.height=outHeight;
     }
+    // Supersample a softly thresholded colour field. The DEM grid remains
+    // authoritative; smoothing here is rendering-only, not added precision.
     lowResWaterContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
-    canvasContext.clearRect(0,0,outWidth,outHeight);
-    canvasContext.imageSmoothingEnabled=true;
-    canvasContext.imageSmoothingQuality='high';
-    canvasContext.drawImage(lowResWater,0,0,outWidth,outHeight);
+    const nextFrame=document.createElement('canvas');
+    nextFrame.width=outWidth;nextFrame.height=outHeight;
+    const nc=nextFrame.getContext('2d');
+    nc.imageSmoothingEnabled=true;nc.imageSmoothingQuality='high';
+    nc.drawImage(lowResWater,0,0,outWidth,outHeight);
+    if(canvas.width!==outWidth||canvas.height!==outHeight)previousWaterFrame=null;
+    if(!previousWaterFrame){
+      previousWaterFrame=document.createElement('canvas');
+      previousWaterFrame.width=outWidth;previousWaterFrame.height=outHeight;
+      previousWaterFrame.getContext('2d').drawImage(canvas,0,0);
+    }
+    cancelAnimationFrame(waterBlendHandle);
+    const oldFrame=document.createElement('canvas');
+    oldFrame.width=outWidth;oldFrame.height=outHeight;
+    oldFrame.getContext('2d').drawImage(canvas,0,0);
+    const paintBlend=()=>{
+      if(!canvasContext||!canvas)return;
+      const alpha=Math.min(1,(performance.now()-waterBlendStart)/WATER_BLEND_MS);
+      canvasContext.clearRect(0,0,outWidth,outHeight);
+      canvasContext.globalAlpha=1;
+      canvasContext.drawImage(oldFrame,0,0);
+      canvasContext.globalAlpha=alpha*alpha*(3-2*alpha);
+      canvasContext.drawImage(nextFrame,0,0);
+      canvasContext.globalAlpha=1;
+      map.triggerRepaint();isolateViewer?.triggerRepaint();
+      if(alpha<1)waterBlendHandle=requestAnimationFrame(paintBlend);
+    };
+    waterBlendStart=performance.now();
+    paintBlend();
     map.triggerRepaint();
     // The independent 3D viewer shares this very same simulation canvas.
     // Water is painted before buildings so roofs/facades stay unobscured.
