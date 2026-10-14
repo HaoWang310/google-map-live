@@ -2062,10 +2062,10 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 未来洪水情景</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
       '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 零新增积水展示起点 → 2100 计算终态</div>',
-      '<label class="site-hydro-row">模式 <select id="siteHudFutureMode" style="width:180px" aria-label="唯一模拟模式"><option value="rain-risk">降雨 + EA 风险引导</option></select></label>',
+      '<input type="hidden" id="siteHudFutureMode" value="rain-risk">',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
       '<button type="button" class="site-hydro-btn" id="siteHudTrialStage">采用 DEM 低点 + 1.0 m（仅设计试验）</button>',
-      '<div class="site-hydro-mini" style="margin:8px 0;border:1px solid #426279;border-radius:7px;padding:8px">',
+      '<div class="site-hydro-mini" style="display:none;margin:8px 0;border:1px solid #426279;border-radius:7px;padding:8px">',
       '<strong>EA 官方外部洪水数据</strong> · <a href="https://www.data.gov.uk/dataset/67a734bb-2b7b-491a-aafd-3f7e52c8d7f3/rivers-and-sea-defended-and-undefended-flood-risk-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化深度数据集</a>',
       '<div id="siteHudEaStageStatus" style="margin:5px 0">尚未查询场地附近官方河流水位站。</div>',
       '<div id="siteHudEaFloodZoneStatus" style="margin:5px 0">尚未查询 EA 官方 Flood Zone 2 / 3 场地覆盖。</div>',
@@ -2330,7 +2330,7 @@ export function createLocalFloodUI({
         output.textContent='EA 站点查询失败：'+(error?.message||String(error))+'。未替换为估计水位。';
       }finally{clearTimeout(timeout);}
     };
-    siteHud('siteHudFutureMode').onchange=()=>{floodMode='rain-risk';siteHud('siteHudFutureMode').value='rain-risk';syncFuture();};
+    // v3.22.23: no selectable model. Rainfall + EA RoFSW guidance remains the default.
     siteHud('siteHudUseRiskGuide').onclick=()=>{
       if(enableEaRiskGuidance())syncFuture();
       else status('EA 现状洪涝风险栅格不可用，不能创建风险引导情景。',true);
@@ -2611,10 +2611,8 @@ export function createLocalFloodUI({
     focusSiteSerial++;
     try{
       createFocusViewer();
-      // Query EA's official spatial coverage and nearby gauge on site entry.
-      // This is reference data only; never silently converts a gauge value into a boundary condition.
-      siteHud('siteHudQueryEaZones')?.click();
-      siteHud('siteHudQueryEaStage')?.click();
+      // v3.22.23: suppress unrelated river/sea gauge queries in the fixed
+      // rainfall + EA surface-water guidance scenario. No boundary water stage required.
     }catch(error){
       isolatedSelection=false;
       isolateCamera=null;
