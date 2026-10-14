@@ -315,6 +315,7 @@ async function setup(data){
   const lowCount=Math.max(1,Math.ceil(sorted.length*.1));
   sim.inletBoundaryCells=sorted.slice(0,lowCount);
   await loadPublishedRiskForSite();
+  await loadOfficialEaDepthForSite();
   postMessage({
     type:'setup-complete',
     requestId:data.requestId,
@@ -326,6 +327,8 @@ async function setup(data){
     terrainMaxM:Number.isFinite(maxZ)?maxZ:null,
     drainageAvailable:Boolean(upstreamCodes),
     riskAvailable:Boolean(sim.riskAvailable),riskInfo:sim.riskInfo,
+    eaDepthAvailable:Boolean(sim.eaDepthAvailable),
+    eaDepthInfo:sim.eaDepthInfo,eaDepthMappedCells:sim.eaDepthMappedCells||0,
     riskMappedCells:sim.riskMappedCount||0,
     boundsLngLat:[
       lngLat(box.left,box.top),
@@ -414,6 +417,76 @@ async function loadPublishedRiskForSite(){
     sim.riskMappedCount=0;
     sim.riskAvailable=false;
     sim.riskInfo='EA risk overlay not available: '+(error?.message||String(error));
+  }
+}
+
+/**
+ * Independent official EA Surface Water Spatial Planning depth reference.
+ * 2070s Upper End, 0.1% AEP. This is a probability/depth-class footprint,
+ * not a dynamic boundary condition or the return period of 100 mm / 2 h rain.
+ * Pixel class 1..7 represents the published 7 depth bands, zero is outside.
+ */
+async function loadOfficialEaDepthForSite(){
+  const classes=new Uint8Array(sim.inside.length);
+  sim.eaDepthClasses=classes;sim.eaDepthAvailable=false;sim.eaDepthInfo='官方深度数据尚未发布';
+  try{
+    if(!demConfig.depthMetaUrl||!Array.isArray(demConfig.depthTileUrls)||
+       demConfig.depthTileUrls.length!==4)throw Error('缺少 EA 官方水深瓦片配置');
+    const response=await fetch(demConfig.depthMetaUrl,{cache:'force-cache'});
+    if(!response.ok)throw Error('EA 水深元数据 HTTP '+response.status);
+    const meta=await response.json(),grid=meta.web_grid;
+    if(meta.source_type!=='ea_official_surface_water_depth'||meta.aep_percent!==0.1||
+       !String(meta.layer||'').includes('1in1000_Depths_CCP1')||
+       !Array.isArray(meta.products)||meta.products.length!==4 ||
+       !grid?.bounds_m||grid.width!==5736||grid.height!==5750)
+      throw Error('EA 官方水深来源／重现期／坐标元数据不符');
+    const [left,bottom,right,top]=grid.bounds_m;
+    const tw=grid.width/2,th=grid.height/2;
+    const coords=Array.from({length:4},()=>[]);
+    for(let row=0;row<sim.rows;row++)for(let col=0;col<sim.cols;col++){
+      const i=row*sim.cols+col;
+      if(!sim.inside[i]||sim.obstacle[i])continue;
+      const x=sim.left+(col+.5)*sim.cell;
+      const y=sim.top-(row+.5)*sim.cell;
+      const gx=Math.floor((x-left)/(right-left)*grid.width);
+      const gy=Math.floor((top-y)/(top-bottom)*grid.height);
+      if(gx<0||gy<0||gx>=grid.width||gy>=grid.height)continue;
+      const tile=(gy>=th?2:0)+(gx>=tw?1:0);
+      coords[tile].push([i,gx%tw,gy%th]);
+    }
+    const expected=[
+      [22,131,211],[28,113,204],[27,92,179],[21,76,153],
+      [22,59,124],[20,44,102],[12,30,75]
+    ];
+    for(let tile=0;tile<4;tile++){
+      if(!coords[tile].length)continue;
+      const r=await fetch(demConfig.depthTileUrls[tile],{cache:'force-cache'});
+      if(!r.ok)throw Error('EA 水深瓦片 HTTP '+r.status);
+      const bitmap=await createImageBitmap(await r.blob());
+      try{
+        if(bitmap.width!==tw||bitmap.height!==th)throw Error('EA 水深瓦片尺寸不符');
+        const canvas=new OffscreenCanvas(tw,th);
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});
+        ctx.drawImage(bitmap,0,0);
+        const rgba=ctx.getImageData(0,0,tw,th).data;
+        for(const [i,px,py] of coords[tile]){
+          const n=(py*tw+px)*4;
+          if(rgba[n+3]<128)continue;
+          const matched=expected.findIndex(rgb=>
+            rgb[0]===rgba[n]&&rgb[1]===rgba[n+1]&&rgb[2]===rgba[n+2]);
+          if(matched<0)throw Error('EA 水深瓦片存在无法解释的颜色编码');
+          classes[i]=matched+1;
+        }
+      }finally{bitmap.close();}
+    }
+    let officialCells=0;
+    for(const cls of classes)if(cls>=1&&cls<=7)officialCells++;
+    sim.eaDepthAvailable=true;
+    sim.eaDepthMappedCells=officialCells;
+    sim.eaDepthInfo='EA 官方 RoFSW 2070s Upper End 0.1% AEP 深度分级 ('+officialCells+' 网格)';
+  }catch(error){
+    classes.fill(0);sim.eaDepthAvailable=false;sim.eaDepthMappedCells=0;
+    sim.eaDepthInfo='EA 官方水深参考不可用：'+(error?.message||String(error));
   }
 }
 
@@ -568,7 +641,11 @@ function simulationStep(dt=5){
         // Official risk is only a modest path preference; never rainfall input.
         const riskBias=riskClass===4?1.20:riskClass===3?1.12:
           riskClass===2?1.06:1;
-        const weight=drop*distanceFactor*(preferCorridor?1.35:1)*riskBias;
+        // An official footprint softly guides EXTREME storms on existing
+        // downhill paths; it never supplies water or forbids outside flooding.
+        const depthBias=Number(params.rainfall)>=40&&sim.eaDepthAvailable&&
+          sim.eaDepthClasses[j]>=1 ? 1.42 : 1;
+        const weight=drop*distanceFactor*(preferCorridor?1.35:1)*riskBias*depthBias;
         neighbours.push([j,weight]);
         sumWeight+=weight;
         maxDrop=Math.max(maxDrop,drop);
@@ -744,6 +821,7 @@ function sendFrame(){
   const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,shallowCells=0,volume=0,retainedM3=0;
   let riskOverlapCells=0,riskKnownCells=0;
+  let eaRefCells=0,eaOverlap=0,eaOutside=0,eaMissing=0,eaDepthConsistent=0,eaDepthCompared=0;
   const depthCells=new Uint32Array(SIM_DEPTH_BOUNDS.length);
   const impacted=new Set();
   const markCollidingBuilding=cellIndex=>{
@@ -774,10 +852,25 @@ function sendFrame(){
     if(h>=0.001)shallowCells++; // >=1 mm wet surface, NOT >2 cm flooding
     const depthBand=depthBandIndex(h);
     if(depthBand>=0)depthCells[depthBand]++;
+    const eaClass=sim.eaDepthAvailable?(sim.eaDepthClasses?.[i]||0):0;
+    if(eaClass>0)eaRefCells++;
     if(h>=0.02){
+      if(sim.eaDepthAvailable){
+        if(eaClass>0){
+          eaOverlap++;
+          const limits=[
+            [0,0.15],[0.15,0.30],[0.30,0.60],[0.60,0.90],
+            [0.90,1.20],[1.20,2.30],[2.30,Infinity]
+          ];
+          const [minDepth,maxDepth]=limits[eaClass-1];
+          eaDepthCompared++;
+          if(h>=minDepth&&h<=maxDepth)eaDepthConsistent++;
+        }else eaOutside++;
+      }
       wetCells++;volume+=h*cell*cell;
       if(sim.riskRank?.[i]>0&&sim.riskRank[i]<5)riskOverlapCells++;
     }
+    if(sim.eaDepthAvailable&&eaClass>0&&h<0.02)eaMissing++;
     if(sim.riskRank?.[i]>0&&sim.riskRank[i]<5)riskKnownCells++;
     const showFlow=params.showFlow!==false;
     const flow=(showFlow&&h>=.005)?flowVisual(sim,row,col,i):{
@@ -839,7 +932,16 @@ function sendFrame(){
       impactedCount:impacted.size,
       eaRiskOverlapPercent:wetCells>0?100*riskOverlapCells/wetCells:0,
       eaRiskMappedCells:riskKnownCells,
-      eaRiskAvailable:Boolean(sim.riskAvailable)
+      eaRiskAvailable:Boolean(sim.riskAvailable),
+      officialDepthAvailable:Boolean(sim.eaDepthAvailable),
+      officialAepPercent:0.1,
+      officialEpoch:'2070s Upper End (2061–2125)',
+      officialReferenceAreaM2:eaRefCells*cell*cell,
+      officialOverlapAreaM2:eaOverlap*cell*cell,
+      simulatedOutsideOfficialM2:eaOutside*cell*cell,
+      officialNotSimulatedM2:eaMissing*cell*cell,
+      officialIoU:eaRefCells+eaOutside>0?eaOverlap/(eaRefCells+eaOutside):null,
+      officialBandAgreement:eaDepthCompared>0?eaDepthConsistent/eaDepthCompared:null
     },
     impactedIds:[...impacted]
   },buffers);
@@ -896,7 +998,9 @@ onmessage=async({data})=>{
         demEncoding:data.demEncoding,
         drainageUrl:data.drainageUrl||null,
         riskMetaUrl:data.riskMetaUrl||null,
-        riskTileUrls:data.riskTileUrls||null
+        riskTileUrls:data.riskTileUrls||null,
+        depthMetaUrl:data.depthMetaUrl||null,
+        depthTileUrls:data.depthTileUrls||null
       };
       return;
     }
