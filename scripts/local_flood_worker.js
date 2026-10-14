@@ -817,7 +817,11 @@ onmessage=async({data})=>{
       const storm=data.stormProfile==='front'?'front':
         data.stormProfile==='uniform'?'uniform':'peak';
       const drainage=data.drainageGuide!==false;
-      const key=[eventIntensity,duration,infiltration,scenario,storm,drainage,
+      const mode=['rain','external','coupled'].includes(data.floodMode)?data.floodMode:'rain';
+      const externalStage=data.externalStageM===null?null:Number(data.externalStageM);
+      if(mode!=='rain'&&!Number.isFinite(externalStage))throw Error('外部洪水需要可信的绝对边界水位。');
+      const key=[eventIntensity,duration,infiltration,scenario,storm,drainage,mode,externalStage,
+        data.externalRiseMin,data.externalFallMin,data.externalInlet,
         Number(data.drainageThreshold)||0].join(':');
       if(!annualRiskForecast||annualRiskForecast.key!==key){
         postMessage({type:'status',state:'preparing',
@@ -826,9 +830,12 @@ onmessage=async({data})=>{
         const runEvent=factor=>{
           sim.water.fill(0);sim.delta.fill(0);
           sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
-          params={...params,rainfall:eventIntensity*factor,
+          params={...params,rainfall:mode==='external'?0:eventIntensity*factor,
             infiltration,duration,stormProfile:storm,
-            rainSeriesMm15:null,externalStageM:null,floodMode:'rain',
+            rainSeriesMm15:null,externalStageM:externalStage,floodMode:mode,
+            externalRiseMin:Number(data.externalRiseMin)||30,
+            externalFallMin:Number(data.externalFallMin)||90,
+            externalInlet:data.externalInlet==='all'?'all':'low',
             interventions:[],openBoundary:true,
             drainageGuide:drainage,
             drainageThreshold:Number(data.drainageThreshold)||0};
@@ -845,7 +852,7 @@ onmessage=async({data})=>{
           // A climate allowance changes DESIGN STORM INTENSITY; it does not
           // imply that 74 years of rain accumulate on the surface.
           annualRiskForecast={key,baseline,future,futureFactor,
-            eventIntensity,duration,infiltration,scenario,
+            eventIntensity,duration,infiltration,scenario,mode,
             riskAvailable:sim.riskAvailable};
         }finally{params=priorParams;applySpongeInterventions();}
       }
@@ -863,8 +870,9 @@ onmessage=async({data})=>{
       annualFrameYear=year;
       annualAreaStage={
         kind:'rainfall-risk-scenario',year,fraction:progress,
-        baseRainMmH:forecast.eventIntensity,
-        designRainMmH:forecast.eventIntensity*
+        floodMode:forecast.mode,
+        baseRainMmH:forecast.mode==='external'?0:forecast.eventIntensity,
+        designRainMmH:forecast.mode==='external'?0:forecast.eventIntensity*
           (1+(forecast.futureFactor-1)*progress),
         durationMin:forecast.duration,
         riskAvailable:forecast.riskAvailable,
