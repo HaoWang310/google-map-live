@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.21';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.22';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -740,6 +740,16 @@ export function createLocalFloodUI({
   let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
   let lastHydroFrame=null,hydroState='ready';
   let futureYear=2026, floodMode='rain-risk', climateScenario='central', externalStageM=null,siteTerrainMinM=null;
+  // Official-reference 2h comparison events. These are NOT official intensity classes:
+  // Heathrow (1991-2020) 614.98 mm / 111.66 rain-days = 5.51 mm/wet day;
+  // Met Office 2021 London warning 20-30 mm/h; GLA 2021 ~100 mm in 2h.
+  const RAIN_PRESETS=Object.freeze({
+    average:{rate:2.75,total:5.5,label:'平均降雨'},
+    moderate:{rate:20,total:40,label:'中等降雨'},
+    extreme:{rate:50,total:100,label:'特大暴雨'}
+  });
+  let rainPreset='moderate';
+  const presetRainRate=()=>RAIN_PRESETS[rainPreset].rate;
   let siteRiskAvailable=false;
   let forceEaRiskOverlay=false;
   let siteRiskMappedCount=0;
@@ -763,9 +773,8 @@ export function createLocalFloodUI({
   };
   const scenarioRequest=year=>({
     year,climateScenario,floodMode,
-    eventRainMmH:rainfallMode==='feh-manual'&&Number.isFinite(manualFourHourMm)
-      ?manualFourHourMm/4:Number($('localFloodRain')?.value)||0,
-    durationMin:Number($('localFloodDuration')?.value)||60,
+    eventRainMmH:presetRainRate(),
+    durationMin:120,
     infiltrationMmH:Number($('localFloodInfil')?.value)||5,
     assumedUrbanDrainageMmH:Number(siteHud('siteHudAssumedDrainage')?.value??25),
     stormProfile,drainageGuide:$('localFloodDrainageGuide')?.checked!==false,
@@ -825,9 +834,8 @@ export function createLocalFloodUI({
   const clearRiskEnvelope=()=>{riskEnvelope=null;};
   const WATER_BLEND_MS=580;
   const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;};
-  // London management catchment 1% AEP design rainfall reference:
-  // 2070s central +25%, upper end +40%; reference allowances, not yearly forecasts.
-  const climateRainFactor=()=>1+Math.min(1,Math.max(0,(futureYear-2026)/74))*({low:.10,central:.25,upper:.40}[climateScenario]??.25);
+  // No undisclosed climate uplift: the three chosen 2h rainfall inputs are used unchanged.
+  const climateRainFactor=()=>1;
   const siteHydroHistory=[];
   let siteFacilities=[];
   let nextFacilityId=1;
@@ -1781,7 +1789,7 @@ export function createLocalFloodUI({
     ])if(siteHud(a)&&$(b))siteHud(a).checked=$(b).checked;
     if(siteHud('siteHudThreshold'))siteHud('siteHudThreshold').value=
       Number($('networkThreshold')?.value||1).toFixed(3);
-    setSiteHud('siteHudRainValue',$('localFloodRain')?.value+' mm/h');
+    setSiteHud('siteHudRainValue',presetRainRate()+' mm/h');
     if(siteHud('siteHudManualRain')&&rainfallMode==='manual'){
       siteHud('siteHudManualRain').value=$('localFloodRain').value;
     }
@@ -1793,7 +1801,7 @@ export function createLocalFloodUI({
   function simYearDisplay(){
     setSiteHud('siteHudYearText',String(futureYear));
     for(const id of ['siteHudYear','siteHudFooterYear'])if(siteHud(id))siteHud(id).value=String(futureYear);
-    setSiteHud('siteHudFutureFactor','设计暴雨情景倍率 ×'+climateRainFactor().toFixed(3));
+    setSiteHud('siteHudFutureFactor','2 小时 '+RAIN_PRESETS[rainPreset].label+'：'+presetRainRate()+' mm/h · 共 '+RAIN_PRESETS[rainPreset].total+' mm');
     updateSiteHydroDashboard();
   }
   function updateSiteHydroDashboard(frame=lastHydroFrame){
@@ -2066,8 +2074,9 @@ export function createLocalFloodUI({
       '<div style="margin-top:5px">注意：站点读数可能是 mASD（相对站点零点），不能代入 DEM；即使 mAOD，也必须验证水力连接及高程基准，不能作为任意地块外部边界。官方洪水深度分级不代表实时边界水位。</div>',
       '</div>',
       '<div id="siteHudStageHint" class="site-hydro-mini" style="margin:3px 0 8px;color:#edc98a">外部洪水模式须输入外部边界绝对水位（m，须与 DEM 同一高程基准）；不提供时只能保留选择，不能产生可信水深。</div>',
-      '<label class="site-hydro-row">气候情景 <select id="siteHudFutureClimate" style="width:140px"><option value="low">低暴雨增幅情景 +10%（研究假设）</option><option value="central">中等暴雨增幅情景 +25%</option><option value="upper">高暴雨增幅情景 +40%</option></select></label>',
-      '<div class="site-hydro-mini" id="siteHudFutureFactor">设计暴雨 ×1.000</div>',
+      '<label class="site-hydro-row">降雨情景 <select id="siteHudFutureClimate" style="width:140px"><option value="average">平均降雨</option><option value="moderate" selected>中等降雨</option><option value="extreme">特大暴雨</option></select></label>',
+      '<div class="site-hydro-mini" id="siteHudFutureFactor">2 小时中等降雨：20 mm/h · 共 40 mm</div>',
+      '<div class="site-hydro-mini">研究数据：<a href="https://www.metoffice.gov.uk/research/climate/maps-and-data/location-specific-long-term-averages/gcpsveqyg" target="_blank" rel="noopener noreferrer">Met Office 1991–2020 Heathrow</a> · <a href="https://www.london.gov.uk/sites/default/files/flooding_progress_report_final_0.pdf" target="_blank" rel="noopener noreferrer">GLA 2021 洪灾报告</a>。雨强由官方统计/记录换算，非官方三级标准。</div>',
       '<div class="site-hydro-actions"><button type="button" class="site-hydro-btn" id="siteHudUseRiskGuide">使用 EA 风险引导（无外部水位）</button></div>',
       '<div id="siteHudRiskFusionNote" class="site-hydro-mini">EA 风险分类反映现状洪涝概率，不代表积水水深。可与 DEM 降雨流动做探索性空间引导。</div>',
       '<div class="site-hydro-actions"><button type="button" id="siteHudShowEARisk" class="site-hydro-btn">显示 EA 官方风险图</button></div>',
@@ -2083,7 +2092,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-row">入流位置 <select id="siteHudExternalInlet" style="width:140px"><option value="low">边界低洼 10%（假设）</option><option value="all">全部边界（试验）</option></select></label>',
       '<label class="site-hydro-row">涨水时间 <input id="siteHudRise" type="number" min="1" max="1440" value="30" style="width:88px"> min</label>',
       '<label class="site-hydro-row">退水结束 <input id="siteHudFall" type="number" min="2" max="2880" value="90" style="width:88px"> min</label>',
-      '<div id="siteHudFutureNote" class="site-hydro-mini">EA 伦敦 1% AEP 降雨设计增幅，2026—2075 插值，其后持平。外部边界水位须自行核实，EA 风险概率不是水位。每年对应短时洪水情景，非全年连续降雨。</div>',
+      '<div id="siteHudFutureNote" class="site-hydro-mini">三种雨量均为2小时情景。2026—2100只表示模拟结果的分期显示，不代表真实逐年降雨预测；EA 风险概率不是水深。</div>',
       '</div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">01 · 位置降雨数据</div>',
       '<div class="site-hydro-mini" id="siteHudRainStation">查找 EA 雨量站中…</div>',
@@ -2230,7 +2239,7 @@ export function createLocalFloodUI({
       setSiteHud('siteHudYearText',String(futureYear));
       siteHud('siteHudYear').value=String(futureYear);
       siteHud('siteHudFooterYear').value=String(futureYear);
-      setSiteHud('siteHudFutureFactor','2100 年设计雨强倍率 ×'+climateRainFactor().toFixed(3)+'（研究情景；需按场地流域核准）');
+      setSiteHud('siteHudFutureFactor','2 小时 '+RAIN_PRESETS[rainPreset].label+'：'+presetRainRate()+' mm/h · 共 '+RAIN_PRESETS[rainPreset].total+' mm');
       floodMode='rain-risk';
       if(siteHud('siteHudFutureMode'))siteHud('siteHudFutureMode').value='rain-risk';
       const external=false;
@@ -2247,7 +2256,7 @@ export function createLocalFloodUI({
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
         (floodMode==='rain-risk'
-          ?'本模式以实际配准的 EA 地表水现状风险等级轻度引导已计算降雨水量沿 DEM 下坡移动，但不显示独立风险底图。水深不是 EA 官方预测，2026 为零新增水量的视觉起点，至 2100 仅进行设计情景分期演示。'
+          ?'2 小时降雨情景结合 EA 地表水风险等级和 DEM 汇流，统一显示蓝色水体。2026–2100 为可视化进程，不是官方逐年降雨或水深预测。'
           :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
@@ -2332,7 +2341,15 @@ export function createLocalFloodUI({
       updateFocusAnalysisLayers();
       status('EA 风险已用于降雨引导；单独红黄图层已隐藏。');
     };
-        siteHud('siteHudFutureClimate').onchange=e=>{climateScenario=e.target.value;syncFuture();};
+        siteHud('siteHudFutureClimate').onchange=e=>{
+      rainPreset=Object.prototype.hasOwnProperty.call(RAIN_PRESETS,e.target.value)?e.target.value:'moderate';
+      rainfallMode='manual';manualFourHourMm=null;
+      copyHudControl('localFloodDuration',120,'input');
+      syncSiteControls();
+      syncFuture();
+      status('已选择 '+RAIN_PRESETS[rainPreset].label+'：2 小时总雨量 '+RAIN_PRESETS[rainPreset].total+
+        ' mm（平均雨强 '+presetRainRate()+' mm/h）；资料支持的研究情景，非逐年预报。');
+    };
     siteHud('siteHudTrialStage').onclick=()=>{
       if(!needsExternalStage()){status('请先选择仅外部洪水或降雨＋外部洪水模式。');return;}
       if(!Number.isFinite(siteTerrainMinM)){
@@ -2353,8 +2370,16 @@ export function createLocalFloodUI({
     for(const id of ['siteHudFutureStage','siteHudStageHint','siteHudTrialStage','siteHudQueryEaZones','siteHudQueryEaStage','siteHudUseRiskGuide','siteHudShowEARisk','siteHudExternalInlet','siteHudRise','siteHudFall','siteHudEaStageStatus','siteHudEaFloodZoneStatus']){
       const el=siteHud(id);if(el){const parent=el.closest('.site-hydro-row,.site-hydro-actions');(parent||el).style.display='none';}
     }
+    // Keep older rain data controls mounted for legacy handlers, but offer
+    // only the three official-reference event choices in the study UI.
+    for(const id of ['siteHudManualRain','siteHudFeh','siteHudUseEA','siteHudUseFeh','siteHudUseManual']){
+      const el=siteHud(id);if(el){const wrap=el.closest('.site-hydro-row,.site-hydro-actions');(wrap||el).style.display='none';}
+    }
+    if(siteHud('siteHudFutureClimate'))siteHud('siteHudFutureClimate').value=rainPreset;
+    copyHudControl('localFloodDuration',120,'input');
+    rainfallMode='manual';manualFourHourMm=null;
     forceEaRiskOverlay=false;
-        syncFuture();
+    syncFuture();
 
     const resetForNewRain=()=>{
       stopAnnual();clearYearFrames();clearRiskEnvelope();
@@ -3580,7 +3605,7 @@ export function createLocalFloodUI({
 
   function currentParams(){
     return {
-      rainfall:floodMode==='external'?0:Number($('localFloodRain').value)*climateRainFactor(),
+      rainfall:floodMode==='external'?0:presetRainRate(),
       floodMode,externalStageM,climateYear:futureYear,
       stormProfile,externalInlet,externalRiseMin,externalFallMin,
       interventions:((annualPlaying||longTermMode)?[]:siteFacilities).map(({id,type,lng,lat,radiusM})=>
@@ -3591,7 +3616,7 @@ export function createLocalFloodUI({
         :rainfallMode==='feh-manual'&&Number.isFinite(manualFourHourMm)
           ?Array(16).fill(manualFourHourMm/16*climateRainFactor()):null,
       infiltration:Number($('localFloodInfil').value),
-      duration:Number($('localFloodDuration').value),
+      duration:120,
       openBoundary:true,
       drainageGuide:$('localFloodDrainageGuide')?.checked!==false,
       drainageThreshold:Number($('networkThreshold')?.value)||0
