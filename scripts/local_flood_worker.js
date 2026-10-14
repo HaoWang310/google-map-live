@@ -712,7 +712,8 @@ onmessage=async({data})=>{
       running=false;clearTimeout(timer);timer=null;
       if(sim){
         sim.water.fill(0);sim.timeSec=0;sim.visualPhase=0;
-        sim.spongeInfilM3=0;sendFrame();
+        sim.spongeInfilM3=0;
+        if(!data.silent)sendFrame();
       }
       postMessage({type:'status',state:'reset'});
     }
