@@ -2087,9 +2087,12 @@ export function createLocalFloodUI({
   }
 
   function setButtons(){
-    const parcelButton=$('parcelGeneratorOpen');
-    if(parcelButton)parcelButton.disabled=!polygon?.[0]||polygon[0].length<4||
+    const parcelDisabled=!polygon?.[0]||polygon[0].length<4||
       drawing||isPreparingSelection||dragVertexIndex>=0;
+    for(const id of ['parcelGeneratorOpen','parcelGeneratorLaunch']){
+      const button=$(id);
+      if(button)button.disabled=parcelDisabled;
+    }
     $('localFloodFinish').disabled=!drawing||vertices.length<3||isPreparingSelection;
     const simulationLocked=!prepared||selectionDirty||isPreparingSelection;
     $('localFloodRun').disabled=simulationLocked;
@@ -3106,7 +3109,7 @@ export function createLocalFloodUI({
   };
   document.addEventListener('keydown',keydown);
 
-  $('parcelGeneratorOpen')?.addEventListener('click',()=>{
+  const launchParcelGenerator=()=>{
     if(!polygon?.[0]||polygon[0].length<4||drawing||isPreparingSelection)return;
     try{
       const exactSite=polygon.map(r=>closeRing(r).map(([lng,lat])=>[lng,lat]));
@@ -3114,7 +3117,10 @@ export function createLocalFloodUI({
     }catch(error){
       status('Parcel Generator 初始化失败：'+(error?.message||error),true);
     }
-  });
+  };
+  for(const id of ['parcelGeneratorOpen','parcelGeneratorLaunch']){
+    $(id)?.addEventListener('click',launchParcelGenerator);
+  }
   $('localFloodDraw').addEventListener('click',startDrawing);
   $('localFloodFinish').addEventListener('click',()=>finishAndConfirmSelection());
   $('localFloodClear').addEventListener('click',()=>{
