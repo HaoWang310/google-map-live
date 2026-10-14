@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.22';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.24';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -286,7 +286,7 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
   const image=context.createImageData(outWidth,outHeight);
   const dest=image.data;
   const palette=[
-    [0.005,174,233,255],[0.05,99,195,247],
+    [0.001,174,233,255],[0.05,99,195,247],
     [0.15,43,156,231],[0.30,30,112,218],
     [0.60,43,75,187],[1.20,35,42,136]
   ];
@@ -308,12 +308,12 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
       const c=depths[index(x0,y0+1)]/1000;
       const d=depths[index(x0+1,y0+1)]/1000;
       const depth=lerp(lerp(a,b,tx),lerp(c,d,tx),ty);
-      if(depth<.0035)continue;
+      if(depth<.00075)continue;
       let lo=palette[0],hi=palette[palette.length-1];
       for(let k=1;k<palette.length;k++)
         if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
       const t=smooth(lo[0],hi[0],depth);
-      const rim=1-smooth(.006,.044,depth);
+      const rim=1-smooth(.0015,.044,depth);
       const ripples=Math.sin(u*.56+v*.19-clock*.95)*.55+
         Math.sin(u*.26-v*.67+clock*1.15)*.45;
       const light=Math.max(0,ripples)*7+rim*8;
@@ -323,7 +323,7 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
       dest[pos+1]=Math.min(255,lerp(lo[2],hi[2],t)+light+foam);
       dest[pos+2]=Math.min(255,lerp(lo[3],hi[3],t)+light+foam*.3);
       dest[pos+3]=Math.round((.72+.22*smooth(.03,.65,depth))*
-        smooth(.0035,.025,depth)*255);
+        smooth(.00075,.025,depth)*255);
     }
   }
   context.putImageData(image,0,0);
@@ -545,10 +545,10 @@ function createFloodVolumeLayer(maplibregl,bounds){
         meshSoft[index]=total/weight;
       }
       sampled.set(meshSoft);
-      const cutoff=0.006;
+      const cutoff=0.0015; // v3.22.24: physically computed 1.5 mm film visible in 3D
       const metre=this.metreScale;
       const quads=[];
-      const visualHeight=depth=>Math.max(0.008,Math.min(3,depth*1.45))*metre;
+      const visualHeight=depth=>Math.max(0.0015,Math.min(3,depth*1.45))*metre;
       const makeVertex=(point,side,zOverride)=>{
         const z=zOverride===undefined?visualHeight(point.d):zOverride;
         quads.push(point.x,point.y,z,point.u,point.v,point.d,side,point.foam);
@@ -599,8 +599,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
           const a=poly[k],b=poly[(k+1)%poly.length];
           if(!a.contour||!b.contour)continue;
           // Shorelines are thin softened lips, not deep rectangular walls.
-          const za=Math.max(.005*metre,visualHeight(a.d)-.027*metre);
-          const zb=Math.max(.005*metre,visualHeight(b.d)-.027*metre);
+          const za=Math.max(.0015*metre,visualHeight(a.d)-.027*metre);
+          const zb=Math.max(.0015*metre,visualHeight(b.d)-.027*metre);
           makeVertex(a,1);makeVertex(b,1);
           makeVertex(b,1,zb);
           makeVertex(a,1);makeVertex(b,1,zb);
@@ -775,7 +775,7 @@ export function createLocalFloodUI({
     year,climateScenario,floodMode,
     eventRainMmH:presetRainRate(),
     durationMin:120,
-    infiltrationMmH:Number($('localFloodInfil')?.value)||5,
+    infiltrationMmH:Number($('localFloodInfil')?.value??0.5),
     assumedUrbanDrainageMmH:Number(siteHud('siteHudAssumedDrainage')?.value??25),
     stormProfile,drainageGuide:$('localFloodDrainageGuide')?.checked!==false,
     drainageThreshold:Number($('networkThreshold')?.value)||0,
@@ -1839,15 +1839,16 @@ export function createLocalFloodUI({
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
     if(v){
-      setSiteHud('siteHudDepth',v.maxDepthM.toFixed(2)+' m');
+      setSiteHud('siteHudDepth',v.maxDepthM<.01?v.maxDepthM.toFixed(3)+' m':v.maxDepthM.toFixed(2)+' m');
       setSiteHud('siteHudArea',(v.wetAreaM2/1e4).toFixed(2)+' ha');
+      setSiteHud('siteHudShallowWet',(Number(v.shallowWetAreaM2||0)/1e4).toFixed(2)+' ha');
       setSiteHud('siteHudImpacted',v.impactedCount+' 栋');
       setSiteHud('siteHudVolume',Math.round(v.volumeM3).toLocaleString('en-GB')+' m³');
       setSiteHud('siteHudRetained',Math.round(v.retainedM3||0).toLocaleString('en-GB')+' m³');
       setSiteHud('siteHudExtraInfil',Math.round(v.spongeInfiltrationM3||0).toLocaleString('en-GB')+' m³');
     }else{
       for(const [id,value] of [
-        ['siteHudDepth','0.00 m'],['siteHudArea','0.00 ha'],
+        ['siteHudDepth','0.000 m'],['siteHudArea','0.00 ha'],['siteHudShallowWet','0.00 ha'],
         ['siteHudImpacted','0 栋'],['siteHudVolume','0 m³'],
         ['siteHudRetained','0 m³'],['siteHudExtraInfil','0 m³'],
         ['siteHudLiveRain','0.0 mm/h']
@@ -2085,8 +2086,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/b0bbfacf-ccf7-4ed9-a94c-be18d91c258d/flood-map-for-planning-surface-water-spatial-planning-depths-present-day" target="_blank" rel="noopener noreferrer">现状 1% / 3.3% / 0.1% AEP 水深分级</a> · ',
       '<a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化（2070s Upper End）水深分级</a></div>',
       '<div class="site-hydro-mini">官方产品深度区间为 ≤0.15、0.15–0.30、0.30–0.60、0.60–0.90、0.90–1.20、1.20–2.30、>2.30 m。此处提供来源链接，尚未将对应 WMS 深度分级下载并解码成场地逐格官方水深；模拟蓝色水面仍使用 DEM 和降雨求解。</div>',
-      '<label class="site-hydro-row">假设雨水管网排水能力 <input id="siteHudAssumedDrainage" type="number" min="0" max="100" step="5" value="25" style="width:75px"> mm/h</label>',
-      '<div class="site-hydro-mini">25 mm/h 为可调整的研究假设，不是 EA 测量的排水管网能力。仅用于改善缺失地下排水数据时的情景计算。</div>',
+      '<label class="site-hydro-row">假设地下排水 <input id="siteHudAssumedDrainage" type="number" min="0" max="100" step="0.5" value="0" style="width:75px"> mm/h</label>',
+      '<div class="site-hydro-mini">当前没有核实的场地管网排水能力数据：默认不扣除管网排水（0 mm/h），仅以0.5 mm/h估算硬化地面有效下渗。这是偏保守的积水压力测试，并不表示伦敦实际没有排水系统。可修改假设，计算结果不是 EA 官方洪水水深。</div>',
       '<div class="site-hydro-mini">设计暴雨采用固定单峰极值过程（峰值位于事件中点，总雨量不额外增加）；EA 实测雨量回放仍按原始实测时序。</div>',
       
       '<label class="site-hydro-row">入流位置 <select id="siteHudExternalInlet" style="width:140px"><option value="low">边界低洼 10%（假设）</option><option value="all">全部边界（试验）</option></select></label>',
@@ -2159,7 +2160,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.00 m</b></div>',
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
       '<div class="site-hydro-metric"><small>IMPACTED BUILDINGS · 受影响建筑</small><b id="siteHudImpacted">0 栋</b></div>',
-      '<div class="site-hydro-metric"><small>SURFACE WATER · 地表积水体积</small><b id="siteHudVolume">0 m³</b></div>',
+      '<div class="site-hydro-metric"><small>SHALLOW WETTING · 浅表湿润 ≥ 1 mm（非洪涝）</small><b id="siteHudShallowWet">0.00 ha</b></div>',
+      '<div class="site-hydro-metric"><small>SURFACE WATER · 地表积水体积（深度 ≥ 2 cm）</small><b id="siteHudVolume">0 m³</b></div>',
       '<div class="site-hydro-metric"><small>SPONGE STORAGE · 设施内滞蓄水量</small><b id="siteHudRetained">0 m³</b></div>',
       '<div class="site-hydro-metric"><small>ADDITIONAL INFILTRATION · 设施额外累计下渗</small><b id="siteHudExtraInfil">0 m³</b></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">LIVE RAINFALL · 当前计算雨强</div>',
