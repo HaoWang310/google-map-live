@@ -282,3 +282,47 @@ metadata = {
 }
 (ROOT / 'assets/london_flood_risk_metadata.json').write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
 print(json.dumps({'products': products, 'class_counts': metadata['class_counts']}, indent=2), flush=True)
+
+
+# v3.22.19: Publish source-separated categorical rasters. Rainfall simulation
+# MUST use surface_water only; never substitute the max-of-two composite.
+for source_key, source_native in native.items():
+    source_web = np.zeros((WEB_HEIGHT, WEB_WIDTH), dtype=np.uint8)
+    reproject(source=source_native, destination=source_web,
+              src_transform=SOURCE_TRANSFORM, src_crs='EPSG:27700',
+              dst_transform=WEB_TRANSFORM, dst_crs='EPSG:3857',
+              resampling=Resampling.nearest)
+    source_web[outside] = 0
+    source_products = []
+    for row in range(2):
+        for col in range(2):
+            y, x = row * 2875, col * 2868
+            target = OUTPUT / f'{source_key}_{row}-{col}.webp'
+            Image.fromarray(PALETTE[source_web[y:y + 2875, x:x + 2868]]).save(
+                target, format='WEBP', lossless=True, method=6)
+            source_products.append({
+                'path': str(target.relative_to(ROOT)),
+                'row': row, 'col': col,
+                'width': 2868, 'height': 2875,
+                'sha256': sha(target.read_bytes()),
+                'size_bytes': target.stat().st_size
+            })
+    source_metadata = {
+        'name': 'EA present-day ' + SOURCES[source_key]['title'],
+        'source_type': source_key,
+        'derived_display_product': True,
+        'not_flood_depth': True,
+        'generated_utc': datetime.now(timezone.utc).isoformat(),
+        'attribution': metadata['attribution'],
+        'licence': metadata['licence'],
+        'source': SOURCES[source_key],
+        'web_grid': metadata['web_grid'],
+        'source_request_grid': metadata['source_request_grid'],
+        'registration': metadata['registration'],
+        'method': 'Source-specific official ordinal risk WMS, decoded at 12.5 m, aggregated at 25 m, nearest-neighbour reprojected to the common EPSG:3857 grid; no merging across sources.',
+        'class_counts': np.bincount(source_web.ravel(), minlength=6).tolist(),
+        'products': source_products
+    }
+    (OUTPUT / f'{source_key}_metadata.json').write_text(
+        json.dumps(source_metadata, ensure_ascii=False, indent=2) + '\n')
+    print(f'Separate EA source published: {source_key}', flush=True)
