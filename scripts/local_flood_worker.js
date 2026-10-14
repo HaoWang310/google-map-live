@@ -8,7 +8,8 @@ let running=false;
 let timer=null;
 let params={
   rainfall:50,infiltration:5,duration:60,openBoundary:true,
-  drainageGuide:true,drainageThreshold:1,rainSeriesMm15:null
+  drainageGuide:true,drainageThreshold:1,rainSeriesMm15:null,
+  interventions:[],showFlow:true
 };
 
 function mercator(lng,lat){
@@ -253,10 +254,15 @@ async function setup(data){
     timeSec:0,
     visualPhase:0,
     buildings:data.buildings||[],
-    polygon:data.polygon
+    polygon:data.polygon,
+    svCapacity:new Float32Array(cols*rows),
+    svInfilMmH:new Float32Array(cols*rows),
+    spongeInfilM3:0,
+    spongeCellCount:0,spongeFacilityCount:0
   };
 
   for(const building of sim.buildings)rasterizeBuilding(sim,building);
+  applySpongeInterventions();
 
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
     const i=row*cols+col;
@@ -296,9 +302,69 @@ async function setup(data){
   sendFrame();
 }
 
+
+const SPONGE_ASSUMPTIONS={
+  rainGarden:{storageM:.18,extraInfilMmH:35},
+  wetland:{storageM:.38,extraInfilMmH:6},
+  agriculture:{storageM:.24,extraInfilMmH:10},
+  floodPark:{storageM:.50,extraInfilMmH:12},
+  permeable:{storageM:.075,extraInfilMmH:45}
+};
+
+function applySpongeInterventions(){
+  if(!sim)return;
+  const {cols,rows,cell,inside,obstacle}=sim;
+  if(!sim.svCapacity||sim.svCapacity.length!==cols*rows){
+    sim.svCapacity=new Float32Array(cols*rows);
+    sim.svInfilMmH=new Float32Array(cols*rows);
+  }else{
+    sim.svCapacity.fill(0);
+    sim.svInfilMmH.fill(0);
+  }
+  const treatments=Array.isArray(params.interventions)?params.interventions.slice(0,200):[];
+  let applied=0;
+  for(const facility of treatments){
+    const rule=SPONGE_ASSUMPTIONS[facility?.type];
+    if(!rule)continue;
+    const lng=Number(facility.lng),lat=Number(facility.lat);
+    const radius=Number(facility.radiusM);
+    if(!Number.isFinite(lng)||!Number.isFinite(lat)||!Number.isFinite(radius))continue;
+    if(!(radius>=2&&radius<=150))continue;
+    const [cx,cy]=mercator(lng,lat);
+    const projectedRadius=radius/Math.max(.15,Math.cos(lat*Math.PI/180));
+    const r2=projectedRadius*projectedRadius;
+    const c0=clamp(Math.floor((cx-projectedRadius-sim.left)/cell),0,cols-1);
+    const c1=clamp(Math.ceil((cx+projectedRadius-sim.left)/cell),0,cols-1);
+    const row0=clamp(Math.floor((sim.top-(cy+projectedRadius))/cell),0,rows-1);
+    const row1=clamp(Math.ceil((sim.top-(cy-projectedRadius))/cell),0,rows-1);
+    let painted=false;
+    for(let r=row0;r<=row1;r++){
+      const y=sim.top-(r+.5)*cell;
+      for(let c=c0;c<=c1;c++){
+        const x=sim.left+(c+.5)*cell;
+        if((x-cx)**2+(y-cy)**2>r2)continue;
+        const idx=r*cols+c;
+        if(!inside[idx]||obstacle[idx])continue;
+        // Overlapping facilities never stack beyond the single most generous
+        // assumption. This avoids double counting infiltration and storage.
+        sim.svCapacity[idx]=Math.max(sim.svCapacity[idx],rule.storageM);
+        sim.svInfilMmH[idx]=Math.max(sim.svInfilMmH[idx],rule.extraInfilMmH);
+        painted=true;
+      }
+    }
+    if(painted)applied++;
+  }
+  sim.spongeCellCount=0;
+  for(let i=0;i<sim.svCapacity.length;i++){
+    if(sim.svCapacity[i]>0||sim.svInfilMmH[i]>0)sim.spongeCellCount++;
+  }
+  sim.spongeFacilityCount=applied;
+}
+
 function simulationStep(dt=5){
   if(!sim)return;
-  const {cols,rows,terrain,inside,obstacle,water,delta,boundary,accumulation}=sim;
+  const {cols,rows,terrain,inside,obstacle,water,delta,boundary,accumulation,
+    svCapacity,svInfilMmH}=sim;
   const useDrainage=Boolean(params.drainageGuide&&sim.drainageAvailable);
   const threshold=accumulationCode(params.drainageThreshold);
   // EA tipping-bucket readings are accumulated mm per quarter hour.
@@ -315,14 +381,17 @@ function simulationStep(dt=5){
 
   for(let i=0;i<water.length;i++){
     if(!inside[i]||obstacle[i])continue;
-    water[i]=Math.max(0,water[i]+rain-infil);
+    const gross=Math.max(0,water[i]+rain-infil);
+    const spongeLoss=Math.min(gross,svInfilMmH[i]/1000/3600*dt);
+    water[i]=gross-spongeLoss;
+    sim.spongeInfilM3+=spongeLoss*cell*cell;
   }
 
   delta.fill(0);
   for(let row=0;row<rows;row++){
     for(let col=0;col<cols;col++){
       const i=row*cols+col;
-      const h=water[i];
+      const h=Math.max(0,water[i]-svCapacity[i]);
       if(h<0.0001||!inside[i]||obstacle[i])continue;
       const head=terrain[i]+h;
       const neigh=[];
@@ -335,7 +404,7 @@ function simulationStep(dt=5){
       const weights=[];
       for(const j of neigh){
         if(!inside[j]||obstacle[j]){weights.push(0);continue;}
-        const drop=Math.max(0,head-(terrain[j]+water[j]));
+        const drop=Math.max(0,head-(terrain[j]+Math.max(0,water[j]-svCapacity[j])));
         sumDrop+=drop;
         // Preserve strictly downhill transfer. A mapped D8 accumulation
         // corridor only biases the distribution of EXISTING downhill flow;
@@ -425,9 +494,9 @@ function flowVisual(simulation,row,col,i){
 
 function sendFrame(){
   if(!sim)return;
-  const {cols,rows,inside,obstacle,buildingIds,water,cell}=sim;
+  const {cols,rows,inside,obstacle,buildingIds,water,cell,svCapacity}=sim;
   const pixels=new Uint8ClampedArray(cols*rows*4);
-  let maxDepth=0,wetCells=0,volume=0;
+  let maxDepth=0,wetCells=0,volume=0,retainedM3=0;
   const impacted=new Set();
   sim.visualPhase+=0.19;
 
@@ -435,10 +504,11 @@ function sendFrame(){
     const i=row*cols+col;
     // Strict polygon mask: outside the selected area is always fully transparent.
     if(!inside[i]||obstacle[i])continue;
-    const h=water[i];
+    const h=Math.max(0,water[i]-svCapacity[i]);
+    retainedM3+=Math.min(water[i],svCapacity[i])*cell*cell;
     if(h>maxDepth)maxDepth=h;
     if(h>=0.02){wetCells++;volume+=h*cell*cell;}
-    const flow=flowVisual(sim,row,col,i);
+    const flow=params.showFlow!==false?flowVisual(sim,row,col,i):{pulse:0,flowStrength:0};
     const colour=depthColour(h,flow.pulse,flow.flowStrength);
     const p=i*4;
     pixels[p]=colour[0];pixels[p+1]=colour[1];pixels[p+2]=colour[2];pixels[p+3]=colour[3];
@@ -465,6 +535,10 @@ function sendFrame(){
       maxDepthM:maxDepth,
       wetAreaM2:wetCells*cell*cell,
       volumeM3:volume,
+      retainedM3,
+      spongeInfiltrationM3:sim.spongeInfilM3,
+      spongeCells:sim.spongeCellCount,
+      spongeFacilities:sim.spongeFacilityCount,
       impactedCount:impacted.size
     },
     impactedIds:[...impacted]
@@ -504,12 +578,16 @@ onmessage=async({data})=>{
       return;
     }
     if(data.type==='params'){
+      const changed=Object.prototype.hasOwnProperty.call(data.params||{},'interventions');
       params={...params,...data.params};
+      if(changed)applySpongeInterventions();
+      if(sim&&!running)sendFrame();
       return;
     }
     if(data.type==='start'){
       params={...params,...data.params};
       if(!sim)throw new Error('请先圈选并准备模拟区域');
+      applySpongeInterventions();
       if(running)return;
       running=true;
       postMessage({type:'status',state:'running'});
@@ -523,7 +601,10 @@ onmessage=async({data})=>{
     }
     if(data.type==='reset'){
       running=false;clearTimeout(timer);timer=null;
-      if(sim){sim.water.fill(0);sim.timeSec=0;sim.visualPhase=0;sendFrame();}
+      if(sim){
+        sim.water.fill(0);sim.timeSec=0;sim.visualPhase=0;
+        sim.spongeInfilM3=0;sendFrame();
+      }
       postMessage({type:'status',state:'reset'});
     }
   }catch(error){
