@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.30-c2';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.32-water';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -280,11 +280,11 @@ function onceIdle(map,timeout=2200){
 // NATURAL_WATER_LIVE_20261015: visual-only continuous grey-blue water rendering.
 function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
   const avg=options.scenario==='average';
-  const storm=options.scenario==='extreme';
-  const wetThreshold=storm?.001:.002;
-  const showShallow=options.showShallow===true;
-  const contrast=false&&options.showContrast===true&&frame.comparisonMask?
-    new Uint8Array(frame.comparisonMask):null;
+  // VISUAL v3.22.32-water: render 1 mm shallow wetness by default;
+  // stats and the worker's rainfall quantity remain unchanged.
+  const showShallow=options.showShallow!==false;
+  const wetThreshold=showShallow?0.001:0.020;
+  const contrast=null;
   const width=frame.width,height=frame.height;
   const depths=new Uint16Array(frame.depthMm);
   const valid=frame.validMask?new Uint8Array(frame.validMask):null;
@@ -293,10 +293,10 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
   const image=context.createImageData(outWidth,outHeight);
   const dest=image.data;
   const palette=[
-    // v3.22.26: saturated blue separated from pale grey/beige map ground.
-    [0.001,183,205,210],[0.01,162,190,199],
-    [0.06,140,174,190],[0.30,101,145,168],
-    [0.60,70,110,137],[1.20,39,77,100]
+    // Same six breakpoints and grey-blue color stops as right-side depth legend.
+    [0.001,183,205,210],[0.05,145,183,195],
+    [0.15,115,156,174],[0.30,96,143,168],
+    [0.60,61,105,134],[1.20,36,72,95]
   ];
   const index=(x,y)=>Math.max(0,Math.min(height-1,y))*width+
     Math.max(0,Math.min(width-1,x));
@@ -313,12 +313,21 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       if(valid&&!valid[nearest])continue;
       // Never fill dry cells merely because bilinear neighbours are wet.
       if(depths[nearest]<wetThreshold*1000)continue;
-      const a=depths[index(x0,y0)]/1000;
-      const b=depths[index(x0+1,y0)]/1000;
-      const c=depths[index(x0,y0+1)]/1000;
-      const d=depths[index(x0+1,y0+1)]/1000;
-      const depth=lerp(lerp(a,b,tx),lerp(c,d,tx),ty);
-      if(depth<wetThreshold)continue;
+      const i00=index(x0,y0),i10=index(x0+1,y0);
+      const i01=index(x0,y0+1),i11=index(x0+1,y0+1);
+      const a=valid&&!valid[i00]?0:depths[i00]/1000;
+      const b=valid&&!valid[i10]?0:depths[i10]/1000;
+      const c=valid&&!valid[i01]?0:depths[i01]/1000;
+      const d=valid&&!valid[i11]?0:depths[i11]/1000;
+      const w00=(1-tx)*(1-ty),w10=tx*(1-ty),w01=(1-tx)*ty,w11=tx*ty;
+      const wa=a>=wetThreshold?1:0,wb=b>=wetThreshold?1:0;
+      const wc=c>=wetThreshold?1:0,wd=d>=wetThreshold?1:0;
+      const occupancy=w00*wa+w10*wb+w01*wc+w11*wd;
+      // Interpolate only true wet neighbours, so dry-cell corners cannot
+      // produce checkerboard holes. Hard nearest-cell footprint is kept.
+      const wetMean=(w00*wa*a+w10*wb*b+w01*wc*c+w11*wd*d)/
+        Math.max(0.000001,occupancy);
+      const depth=0.65*depths[nearest]/1000+0.35*wetMean;
       let lo=palette[0],hi=palette[palette.length-1];
       for(let k=1;k<palette.length;k++)
         if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
@@ -326,7 +335,7 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       const rim=1-smooth(.0015,.044,depth);
       const ripples=Math.sin(u*.56+v*.19-clock*.95)*.55+
         Math.sin(u*.26-v*.67+clock*1.15)*.45;
-      const light=Math.max(0,ripples)*(avg?1.8:3.2)+rim*2;
+      const light=Math.max(0,ripples)*(avg?1.3:2.6)+rim*1.4;
       const foam=(contacts?.[nearest]||0)*smooth(.012,.08,depth)*2;
       const pos=(y*outWidth+x)*4;
       const shallow=depth<.020;
@@ -334,8 +343,11 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
         lerp(lo[2],hi[2],t)+light+foam,
         lerp(lo[3],hi[3],t)+light+foam*.3];
       let alpha=shallow
-        ?(.11+(avg?.17:.10)*smooth(wetThreshold,.020,depth))*smooth(wetThreshold*.65,wetThreshold*1.35,depth)
-        :(.30+.50*smooth(.02,.60,depth));
+        ?((avg?.39:.31)+.18*smooth(.001,.020,depth))
+        :(.51+.29*smooth(.020,.60,depth));
+      // Smooth only visual alpha at wet-dry edges, never extend into a
+      // dry/invalid physical solver cell or alter the counted flooded area.
+      alpha*=.52+.48*smooth(.15,.95,occupancy);
       // Contrast is a categorical comparison of actual solver depths;
       // highlight never changes the physical depth or water mesh height.
       const cls=contrast?.[nearest]||0;
@@ -430,10 +442,10 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'water=mix(water,vec3(0.82,0.89,0.90),contactFoam);',
           '// comparison coloring kept separate from main water material',
           '// cyan/purple comparison overlay suppressed',
-          'float threshold=0.0015;',
-          'float edge=smoothstep(threshold-0.001,threshold+0.00025,depth);',
+          'float threshold=u_shallow>0.5?0.001:0.020;',
+          'float edge=smoothstep(threshold-0.0003,threshold+0.0013,depth);',
           'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
-          'if(depth<0.020){water=vec3(0.57,0.69,0.74);alpha=(0.13+0.15*smoothstep(0.002,0.02,depth))*edge;}',
+          'if(depth<0.020){water=vec3(0.57,0.69,0.74);alpha=(0.34+0.18*smoothstep(0.001,0.02,depth))*edge;}',
           '// no contrast-driven alpha',
           'if(v_meta.w>0.5){water*=0.86;alpha*=0.94;}',
           'fragColor=vec4(water,alpha);',
@@ -536,7 +548,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
       // display mesh uses contour interpolation between measured solver cells.
       // This avoids square steps along flooded edges and does NOT add water to
       // the worker grid or alter collision/hydrology statistics.
-      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/24000)));
+      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/36000)));
       const meshCols=Math.ceil(widths/stride),meshRows=Math.ceil(rows/stride);
       const sampled=new Float32Array(meshCols*meshRows);
       const foam=new Float32Array(meshCols*meshRows);
@@ -588,7 +600,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
         meshSoft[index]=total/weight;
       }
       sampled.set(meshSoft);
-      const cutoff=this.showShallow?0.0015:0.020; // display cutoff only, solver unchanged
+      const cutoff=this.showShallow?0.001:0.020; // display cutoff only, solver unchanged
       const metre=this.metreScale;
       const quads=[];
       const visualHeight=depth=>Math.max(cutoff,Math.min(3,depth*1.45))*metre;
@@ -802,7 +814,7 @@ export function createLocalFloodUI({
     extreme:{rate:50,total:100,label:'特大暴雨'}
   });
   let rainPreset='moderate';
-  let showShallowWater=false,showStormContrast=true;
+  let showShallowWater=true,showStormContrast=true;
   let stormContrastPair='moderate-average';
   const contrastBaseMm=()=>!showStormContrast||displayMode!=='year'||fehDurationDepthsMm
     ?null:rainPreset==='moderate'&&stormContrastPair==='moderate-average'
@@ -1920,6 +1932,9 @@ export function createLocalFloodUI({
       }else setSiteHud('siteHudOfficialAgreement',
         '本次尚未读取到 EA 官方水深参考，无法对范围与水深作校核；不能据此宣称与官方吻合。');
     }
+    setSiteHud('siteHudDepthLegendNote',showShallowWater?
+      '地图显示 ≥1 mm 的模拟水深，1–20 mm 浅湿润仅增强视觉，不计入 ≥2 cm 积水面积；以下是原始网格分级统计。':
+      '当前隐藏 1–20 mm 浅湿润，但首档统计仍包含其真实计算面积；≥2 cm 积水面积保持不变。');
     for(let i=0;i<6;i++){
       const ha=(v?.depthAreaM2?.[i]||0)/10000;
       setSiteHud('siteDepthArea'+i,ha.toFixed(2)+' ha');
@@ -2280,10 +2295,10 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 显示</div>',
       '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉隐藏，不影响水文计算）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
-      '<label class="site-hydro-check"><input id="siteHudShowShallow" type="checkbox"> 显示浅湿润（1–20 mm；默认隐藏）</label>',
-      '<label class="site-hydro-check"><input id="siteHudShowContrast" type="checkbox" checked> 高亮与较弱降雨相比的新增淹没范围</label>',
+      '<label class="site-hydro-check"><input id="siteHudShowShallow" type="checkbox" checked> 显示浅湿润（1–20 mm；默认开启，不增加真实降雨量）</label>',
+      '<label class="site-hydro-check"><input id="siteHudShowContrast" type="checkbox" checked> 计算与较弱降雨的差异（右侧数值，不改变水体颜色）</label>',
       '<label class="site-hydro-row">降雨情景对比 <select id="siteHudComparePair" style="flex:1;min-width:140px"><option value="moderate-average" selected>中等 − 平均</option><option value="extreme-moderate">特大暴雨 − 中等</option></select></label>',
-      '<div class="site-hydro-mini">蓝色：共有积水 · 亮青：新增淹没 ≥2 cm · 紫色：两档均淹没但加深 ≥10 cm。仅基于同一地块及配置的四历时设计包络，非EA实时洪水。独立单场分钟级模式自动关闭增量高亮。</div>',
+      '<div class="site-hydro-mini">地图使用自然灰蓝水深色阶，场景差异仅在右侧以原始计算网格的数值比较，不再用亮青或紫色覆盖水面。非 EA 实时洪水。</div>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
       '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
@@ -2297,14 +2312,14 @@ export function createLocalFloodUI({
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
       '<div class="site-hydro-section" style="margin-top:4px;padding-top:7px;border-top:0">',
       '<div class="site-hydro-section-title">动态积水水深分级 · SIMULATED DEPTH</div>',
-      '<div class="site-hydro-mini">默认仅绘制实际积水 ≥0.02 m；1–20 mm 浅湿润可单独打开。以下是模拟水深，不是 EA 洪涝概率。</div>',
+      '<div class="site-hydro-mini" id="siteHudDepthLegendNote">地图默认显示 ≥1 mm 的浅湿润；1–20 mm 仅增强可见性，不计入 ≥2 cm 的积水面积。右侧颜色与地图一致，分级面积来自原始模拟网格。</div>',
       '<div class="site-hydro-depth-legend">',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:#218ae1"></i><span>0.001–0.05m（含浅湿润）<strong id="siteDepthArea0">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:#0f77d9"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:#0b5cce"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:#0f49b8"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:#163999"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:#142770"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:linear-gradient(90deg,#b7cdd2,#91b7c3)"></i><span>0.001–0.05m（含浅湿润）<strong id="siteDepthArea0">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:linear-gradient(90deg,#91b7c3,#739cae)"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:linear-gradient(90deg,#739cae,#608fa8)"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:linear-gradient(90deg,#608fa8,#3d6986)"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:linear-gradient(90deg,#3d6986,#24485f)"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:linear-gradient(90deg,#24485f,#24485f)"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
       '</div><div class="site-hydro-depth-note" id="siteHudFloodPhase">尚未运行 · 无动态积水</div></div>',
       '<div class="site-hydro-section" id="siteHudScenarioContrastSection"><div class="site-hydro-section-title">SCENARIO DIFFERENCE · 降雨情景差异</div>',
       '<div id="siteHudContrastStatus" class="site-hydro-mini">四历时真实网格差异等待求解。切换情景对比以查看新增淹没。</div>',
@@ -2460,6 +2475,7 @@ export function createLocalFloodUI({
     const shallowToggle=siteHud('siteHudShowShallow');
     if(shallowToggle)shallowToggle.onchange=e=>{
       showShallowWater=Boolean(e.target.checked);
+      updateSiteHydroDashboard();
       redrawDisplayOnly();
     };
     const contrastToggle=siteHud('siteHudShowContrast');
@@ -3420,8 +3436,8 @@ export function createLocalFloodUI({
     removeWaterLayers();
     canvas=document.createElement('canvas');
     canvas.id='localFloodCanvas';
-    waterUpscale=Math.max(1,Math.min(3,
-      Math.floor(1600/Math.max(1,info.cols,info.rows))));
+    waterUpscale=Math.max(1,Math.min(4,
+      Math.floor(1920/Math.max(1,info.cols,info.rows))));
     canvas.width=info.cols*waterUpscale;
     canvas.height=info.rows*waterUpscale;
     lowResWater=document.createElement('canvas');
@@ -3784,7 +3800,7 @@ export function createLocalFloodUI({
     }
     const pixels=new Uint8ClampedArray(data.pixels);
     if(isolatedSelection&&volumetricWater?.ready&&data.depthMm){
-      volumetricWater.showShallow=true;
+      volumetricWater.showShallow=showShallowWater;
       volumetricWater.showContrast=false;
       volumetricWater.updateFrame(data,applyingYearFrame);
     }
@@ -3801,7 +3817,7 @@ export function createLocalFloodUI({
     const nextFrame=document.createElement('canvas');
     nextFrame.width=outWidth;nextFrame.height=outHeight;
     const nc=nextFrame.getContext('2d');
-    if(!data.depthMm||!renderSoftWaterCanvas(nc,data,outWidth,outHeight,{showShallow:true,showContrast:false,scenario:rainPreset})){
+    if(!data.depthMm||!renderSoftWaterCanvas(nc,data,outWidth,outHeight,{showShallow:showShallowWater,showContrast:false,scenario:rainPreset})){
       lowResWaterContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
       nc.imageSmoothingEnabled=true;nc.imageSmoothingQuality='high';
       nc.drawImage(lowResWater,0,0,outWidth,outHeight);
