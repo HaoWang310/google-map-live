@@ -2480,8 +2480,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · 水文张量场</div>',
-      '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用张量场</label>',
-      '<div class="site-hydro-mini site-tensor-caption">积水范围与水深驱动局部张量曲线密度及方向 · 不虚构排水路径</div>',
+      '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 雨水完成后生成张量场（2026–2100）</label>',
+      '<div class="site-hydro-mini site-tensor-caption">雨水模拟到2100年完成后，开启此项自动依次计算2026–2100年张量场；关闭恢复原雨水画面。</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">分析模式</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">演示模式</button></div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
@@ -2943,6 +2943,12 @@ export function createLocalFloodUI({
     }
     siteHud('siteHudRun').onclick=()=>{
       if(!prepared)return;
+      // Starting new rainfall never mixes with an active tensor animation.
+      if(hydroDisplay.flow){
+        hydroDisplay.flow=false;stopTensorSequence();
+        if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
+        updateHydroLayerVisibility();
+      }
       if(longTermMode){
         if(!resolveFloodModeForPlayback())return;
         stopAnnual();annualPlaying=true;
@@ -2970,9 +2976,19 @@ export function createLocalFloodUI({
       updateSiteHydroDashboard();
     };
     siteHud('siteHudPause').onclick=()=>{
+      if(hydroDisplay.flow){
+        hydroDisplay.flow=false;stopTensorSequence({restoreRain:true});
+        if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
+        updateHydroLayerVisibility();
+      }
       stopAnnual();simulator?.pause();updateSiteHydroDashboard();
     };
     siteHud('siteHudReset').onclick=()=>{
+      if(hydroDisplay.flow){
+        hydroDisplay.flow=false;stopTensorSequence();
+        if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
+        updateHydroLayerVisibility();
+      }
       // Reset the actual scenario, not just the position of the year slider.
       stopAnnual();
       clearRiskEnvelope();clearYearFrames();
