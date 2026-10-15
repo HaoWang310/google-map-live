@@ -6,7 +6,7 @@ import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON}
    retained and are not evidence of measured water velocity. */
 export function createHydroTensorRenderer(args){
   const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
-    ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus}=args;
+    ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus,onProgress}=args;
   const empty=()=>({type:'FeatureCollection',features:[]});
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const presets={
@@ -24,11 +24,14 @@ export function createHydroTensorRenderer(args){
   let workerGeneration=0,requestId=0,requestTimer=0,lastSubmitted=0;
   let pendingFrame=null,lines=[],baseLines=[],wetLines=[],features=[],animation=0,animationOrigin=0;
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[],geometryDiagnostics=null;
-  let geometryTimer=0,lastViewKey='';
+  let geometryTimer=0,controlsGeometryTimer=0,lastViewKey='';
   let geometryWorker=null,geometryBusy=false,geometryDesired=0,geometryPending=null,geometrySnapshot=null;
   const scenarioSnapshots=new Map();
   let lastAnimationDraw=0,renderedFraction=0,reported='';
-  let yearGrowth=0.22,growthFrom=0.22,growthTo=0.22,growthChangeAt=0;
+  // The year controls an explicit *visual line reveal*, not invented hydraulic data.
+  let timelineYear=2026;
+  const revealForYear=y=>{const t=clamp((y-2026)/74,0,1);return .08+.92*t*t*(3-2*t)};
+  let yearGrowth=revealForYear(timelineYear),growthFrom=yearGrowth,growthTo=yearGrowth,growthChangeAt=0;
   let lastRenderedYear=2026;
   const R=6378137;
   const toMerc=([lng,lat])=>[R*lng*Math.PI/180,R*Math.log(Math.tan(Math.PI/4+clamp(lat,-85,85)*Math.PI/180/2))];
@@ -199,7 +202,8 @@ export function createHydroTensorRenderer(args){
             geometrySnapshot={grid:packet.grid,scenario:packet.scenario,parameters:packet.parameters};
             buildLines(packet,unpacked);buildRibbons(packet,unpacked);
             lastRenderedYear=packet.scenario?.year??2026;
-            yearGrowth=1;growthFrom=1;growthTo=1;
+            // Never reset slider progress to 100% after asynchronous geometry finishes.
+            yearGrowth=growthTo;growthFrom=growthTo;
             restart();geometryStatus();
           }
           pumpGeometry();
@@ -285,27 +289,31 @@ export function createHydroTensorRenderer(args){
     }
   }
   function drawLines(fraction=1){
-    const f=settings.mode==='analysis'?1:clamp(fraction,0,1);
-    // Static analysis always receives fraction=1. Geometry follows the
-    // accepted scenario tensor; year is not a density or length multiplier.
+    const f=clamp(fraction,0,1),prior=geometrySnapshot?.parameters||settings;
+    // Supported immediate preview: filter/shorten existing computed geometry.
+    // Adding new lines or extending them requires the geometry Worker.
+    const densityRatio=clamp((settings.density+10)/(Number(prior.density??settings.density)+10),.05,1);
+    const lengthRatio=clamp((settings.length+15)/(Number(prior.length??settings.length)+15),.08,1);
+    const accepts=feature=>settings.direction==='dual'||feature.properties.branch===settings.direction;
     const reveal=items=>{
-      if(f>=1)return items;
-      const count=Math.ceil(items.length*f);
+      if(!items.length||f<=0)return [];
+      const count=Math.max(1,Math.ceil(items.length*f*densityRatio));
       return items.slice(0,count).map(feature=>{
         const coords=feature.geometry.coordinates;
-        const length=Math.max(2,Math.floor(1+(coords.length-1)*f));
+        if(coords.length<2)return null;
+        const ratio=clamp(f*lengthRatio,0,1);
+        if(ratio>=.999)return feature;
         return {...feature,geometry:{type:'LineString',
-          coordinates:coords.slice(0,length)}};
-      }).filter(feature=>feature.geometry.coordinates.length>=2);
+          coordinates:coords.slice(0,Math.max(2,Math.floor(1+(coords.length-1)*ratio)))}};
+      }).filter(Boolean);
     };
-    const accepts=feature=>settings.direction==='dual'||feature.properties.branch===settings.direction;
-    const background=features.filter(feature=>feature.properties.family==='base'&&accepts(feature));
-    const modeled=features.filter(feature=>feature.properties.family==='wet'&&accepts(feature));
     src()?.setData({type:'FeatureCollection',
-      features:settings.showFilaments?
-        background.concat(reveal(modeled)):[]});
+      features:settings.showFilaments?reveal(features.filter(accepts)):[]});
     ribbonSource()?.setData({type:'FeatureCollection',
       features:settings.showRibbon?reveal(ribbonFeatures):[]});
+    onProgress?.({year:timelineYear,fraction:f,geometryYear:geometrySnapshot?.scenario?.year??null,
+      waitingForGeometry:geometryBusy||Boolean(geometryPending)||Boolean(controlsGeometryTimer)||
+        Boolean(requestTimer)||Boolean(geometryTimer)});
   }
   function drawParticles(elapsed,progress){
     if(!dots())return;
@@ -335,34 +343,44 @@ export function createHydroTensorRenderer(args){
   }
   function stop(){if(animation)cancelAnimationFrame(animation);animation=0}
   function tick(time){
-    if(!enabled||settings.mode!=='presentation'){stop();return}
+    if(!enabled){stop();return}
     animation=requestAnimationFrame(tick);
-    if(time-lastAnimationDraw<65)return;
+    if(time-lastAnimationDraw<55)return;
     lastAnimationDraw=time;
     const elapsed=Math.max(0,(time-animationOrigin)/1000);
-    const transition=clamp((time-growthChangeAt)/
-      Math.max(110,420/settings.growth),0,1);
+    const transition=clamp((time-growthChangeAt)/Math.max(140,290/settings.growth),0,1);
     const eased=transition*transition*(3-2*transition);
     yearGrowth=growthFrom+(growthTo-growthFrom)*eased;
-    if(Math.abs(yearGrowth-renderedFraction)>.009||transition>=1&&renderedFraction!==yearGrowth){
+    if(Math.abs(yearGrowth-renderedFraction)>.006||
+       (transition>=1&&renderedFraction!==yearGrowth)){
       drawLines(yearGrowth);renderedFraction=yearGrowth;
     }
-    drawParticles(elapsed,yearGrowth);
+    if(settings.mode==='presentation')drawParticles(elapsed,yearGrowth);
+    else if(transition>=1)stop();
   }
   function restart(){
     stop();animationOrigin=performance.now();
     lastAnimationDraw=0;renderedFraction=-1;applyStyle();
     if(!enabled)return;
-    if(settings.mode==='presentation'){
-      yearGrowth=growthTo;growthFrom=yearGrowth;
-      growthChangeAt=performance.now();
-      drawLines(yearGrowth);
-      renderedFraction=yearGrowth;
-      animation=requestAnimationFrame(tick);
-    }else{
-      yearGrowth=growthTo;drawLines(yearGrowth);
-      renderedFraction=yearGrowth;dots()?.setData(empty());
+    yearGrowth=growthTo;growthFrom=growthTo;growthChangeAt=performance.now();
+    drawLines(yearGrowth);renderedFraction=yearGrowth;
+    if(settings.mode==='presentation')animation=requestAnimationFrame(tick);
+    else dots()?.setData(empty());
+  }
+  function setTimelineYear(year,{instant=false}={}){
+    if(disposed)return;
+    const next=clamp(Math.round(Number(year)||2026),2026,2100);
+    if(next===timelineYear&&!instant)return;
+    timelineYear=next;
+    const target=revealForYear(next);
+    if(instant||!enabled||!geometrySnapshot){
+      growthTo=target;growthFrom=target;yearGrowth=target;
+      if(enabled)restart();
+      return;
     }
+    // Reveal current geometry immediately; the authoritative year recomputes.
+    growthFrom=yearGrowth;growthTo=target;growthChangeAt=performance.now();
+    if(!animation)animation=requestAnimationFrame(tick);
   }
   function configure(patch){
     if(disposed)return;
@@ -471,7 +489,7 @@ export function createHydroTensorRenderer(args){
     geometryDesired++;geometryPending=null;
     lines=[];baseLines=[];wetLines=[];features=[];
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
-    lastRenderedYear=2026;yearGrowth=.20;growthFrom=.20;growthTo=.20;
+    lastRenderedYear=2026;yearGrowth=revealForYear(timelineYear);growthFrom=yearGrowth;growthTo=yearGrowth;
     stop();src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());
     status('等待 DEM / 汇水 / 雨水计算数据');
@@ -564,7 +582,7 @@ export function createHydroTensorRenderer(args){
       pending:{tensor:Boolean(requestTimer)||result.requestId!==requestId,geometry:geometryBusy||Boolean(geometryPending)},
       acceptance:'NOT verified in the user-selected parcel; source data export, not a visual acceptance report'};
   }
-  return {configure,setField,setEnabled,clear,dispose,exportStructuredData,
+  return {configure,setTimelineYear,setField,setEnabled,clear,dispose,exportStructuredData,
     exportSiteSnapshot,
     exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
     exportGeometry:()=>geometrySnapshot?{grid:{...geometrySnapshot.grid},scenario:{...geometrySnapshot.scenario},
