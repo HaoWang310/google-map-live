@@ -1,4 +1,4 @@
-/* London Map · v3.22.39 · independent, design-oriented tensor solver.
+/* London Map · v3.22.43-tensor-ribbon · independent, design-oriented tensor solver.
    GIS/DEM resolution is inherited from existing simulation cells.
    NO changes to the flood hydraulics, rainfall or collision solver.
    Four-RoSy is a ROAD direction equivalence class; flow vectors only contribute
@@ -37,6 +37,11 @@ function solve(data){
   const crossSuitability=new Float32Array(n);
   const drainageRank=new Float32Array(n),avoidMask=new Float32Array(n);
   const floodProximity=new Float32Array(n),validMask=new Uint8Array(n);
+  // Read-only, native-grid hydrological corridor diagnostics. These are
+  // NOT road centerlines and do not change flood hydraulics.
+  const corridorRank=new Float32Array(n),corridorAxisX=new Float32Array(n),
+    corridorAxisY=new Float32Array(n),corridorDistance=new Float32Array(n);
+  const trunkMask=new Uint8Array(n);
   const cos2=new Float32Array(n),sin2=new Float32Array(n);
   const slopeX=new Float32Array(n),slopeY=new Float32Array(n);
   const waterActive=new Float32Array(n),hydX=new Float32Array(n),hydY=new Float32Array(n);
@@ -189,6 +194,72 @@ function solve(data){
     crossCos4[i]=Math.cos(4*theta);
     crossSin4[i]=Math.sin(4*theta);
   }
+  // Identify the site's dominant contiguous drainage contribution zone.
+  // Site-specific percentiles avoid a fixed guessed rainfall threshold.
+  // The core always derives from actual accumulated drainage, never noise.
+  const ranks=[];
+  for(let i=0;i<n;i++)if(validMask[i]&&drainageRank[i]>0)ranks.push(drainageRank[i]);
+  ranks.sort((a,b)=>a-b);
+  const q=p=>ranks[Math.min(ranks.length-1,Math.floor(p*(ranks.length-1)))]||0;
+  const q25=q(.25),q82=q(.82),q95=q(.95);
+  const hasDrainageContrast=ranks.length>24&&q95-q25>.08;
+  const qCore=hasDrainageContrast?Math.max(q82,q25+.15):Infinity;
+  let coreCount=0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x;if(!validMask[i])continue;
+    const rank=drainageRank[i];
+    // Use DEM-derived downhill axis as the default and the computed
+    // hydraulic vector only as supplementary evidence where water exists.
+    let ax=-slopeX[i],ay=-slopeY[i];
+    if(waterActive[i]>.12&&Math.hypot(hydX[i],hydY[i])>.5){
+      const weight=Math.min(.55,waterActive[i]*.42);
+      const len=Math.hypot(ax,ay)||1;
+      ax=ax/len*(1-weight)+hydX[i]*weight;
+      ay=ay/len*(1-weight)+hydY[i]*weight;
+    }
+    const len=Math.hypot(ax,ay);
+    if(len>1e-8){corridorAxisX[i]=ax/len;corridorAxisY[i]=ay/len}
+    corridorRank[i]=clamp(
+      .82*Math.sqrt(rank)+.18*waterActive[i],0,1);
+    if(rank>=qCore&&len>1e-8){
+      // An isolated high-accumulation pixel is not a corridor. Require
+      // downstream/upstream continuity with at least one valid neighbour.
+      let adjacent=0;
+      for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+        const nx=x+ox,ny=y+oy;
+        if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        const j=ny*w+nx;
+        if(validMask[j]&&drainageRank[j]>=qCore*.92)adjacent++;
+      }
+      if(adjacent){trunkMask[i]=1;coreCount++}
+    }
+  }
+  // Distance transform remains on source cells, never pretending to add
+  // higher-resolution observations. Obstacles and parcel borders are hard.
+  corridorDistance.fill(-1);
+  if(coreCount){
+    const queue=new Int32Array(n);let head=0,tail=0;
+    for(let i=0;i<n;i++)if(trunkMask[i]){
+      queue[tail++]=i;corridorDistance[i]=0;
+    }
+    const maxSteps=14;
+    while(head<tail){
+      const i=queue[head++],steps=corridorDistance[i];
+      if(steps>=maxSteps)continue;
+      const x=i%w,y=(i/w)|0;
+      for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+        const nx=x+ox,ny=y+oy;if(nx<0||ny<0||nx>=w||ny>=h)continue;
+        const j=ny*w+nx;
+        if(!validMask[j]||corridorDistance[j]>=0)continue;
+        corridorDistance[j]=steps+1;
+        queue[tail++]=j;
+      }
+    }
+    for(let i=0;i<n;i++)if(corridorDistance[i]>=0){
+      // metres of approximate native-grid graph distance for UI only.
+      corridorDistance[i]*=Math.min(dx,dy);
+    }
+  }
   const out={type:'result',requestId:data.requestId,cols:w,rows:h,
     cellX:dx,cellY:dy,
     demNativeResolutionM:demSupportMeters,
@@ -197,7 +268,8 @@ function solve(data){
     fields:{tensorXX,tensorXY,tensorYY,primaryX,primaryY,
       crossCos4,crossSin4,confidence,suitability,
       drainageRank,avoidMask,floodProximity,crossSuitability,validMask,
-      slopeX,slopeY}};
+      slopeX,slopeY,corridorRank,corridorAxisX,corridorAxisY,
+      corridorDistance,trunkMask}};
   return out;
 }
 self.onmessage=event=>{
