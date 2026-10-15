@@ -914,7 +914,11 @@ function sendFrame(){
     ?Math.max(0,Number(annualAreaStage.baseRainMmH)||0)*eventProfile
     :activeSeries?Math.max(0,Number(activeSeries[seriesSlot])||0)*4:
       Math.max(0,Number(params.rainfall)||0);
-  const flowField=buildHydroFlowField();
+  // Physical flow data must be present in each completed annual storm frame
+  // EVEN WHEN the tensor overlay is visually off. Otherwise the toggle creates
+  // a circular dependency: no flow field -> cannot enable tensor -> no flow.
+  const annualScenarioFrame=annualAreaStage?.kind==='rainfall-risk-scenario';
+  const flowField=buildHydroFlowField(annualScenarioFrame);
   const buffers=[pixels.buffer,depthMm.buffer,contactMask.buffer,validMask.buffer];
   if(flowField)buffers.push(flowField.vx.buffer,
     flowField.vy.buffer,flowField.intensity.buffer);
