@@ -2426,9 +2426,53 @@ export function createLocalFloodUI({
       if(floodMode==='rain-risk'&&!siteRiskAvailable)
         status('EA 现状风险参考在此区域不可用，仍可按 DEM、建筑和降雨计算；官方重合率会标注不可用。');
     };
+    const redrawDisplayOnly=()=>{
+      if(!lastHydroFrame)return;
+      const previous=applyingYearFrame;
+      applyingYearFrame=true;
+      // A display toggle must not leak old blue film into the next frame.
+      cancelAnimationFrame(waterBlendHandle);
+      previousWaterFrame=null;
+      if(volumetricWater)volumetricWater.lastBuildAt=0;
+      try{handleFrame(lastHydroFrame);}finally{applyingYearFrame=previous;}
+    };
+    const refreshScenarioContrast=()=>{
+      stopAnnual();clearYearFrames();
+      if(lastHydroFrame){
+        // Discard an old contrast mask immediately while new stats compute.
+        lastHydroFrame={...lastHydroFrame,comparisonMask:null,comparisonStats:null};
+      }
+      if(prepared&&longTermMode&&isolatedSelection){
+        requestYear(futureYear);
+      }else updateSiteHydroDashboard();
+    };
+    const shallowToggle=siteHud('siteHudShowShallow');
+    if(shallowToggle)shallowToggle.onchange=e=>{
+      showShallowWater=Boolean(e.target.checked);
+      redrawDisplayOnly();
+    };
+    const contrastToggle=siteHud('siteHudShowContrast');
+    if(contrastToggle)contrastToggle.onchange=e=>{
+      showStormContrast=Boolean(e.target.checked);
+      refreshScenarioContrast();
+    };
+    const contrastPair=siteHud('siteHudComparePair');
+    if(contrastPair)contrastPair.onchange=e=>{
+      stormContrastPair=e.target.value==='extreme-moderate'?'extreme-moderate':'moderate-average';
+      const desired=stormContrastPair==='extreme-moderate'?'extreme':'moderate';
+      if(rainPreset!==desired){
+        // Compare a selected strong storm to exactly its weaker reference.
+        // The visible strong-storm scenario must match the difference legend.
+        const select=siteHud('siteHudFutureClimate');
+        if(select){select.value=desired;select.onchange?.({target:select});}
+      }else refreshScenarioContrast();
+    };
     siteHud('siteHudTimeMode').onchange=e=>{
       stopAnnual();
       displayMode=e.target.value==='event'?'event':'year';
+      clearYearFrames(); // year and event do not share comparison buffers
+      if(displayMode==='event')setSiteHud('siteHudContrastStatus',
+        '单场暴雨为独立分钟时间轴，不显示多历时包络差异。');
       const box=siteHud('siteHudEventControls');
       if(box)box.style.display=displayMode==='event'?'block':'none';
       for(const id of ['siteHudYear','siteHudFooterYear']){
@@ -2548,6 +2592,8 @@ export function createLocalFloodUI({
     };
         siteHud('siteHudFutureClimate').onchange=e=>{
       rainPreset=Object.prototype.hasOwnProperty.call(RAIN_PRESETS,e.target.value)?e.target.value:'moderate';
+      stormContrastPair=rainPreset==='extreme'?'extreme-moderate':'moderate-average';
+      if(siteHud('siteHudComparePair'))siteHud('siteHudComparePair').value=stormContrastPair;
       rainfallMode='manual';manualFourHourMm=null;
       fehDurationDepthsMm=null; // different precipitation scenarios cannot reuse old FEH entries
       for(const m of [30,60,120,360])if(siteHud('siteHudDdf'+m))siteHud('siteHudDdf'+m).value='';
@@ -2652,6 +2698,8 @@ export function createLocalFloodUI({
     siteHud('siteHudResetSponge').onclick=()=>{
       siteFacilities=[];
       hydroDisplay={depth:true,flow:false,collision:true,volume:true};
+      if(siteHud('siteHudShowShallow'))siteHud('siteHudShowShallow').checked=showShallowWater;
+      if(siteHud('siteHudShowContrast'))siteHud('siteHudShowContrast').checked=showStormContrast;
       for(const [id,flag] of [
         ['siteHudShowDepth','depth'],
         ['siteHudShowVolume','volume'],
