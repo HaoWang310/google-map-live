@@ -24,7 +24,7 @@ export function createHydroTensorRenderer(args){
   let workerGeneration=0,requestId=0,requestTimer=0,lastSubmitted=0;
   let pendingFrame=null,lines=[],baseLines=[],wetLines=[],features=[],animation=0,animationOrigin=0;
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[],geometryDiagnostics=null;
-  let geometryTimer=0,controlsGeometryTimer=0,lastViewKey='';
+  let geometryTimer=0,controlsGeometryTimer=0,geometryAbortTimer=0,lastViewKey='';
   let geometryWorker=null,geometryBusy=false,geometryDesired=0,geometryPending=null,geometrySnapshot=null;
   let geometryActiveId=0,geometryStartedAt=0,provisionalLineCount=0,previewBaseSettings=null;
   const scenarioSnapshots=new Map();
@@ -299,10 +299,17 @@ export function createHydroTensorRenderer(args){
       options:{...settings,direction:'dual',...viewOptions()}};
     // Supersede a slow obsolete geometry job; keep its *displayed* data.
     // Latest accepted tensor should not wait behind dozens of stale jobs.
-    if(geometryBusy&&geometryWorker&&geometryActiveId!==geometryDesired&&
-       performance.now()-geometryStartedAt>120){
-      geometryWorker.terminate();geometryWorker=null;geometryBusy=false;
-      geometryActiveId=0;
+    if(geometryAbortTimer){clearTimeout(geometryAbortTimer);geometryAbortTimer=0}
+    if(geometryBusy&&geometryWorker&&geometryActiveId!==geometryDesired){
+      // A slow obsolete job must never block the newest year indefinitely.
+      // Coalesce rapid slider changes; terminate only after input settles.
+      geometryAbortTimer=setTimeout(()=>{
+        geometryAbortTimer=0;
+        if(disposed||!geometryBusy||!geometryPending||!geometryWorker||
+           geometryActiveId===geometryDesired)return;
+        geometryWorker.terminate();geometryWorker=null;geometryBusy=false;
+        geometryActiveId=0;pumpGeometry();
+      },180);
     }
     status((scenario?.year??2026)+' 年 · 更新真实双方向流线，保留当前画面…');
     pumpGeometry();
@@ -585,6 +592,7 @@ export function createHydroTensorRenderer(args){
     applyStyle();
   }
   function clear(){
+    if(geometryAbortTimer){clearTimeout(geometryAbortTimer);geometryAbortTimer=0}
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     if(controlsGeometryTimer){clearTimeout(controlsGeometryTimer);controlsGeometryTimer=0}
     requestId++;result=null;flow=null;context=null;depth=null;geometryDiagnostics=null;geometrySnapshot=null;
@@ -643,6 +651,7 @@ export function createHydroTensorRenderer(args){
   }
   function dispose(){
     disposed=true;stop();
+    if(geometryAbortTimer)clearTimeout(geometryAbortTimer);
     if(controlsGeometryTimer)clearTimeout(controlsGeometryTimer);
     if(requestTimer)clearTimeout(requestTimer);
     if(geometryTimer)clearTimeout(geometryTimer);
