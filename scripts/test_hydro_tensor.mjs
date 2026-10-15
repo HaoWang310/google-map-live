@@ -1,3 +1,4 @@
+import {buildTensorGeometryPacket} from './hydro_tensor_geometry.js';
 // Run: node scripts/test_hydro_tensor.mjs (no dependencies, no network).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -178,8 +179,12 @@ test('invalid grid array and missing metric rejected',()=>{
  assert.throws(()=>solve({...plane,accumulation:new Uint16Array(2)}));
 });
 // Exercise the actual asynchronous renderer adapter, including late results.
-const requests=[];
-globalThis.Worker=class {constructor(){globalThis.testWorker=this}postMessage(d){requests.push(structuredClone(d))}terminate(){}};
+const requests=[];let deferGeometry=false;const geometryJobs=[];
+globalThis.Worker=class {
+ constructor(url){this.geometry=String(url).includes('geometry_worker');if(!this.geometry)globalThis.testWorker=this}
+ postMessage(d){if(this.geometry){if(deferGeometry)geometryJobs.push({worker:this,data:d});else this.onmessage({data:{type:'geometry-result',id:d.id,packet:buildTensorGeometryPacket(d.result,d.options)}})}else requests.push(structuredClone(d))}
+ terminate(){}
+};
 globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
 const drawn=new Map();
 const map={getSource:id=>({setData(data){drawn.set(id,data)}}),getLayer:()=>false};
@@ -210,5 +215,13 @@ await delay();send(requests.at(-1));
 assert.ok(drawn.get('axes').features.length>0);
 assert.equal(renderer.exportStructuredData().displayCountIndependentOfYear,true);
 assert.equal(renderer.exportStructuredData().displayUsesUnifiedComputedEigenfield,true);
-renderer.dispose();passed++;console.log('PASS renderer exact-grid contract, stale responses, snapshot exports and re-enable');
+passed++;console.log('PASS renderer exact-grid contract, stale responses, snapshot exports and re-enable');
+deferGeometry=true;
+renderer.configure({density:60});assert.equal(geometryJobs.length,1);
+renderer.configure({density:80});assert.equal(geometryJobs.length,1); // coalesced latest, no growing worker backlog
+const release=()=>{const job=geometryJobs.shift();job.worker.onmessage({data:{type:'geometry-result',id:job.data.id,packet:buildTensorGeometryPacket(job.data.result,job.data.options)}})};
+release();assert.equal(geometryJobs.length,1);assert.equal(renderer.exportGeometry().parameters.density,55);
+release();assert.equal(renderer.exportGeometry().parameters.density,80);assert.equal(renderer.exportGeometry().pending,false);
+passed++;console.log('PASS geometry worker coalesces updates and rejects stale geometry');
+renderer.dispose();
 console.log(`${passed} regression groups passed`);

@@ -1,0 +1,195 @@
+{
+  "old": {
+    "field": {
+      "count": 276,
+      "medianLengthM": 303.35886358742823,
+      "p90LengthM": 331.67235752404787,
+      "totalLengthM": 76988.43479409063,
+      "under50m": 1
+    },
+    "ribbons": {
+      "count": 210,
+      "medianLengthM": 73.98313162942597,
+      "p90LengthM": 347.38368910644954,
+      "totalLengthM": 31566.255509401122,
+      "under50m": 27
+    },
+    "ribbonPipeline": {
+      "validSkeletonCells": 2215,
+      "seedCount": 727,
+      "integrationAttempts": 24,
+      "integrationSucceeded": 24,
+      "lengthRejected": 2,
+      "coreAccepted": 14,
+      "finalBundles": 210
+    },
+    "primaryCoverage": 0.23229712953814194,
+    "secondaryCoverage": 0.27600010134022446
+  },
+  "current": {
+    "field": {
+      "count": 1869,
+      "medianLengthM": 185.1141807919393,
+      "p90LengthM": 509.3456517729584,
+      "totalLengthM": 484075.12205896253,
+      "under50m": 0
+    },
+    "ribbons": {
+      "count": 160,
+      "medianLengthM": 94.08696760153222,
+      "p90LengthM": 203.57982305420185,
+      "totalLengthM": 19237.766451501946,
+      "under50m": 0
+    },
+    "diagnostics": {
+      "gridCells": 39917,
+      "validCells": 39917,
+      "supportedDirectionCells": 39471,
+      "visibleSupportedDirectionCells": 39471,
+      "validAreaM2": 3483156.2118696095,
+      "supportedAreaM2": 3444238.2653682735,
+      "viewRect": [
+        0,
+        0,
+        223,
+        179
+      ],
+      "metersPerPixel": 1.735925752640322,
+      "primarySpacingM": 9.269843519099318,
+      "secondarySpacingM": 12.51428875078408,
+      "targetLengthM": 2457.493372231548,
+      "minLengthM": 40,
+      "nominalStepM": 2.989217439524142,
+      "nativeDemResolutionM": 50,
+      "subcellGeometryIsInterpolation": true,
+      "field": {
+        "primary": {
+          "candidateSeeds": 29046,
+          "integrationAttempts": 5569,
+          "integrationSucceeded": 5566,
+          "lengthRejected": 4414,
+          "spacingRejected": 23392,
+          "seedSpacingRejected": 23368,
+          "pathSpacingRejected": 24,
+          "finalLines": 1131,
+          "totalLengthM": 270760.5119364542,
+          "coverage": 0.9782625218514859,
+          "budgetReached": false,
+          "probedSeeds": 1479,
+          "vertices": 92516,
+          "vertexBudget": 650000
+        },
+        "secondary": {
+          "candidateSeeds": 16236,
+          "integrationAttempts": 2339,
+          "integrationSucceeded": 2337,
+          "lengthRejected": 1586,
+          "spacingRejected": 13848,
+          "seedSpacingRejected": 13833,
+          "pathSpacingRejected": 15,
+          "finalLines": 738,
+          "totalLengthM": 213314.61012250814,
+          "coverage": 0.9965037622558334,
+          "budgetReached": false,
+          "probedSeeds": 703,
+          "vertices": 72810,
+          "vertexBudget": 648190
+        }
+      },
+      "ribbons": {
+        "networkMaskCells": 2371,
+        "pcaDirectionCells": 2215,
+        "validSkeletonCells": 520,
+        "skeletonChains": 30,
+        "skeletonBrokenEdges": 21,
+        "skeletonRoutedCorners": 0,
+        "representedSkeletonCells": 520,
+        "shortSkeletonChains": 8,
+        "seedCount": 198,
+        "integrationAttempts": 198,
+        "integrationSucceeded": 154,
+        "integratedPieces": 285,
+        "lengthRejected": 133,
+        "spacingRejected": 0,
+        "finalBundles": 160,
+        "reason": null,
+        "topology": "threshold-mask medial graph; not recovered D8 downstream links",
+        "thinningPasses": 4,
+        "skeletonChainLengthsM": [
+          898.8707314798082,
+          809.6019638382941,
+          394.99025322025756,
+          328.27338958931006,
+          241.93506856058386,
+          218.71929847933865,
+          181.35408048528683,
+          140.11956747769415,
+          125.30625349420912,
+          125.3062534942091,
+          125.3062534942091,
+          125.3062534942091,
+          125.3062534942091,
+          125.3062534942091,
+          125.3062534942091,
+          115.96494899569616,
+          115.96494899569616,
+          93.41304498512942,
+          93.41304498512942,
+          93.41304498512942,
+          87.94103550015735,
+          87.94103550015735,
+          78.5997310016444,
+          74.73043598810354,
+          46.706522492564716,
+          46.706522492564716,
+          37.365217994051775,
+          37.365217994051775,
+          37.365217994051775,
+          9.341304498512944
+        ],
+        "integrationStops": {
+          "outsideMask": 0,
+          "segment": 0,
+          "spacing": 40,
+          "insufficientWidth": 4454
+        },
+        "trunkCutLogAreaRank": 0.9579912424087524,
+        "trunkBundles": 52,
+        "tributaryBundles": 108,
+        "minimumLengthM": 65,
+        "integrationMethod": "mask-constrained skeleton arc-length integration; lanes adapt to observed corridor width"
+      },
+      "stopReasons": {
+        "boundary_confidence_or_curvature": 7599,
+        "stagnation": 2152,
+        "spacing": 10398,
+        "loop": 31
+      }
+    },
+    "primaryCoverage": 0.9782625218514859,
+    "secondaryCoverage": 0.9965037622558334
+  },
+  "unchangedTensorHash": "3e60c5ca5df3e4442a4b068221019ecdc9275607ad30480fec202e3c22a3d48c",
+  "tensorArraysUnchanged": true,
+  "geometryMilliseconds": 7494.262137999999,
+  "site": {
+    "cols": 223,
+    "rows": 179,
+    "cellX": 9.341304498512944,
+    "cellY": 9.341304498512944,
+    "grid": {
+      "id": 1,
+      "crs": "EPSG:3857",
+      "cols": 223,
+      "rows": 179,
+      "left": -34509.042145914806,
+      "top": 6708431.056500631,
+      "cellProjectedM": 15,
+      "groundScale": 0.6227536332341963,
+      "axisX": "east",
+      "axisY": "south",
+      "groundMetric": "local Mercator scale at site centre"
+    },
+    "hasRealBuildingInput": false
+  }
+}

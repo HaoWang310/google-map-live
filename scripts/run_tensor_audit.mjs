@@ -34,6 +34,10 @@ const input={type:'solve',requestId:1,cols,rows,grid,cellX:grid.cellProjectedM*g
 const dry=solve({...input,depthMm:new Uint16Array(n)});
 const depthMm=new Uint16Array(b.frame.depthMm);
 const wet=solve({...input,depthMm,scenario:{year:2026,kind:'offline-illustrative-storm-25mmh-120min'}});
+if(process.env.TENSOR_GEOMETRY_FIXTURE){
+ const encode=r=>({...r,fields:Object.fromEntries(Object.entries(r.fields).map(([k,v])=>[k,{type:v.constructor.name,values:Array.from(v)}]))});
+ fs.writeFileSync(process.env.TENSOR_GEOMETRY_FIXTURE,JSON.stringify({input:{...input,terrain:Array.from(terrain),accumulation:Array.from(accumulation),inside:Array.from(inside),obstacle:Array.from(obstacle),depthMm:Array.from(depthMm)},result:encode(wet)}));
+}
 const diffs=[],changes=[];let residual=0;
 for(let i=0;i<n;i++){
  const f=wet.fields;

@@ -1,6 +1,6 @@
-import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.48-tensor-continuity';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.48-tensor-continuity';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.48-tensor-continuity';
+import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.49-tensor-streamlines';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.49-tensor-streamlines';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -1722,6 +1722,7 @@ export function createLocalFloodUI({
   function updateHydroLayerVisibility(){
     const viewer=isolateViewer;
     if(!viewer)return;
+    if(hydroDisplay.flow&&viewer.getPitch()>.01)viewer.jumpTo({pitch:0});
     syncFocusFloodWaterRendering();
     const desired=hydroDisplay.flow?'visible':'none';
     hydroVector?.setEnabled(hydroDisplay.flow);
@@ -1730,14 +1731,14 @@ export function createLocalFloodUI({
     if(hydroDisplay.flow&&lastHydroFrame?.flowField)
       updateFocusFlowVectors({...lastHydroFrame,forceVectorRefresh:true});
     // Dark academic scene is applied only while the independent flow layer is on.
-    const ground=hydroDisplay.flow?'#11151b':'#e8e7e2';
-    const green=hydroDisplay.flow?'#192822':'#bfd9b1';
-    const road=hydroDisplay.flow?'#2b323b':'#c4c2bd';
+    const ground=hydroDisplay.flow?'#000000':'#e8e7e2';
+    const green=hydroDisplay.flow?'#000000':'#bfd9b1';
+    const road=hydroDisplay.flow?'#000000':'#c4c2bd';
     for(const [id,property,color] of [
       ['focus-parcel-ground','fill-color',ground],
       ['focus-green-ground','fill-color',green],
       ['focus-road-casing','fill-color',road],
-      ['focus-road-surface','fill-color',hydroDisplay.flow?'#3c4551':['match',['get','kind'],'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff']]
+      ['focus-road-surface','fill-color',hydroDisplay.flow?'#000000':['match',['get','kind'],'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff']]
     ])if(viewer.getLayer(id))viewer.setPaintProperty(id,property,color);
     setFocusPitchMode();
     for(const id of [FOCUS_2D,FOCUS_3D]){
@@ -1749,7 +1750,7 @@ export function createLocalFloodUI({
     // Drainage is independent reference context; its existing toggle remains
     // authoritative outside vector view.
     if(viewer.getLayer(FOCUS_DRAINAGE_LAYER)){
-      const on=hydroDisplay.flow||focusContextSettings().drainage;
+      const on=!hydroDisplay.flow&&focusContextSettings().drainage;
       viewer.setLayoutProperty(FOCUS_DRAINAGE_LAYER,'visibility',on?'visible':'none');
       viewer.setPaintProperty(FOCUS_DRAINAGE_LAYER,'raster-opacity',
         hydroDisplay.flow?.30:.52);
@@ -1952,6 +1953,7 @@ export function createLocalFloodUI({
     delete window.getLondonHydroVectorFieldData;
     delete window.getLondonHydroTensorFieldData;
     delete window.getLondonHydroTensorDiagnostics;
+    delete window.getLondonHydroTensorGeometryData;
     isolateViewer=null;
     volumetricWater=null;
     if(viewer){
@@ -2312,7 +2314,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.48-tensor-continuity</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.49-tensor-streamlines</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2391,7 +2393,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · 水文张量场</div>',
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用张量场</label>',
       '<div class="site-hydro-mini site-tensor-caption">基础地形方向常显 · 积水影响逐年增强</div>',
-      '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode" data-vector-mode="analysis" aria-pressed="false">分析模式</button><button type="button" class="site-vector-mode active" data-vector-mode="presentation" aria-pressed="true">演示模式</button></div>',
+      '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">分析模式</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">演示模式</button></div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
       '<div class="site-vector-modes site-tensor-directions" role="group"><button type="button" class="site-vector-mode" data-tensor-direction="primary" aria-pressed="false">主方向</button><button type="button" class="site-vector-mode" data-tensor-direction="secondary" aria-pressed="false">次方向</button><button type="button" class="site-vector-mode active" data-tensor-direction="dual" aria-pressed="true">双方向</button></div>',
@@ -2402,8 +2404,8 @@ export function createLocalFloodUI({
       '<label class="site-vector-param"><span>方向平滑<output id="siteHudVectorSmoothnessValue">60</output></span><input id="siteHudVectorSmoothness" type="range" min="0" max="100" step="5" value="60"></label>',
       '<label class="site-vector-param"><span>线条密度<output id="siteHudVectorDensityValue">55</output></span><input id="siteHudVectorDensity" type="range" min="0" max="100" step="1" value="55"></label>',
       '<label class="site-vector-param"><span>线条长度<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
-      '<label class="site-vector-param"><span>发光强度<output id="siteHudVectorGlowValue">0.5</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0.5"></label>',
-      '<label class="site-vector-param"><span>动画速度<output id="siteHudVectorSpeedValue">1</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="1"></label>',
+      '<label class="site-vector-param"><span>发光强度<output id="siteHudVectorGlowValue">0</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0"></label>',
+      '<label class="site-vector-param"><span>动画速度<output id="siteHudVectorSpeedValue">0</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="0"></label>',
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>弱</span><div aria-hidden="true"></div><span>强</span></div>',
@@ -2922,6 +2924,7 @@ export function createLocalFloodUI({
     // Typed native-grid design tensor contract for future Wool and roads.
     window.getLondonHydroTensorFieldData=()=>hydroVector?.exportStructuredData()||null;
     window.getLondonHydroTensorDiagnostics=(stride=4)=>hydroVector?.exportDiagnostics(stride)||null;
+    window.getLondonHydroTensorGeometryData=()=>hydroVector?.exportGeometry()||null;
     window.getLondonHydroVectorFieldData=window.getLondonHydroTensorFieldData;
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
