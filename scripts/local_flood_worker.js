@@ -8,6 +8,7 @@ let running=false;
 const annualStateCache=new Map();
 let annualCacheKey='';
 let annualFrameYear=null;
+let annualFrameToken=null;
 let annualRiskForecast=null;
 let contrastBaselineCache=null; // v3.22.30: other rainfall scenario, same land/solver assumptions
 let annualAreaStage=null;
@@ -903,7 +904,7 @@ function sendFrame(){
   if(flowField)buffers.push(flowField.vx.buffer,
     flowField.vy.buffer,flowField.intensity.buffer);
   postMessage({
-    type:'frame',scenarioYear:annualFrameYear,
+    type:'frame',scenarioYear:annualFrameYear,scenarioToken:annualFrameToken,
     annualAreaStage,
     width:cols,height:rows,pixels:pixels.buffer,
     depthMm:depthMm.buffer,contactMask:contactMask.buffer,
@@ -1279,7 +1280,7 @@ onmessage=async({data})=>{
           netImpactedBuildings:higherBuildings.size-lowerBuildings.size
         };
       }
-      annualFrameYear=year;
+      annualFrameYear=year;annualFrameToken=data.scenarioToken??null;
       annualAreaStage={
         kind:displayMode==='event'?'storm-event':'rainfall-risk-scenario',
         year,fraction:progress,designStageFactor:stagingFactor,
@@ -1309,7 +1310,7 @@ onmessage=async({data})=>{
       };
       sendFrame();
       sim.contrastMask=null;sim.contrastStats=null;
-      annualFrameYear=null;annualAreaStage=null;
+      annualFrameYear=null;annualFrameToken=null;annualAreaStage=null;
       return;
     }
     if(data.type==='annual-step'){
