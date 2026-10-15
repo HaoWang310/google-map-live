@@ -1,4 +1,4 @@
-import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.50-tensor-site-fix';
+import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 /* v3.22.50-tensor-site-fix · One computed eigenfield in dry and wet states.
    All-year geometry samples the same symmetric tensor eigenaxes. Source
@@ -46,7 +46,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.51-ground-flood-footprints',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.54-rainfall-responsive-tensor',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -211,9 +211,14 @@ export function createHydroTensorRenderer(args){
       integration_blocked_or_ambiguous:'积分受边界、障碍或方向歧义阻断',
       all_below_physical_length:'积分均未达到物理长度要求',spacing_or_length_rejection:'间距或长度筛选淘汰'};
     const a=d.field.primary,b=d.field.secondary,pct=v=>(100*(v||0)).toFixed(1)+'%';
+    const wet=result?.diagnostics?.rainfallResponse;
+    const wetText=wet?(' · 受淹格(≥2cm) '+wet.wetCells20mm+
+      ' / '+(result?.diagnostics?.counts?.valid||0)+
+      ' · 平均积水 '+wet.meanSiteDepthMm.toFixed(1)+'mm'):'';
+
     status((geometrySnapshot?.scenario?.year??2026)+' 年 · 方向证据 '+d.supportedDirectionCells+'/'+d.validCells+' 格（'+pct(d.directionEvidenceRatio)+'）'+
       '\n主/次线 '+(a?.finalLines??0)+' / '+(b?.finalLines??0)+
-      ' · 全场覆盖 '+pct(a?.wholeValidCoverage)+' / '+pct(b?.wholeValidCoverage)+
+      ' · 全场覆盖 '+pct(a?.wholeValidCoverage)+' / '+pct(b?.wholeValidCoverage)+wetText+
       ' · 证据区覆盖 '+pct(a?.supportedCoverage)+' / '+pct(b?.supportedCoverage)+
       '\n长度均值 '+(a?.meanLengthM??0).toFixed(1)+' / '+(b?.meanLengthM??0).toFixed(1)+'m'+
       ' · 中位 '+(a?.medianLengthM??0).toFixed(1)+' / '+(b?.medianLengthM??0).toFixed(1)+'m'+
@@ -234,15 +239,29 @@ export function createHydroTensorRenderer(args){
     renderGeo=gridRenderGeometry(packet.grid);
     geometryDiagnostics=packet.diagnostics;
     const generated=unpacked.lines;
-    baseLines=generated.map((line,index)=>({...line,index,family:'base',
-      coordinates:line.path.map(toGeo),color:line.branch==='primary'?'#68cce3':'#8c91be'}));
+    // Colour/weight are locally computed from the integrated curve's wet
+    // support. This is depth-driven display, not a class label or invented axis.
+    const tint=(dry,wet,t)=>{
+      const a=dry.match(/[a-f0-9]{2}/ig).map(h=>parseInt(h,16));
+      const b=wet.match(/[a-f0-9]{2}/ig).map(h=>parseInt(h,16));
+      return '#'+a.map((v,i)=>Math.round(v+(b[i]-v)*t).toString(16).padStart(2,'0')).join('');
+    };
+    baseLines=generated.map((line,index)=>{
+      const wet=clamp(Number(line.wetSupport||0),0,1);
+      const primary=line.branch==='primary';
+      return {...line,index,family:'base',wet,
+        coordinates:line.path.map(toGeo),
+        color:tint(primary?'#618a9b':'#686f8e',primary?'#4fe4ef':'#a2c4ff',wet)};
+    });
     lines=baseLines;
     wetLines=lines.filter(line=>line.wetSupport>.035).map((line,index)=>({...line,index}));
     features=lines.map(line=>({type:'Feature',properties:{
       color:line.color,analysisColor:line.color,
-      width:Math.max(line.branch==='primary'?.85:.65,settings.width*(line.branch==='primary'?.7:.5)),
-      opacity:line.branch==='primary'?.90:.65,glowFactor:0,
-      family:'base',branch:line.branch,relativeGuidance:line.rank,lengthM:line.lengthM
+      width:Math.max(line.branch==='primary'?.85:.65,
+        settings.width*(line.branch==='primary'?.7:.5)*(1+.50*line.wet)),
+      opacity:line.branch==='primary'?(.66+.30*line.wet):(.48+.34*line.wet),glowFactor:0,
+      family:'base',branch:line.branch,relativeGuidance:line.rank,
+      wetSupport:line.wet,lengthM:line.lengthM
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
   }
   function buildRibbons(packet,unpacked){
@@ -261,7 +280,7 @@ export function createHydroTensorRenderer(args){
     if(geometryBusy||!geometryPending||disposed||!enabled)return;
     if(!geometryWorker){
       try{
-        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.22.50-tensor-site-fix',import.meta.url),{type:'module'});
+        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.22.54-rainfall-responsive-tensor',import.meta.url),{type:'module'});
         const active=geometryWorker;
         active.onmessage=({data})=>{
           if(disposed||geometryWorker!==active)return;
@@ -694,7 +713,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.53-tensor-live-stability',
+    return {schema:'london-tensor-site-v1',version:'3.22.54-rainfall-responsive-tensor',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
