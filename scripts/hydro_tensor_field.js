@@ -26,7 +26,7 @@ export function createHydroTensorRenderer(args){
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[],geometryDiagnostics=null;
   let geometryTimer=0,controlsGeometryTimer=0,lastViewKey='';
   let geometryWorker=null,geometryBusy=false,geometryDesired=0,geometryPending=null,geometrySnapshot=null;
-  let geometryActiveId=0,geometryStartedAt=0,provisionalLineCount=0;
+  let geometryActiveId=0,geometryStartedAt=0,provisionalLineCount=0,previewBaseSettings=null;
   const scenarioSnapshots=new Map();
   let lastAnimationDraw=0,renderedFraction=0,reported='';
   // The year controls an explicit *visual line reveal*, not invented hydraulic data.
@@ -185,6 +185,7 @@ export function createHydroTensorRenderer(args){
     }
     if(!candidates.length)return false;
     features=candidates;provisionalLineCount=candidates.length;
+    previewBaseSettings={...settings};
     drawLines(growthTo);renderedFraction=growthTo;
     status((computed.scenario?.year??timelineYear)+' 年 · 已显示真实张量方向预览 '+candidates.length+
       ' 条；长流线正在后台积分，预览并非最终曲线');
@@ -264,7 +265,7 @@ export function createHydroTensorRenderer(args){
               geometrySnapshot={grid:packet.grid,scenario:packet.scenario,
                 parameters:packet.parameters};
               buildLines(packet,unpacked);buildRibbons(packet,unpacked);
-              provisionalLineCount=0;
+              provisionalLineCount=0;previewBaseSettings=null;
               lastRenderedYear=packet.scenario?.year??2026;
               // Preserve selected-year reveal even if geometry finishes late.
               yearGrowth=growthTo;growthFrom=growthTo;
@@ -365,7 +366,7 @@ export function createHydroTensorRenderer(args){
     }
   }
   function drawLines(fraction=1){
-    const f=clamp(fraction,0,1),prior=geometrySnapshot?.parameters||settings;
+    const f=clamp(fraction,0,1),prior=geometrySnapshot?.parameters||previewBaseSettings||settings;
     // Supported immediate preview: filter/shorten existing computed geometry.
     // Adding new lines or extending them requires the geometry Worker.
     const densityRatio=clamp((settings.density+10)/(Number(prior.density??settings.density)+10),.05,1);
@@ -575,9 +576,12 @@ export function createHydroTensorRenderer(args){
       dots()?.setData(empty());
       return;
     }
-    if(geometrySnapshot)restart();
-    if(result)queueGeometry();
+    // A layer toggle is a visibility change, not a reason to throw away the
+    // previously displayed provisional or completed geometry.
+    if(features.length||ribbonFeatures.length)restart();
+    else if(result)installDirectionalPreview(result);
     if(flow&&context)queueSolve(true);
+    else if(result)queueGeometry();
     applyStyle();
   }
   function clear(){
@@ -587,6 +591,7 @@ export function createHydroTensorRenderer(args){
     scenarioSnapshots.clear();
     geometryDesired++;geometryPending=null;
     lines=[];baseLines=[];wetLines=[];features=[];
+    provisionalLineCount=0;previewBaseSettings=null;
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
     replayGrowthActive=false;
     lastRenderedYear=2026;yearGrowth=revealForYear(timelineYear);growthFrom=yearGrowth;growthTo=yearGrowth;
@@ -678,7 +683,8 @@ export function createHydroTensorRenderer(args){
           features.filter(f=>settings.direction==='dual'||f.properties.branch===settings.direction).length:0,
         generatedRibbons:ribbonFeatures.length,displayedRibbons:settings.showRibbon?ribbonFeatures.length:0,
         staticFraction:renderedFraction,timelineYear,
-        yearRevealIsVisualOnly:true,geometryYear:geometrySnapshot?.scenario?.year??null},
+        yearRevealIsVisualOnly:true,geometryYear:geometrySnapshot?.scenario?.year??null,
+        provisionalLineCount},
       geometry:geometrySnapshot?{scenario:geometrySnapshot.scenario,parameters:geometrySnapshot.parameters,
         diagnostics:geometryDiagnostics,field:features,ribbons:ribbonFeatures}:null,
       pending:{tensor:Boolean(requestTimer)||result.requestId!==requestId,geometry:geometryBusy||Boolean(geometryPending)},
