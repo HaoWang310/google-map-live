@@ -277,9 +277,13 @@ function onceIdle(map,timeout=2200){
  * A hard solver-valid mask protects buildings and the study-area perimeter;
  * bilinear depth sampling and smooth alpha soften only the visible shoreline.
  */
+// NATURAL_WATER_LIVE_20261015: visual-only continuous grey-blue water rendering.
 function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
+  const avg=options.scenario==='average';
+  const storm=options.scenario==='extreme';
+  const wetThreshold=storm?.001:.002;
   const showShallow=options.showShallow===true;
-  const contrast=options.showContrast===true&&frame.comparisonMask?
+  const contrast=false&&options.showContrast===true&&frame.comparisonMask?
     new Uint8Array(frame.comparisonMask):null;
   const width=frame.width,height=frame.height;
   const depths=new Uint16Array(frame.depthMm);
@@ -290,9 +294,9 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
   const dest=image.data;
   const palette=[
     // v3.22.26: saturated blue separated from pale grey/beige map ground.
-    [0.001,33,138,225],[0.05,15,119,217],
-    [0.15,11,92,206],[0.30,15,73,184],
-    [0.60,22,57,153],[1.20,20,39,112]
+    [0.001,183,205,210],[0.01,162,190,199],
+    [0.06,140,174,190],[0.30,101,145,168],
+    [0.60,70,110,137],[1.20,39,77,100]
   ];
   const index=(x,y)=>Math.max(0,Math.min(height-1,y))*width+
     Math.max(0,Math.min(width-1,x));
@@ -308,13 +312,13 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       const nearest=index(Math.round(u),Math.round(v));
       if(valid&&!valid[nearest])continue;
       // Never fill dry cells merely because bilinear neighbours are wet.
-      if(depths[nearest]<(showShallow?1:20))continue;
+      if(depths[nearest]<wetThreshold*1000)continue;
       const a=depths[index(x0,y0)]/1000;
       const b=depths[index(x0+1,y0)]/1000;
       const c=depths[index(x0,y0+1)]/1000;
       const d=depths[index(x0+1,y0+1)]/1000;
       const depth=lerp(lerp(a,b,tx),lerp(c,d,tx),ty);
-      if(depth<(showShallow?.001:.020))continue;
+      if(depth<wetThreshold)continue;
       let lo=palette[0],hi=palette[palette.length-1];
       for(let k=1;k<palette.length;k++)
         if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
@@ -322,23 +326,23 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       const rim=1-smooth(.0015,.044,depth);
       const ripples=Math.sin(u*.56+v*.19-clock*.95)*.55+
         Math.sin(u*.26-v*.67+clock*1.15)*.45;
-      const light=Math.max(0,ripples)*7+rim*8;
-      const foam=(contacts?.[nearest]||0)*smooth(.012,.08,depth)*8;
+      const light=Math.max(0,ripples)*(avg?1.8:3.2)+rim*2;
+      const foam=(contacts?.[nearest]||0)*smooth(.012,.08,depth)*2;
       const pos=(y*outWidth+x)*4;
       const shallow=depth<.020;
       let rgb=[lerp(lo[1],hi[1],t)+light+foam,
         lerp(lo[2],hi[2],t)+light+foam,
         lerp(lo[3],hi[3],t)+light+foam*.3];
       let alpha=shallow
-        ?(showShallow?.16*smooth(.001,.020,depth):0)
-        :(.55+.43*smooth(.02,.60,depth))*smooth(.019,.02025,depth);
+        ?(.11+(avg?.17:.10)*smooth(wetThreshold,.020,depth))*smooth(wetThreshold*.65,wetThreshold*1.35,depth)
+        :(.30+.50*smooth(.02,.60,depth));
       // Contrast is a categorical comparison of actual solver depths;
       // highlight never changes the physical depth or water mesh height.
       const cls=contrast?.[nearest]||0;
       if(!shallow&&cls===1){rgb=[47,230,209];alpha=Math.max(alpha,.90);}
       else if(!shallow&&cls===2){rgb=[133,113,244];alpha=Math.max(alpha,.90);}
       else if(cls===3){rgb=[240,171,73];alpha=Math.max(alpha,.30);}
-      if(shallow&&showShallow)rgb=[139,190,211];
+      // shallow wet ground follows the same low-saturation water palette
       dest[pos]=Math.min(255,rgb[0]);
       dest[pos+1]=Math.min(255,rgb[1]);
       dest[pos+2]=Math.min(255,rgb[2]);
@@ -410,27 +414,27 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'out vec4 fragColor;',
           'void main(){',
           'float depth=max(v_meta.z,0.0);',
-          'vec3 water=vec3(0.10,0.48,0.84);',
-          'water=mix(water,vec3(0.06,0.39,0.81),smoothstep(0.001,0.05,depth));',
-          'water=mix(water,vec3(0.04,0.31,0.72),smoothstep(0.05,0.15,depth));',
-          'water=mix(water,vec3(0.06,0.26,0.66),smoothstep(0.15,0.30,depth));',
-          'water=mix(water,vec3(0.08,0.19,0.55),smoothstep(0.30,0.60,depth));',
-          'water=mix(water,vec3(0.06,0.12,0.42),smoothstep(0.60,1.20,depth));',
+          'vec3 water=vec3(0.72,0.80,0.82);',
+          'water=mix(water,vec3(0.66,0.77,0.80),smoothstep(0.001,0.05,depth));',
+          'water=mix(water,vec3(0.55,0.69,0.76),smoothstep(0.05,0.15,depth));',
+          'water=mix(water,vec3(0.40,0.57,0.67),smoothstep(0.15,0.30,depth));',
+          'water=mix(water,vec3(0.28,0.43,0.53),smoothstep(0.30,0.60,depth));',
+          'water=mix(water,vec3(0.15,0.29,0.39),smoothstep(0.60,1.20,depth));',
           'float deep=smoothstep(0.04,0.85,depth);',
           'float ripple=sin(v_meta.x*1.15+v_meta.y*0.35-u_time*1.8)*0.52+',
           '  sin(v_meta.y*0.62-v_meta.x*0.46+u_time*1.3)*0.32+',
           '  sin((v_meta.x+v_meta.y)*0.22-u_time*0.8)*0.16;',
           'float glint=pow(max(0.0,0.5+0.35*ripple),7.0);',
-          'water=mix(water,vec3(0.55,0.83,1.0),glint*(0.04+0.05*deep));',
+          'water=mix(water,vec3(0.77,0.86,0.89),glint*(0.04+0.05*deep));',
           'float contactFoam=clamp(v_contact*0.22*(0.55+0.45*abs(ripple)),0.0,0.22);',
-          'water=mix(water,vec3(0.86,0.98,1.0),contactFoam);',
-          'if(v_contrast>1.5)water=vec3(0.52,0.44,0.96);',
-          'else if(v_contrast>0.5)water=vec3(0.18,0.90,0.82);',
-          'float threshold=u_shallow>0.5?0.0015:0.020;',
+          'water=mix(water,vec3(0.82,0.89,0.90),contactFoam);',
+          '// comparison coloring kept separate from main water material',
+          '// cyan/purple comparison overlay suppressed',
+          'float threshold=0.0015;',
           'float edge=smoothstep(threshold-0.001,threshold+0.00025,depth);',
           'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
-          'if(depth<0.020){water=vec3(0.54,0.75,0.83);alpha=0.16*edge;}',
-          'if(v_contrast>0.5&&depth>=0.020)alpha=max(alpha,0.90*edge);',
+          'if(depth<0.020){water=vec3(0.57,0.69,0.74);alpha=(0.13+0.15*smoothstep(0.002,0.02,depth))*edge;}',
+          '// no contrast-driven alpha',
           'if(v_meta.w>0.5){water*=0.86;alpha*=0.94;}',
           'fragColor=vec4(water,alpha);',
           '}'
@@ -3780,8 +3784,8 @@ export function createLocalFloodUI({
     }
     const pixels=new Uint8ClampedArray(data.pixels);
     if(isolatedSelection&&volumetricWater?.ready&&data.depthMm){
-      volumetricWater.showShallow=showShallowWater;
-      volumetricWater.showContrast=showStormContrast&&displayMode==='year';
+      volumetricWater.showShallow=true;
+      volumetricWater.showContrast=false;
       volumetricWater.updateFrame(data,applyingYearFrame);
     }
     if(!lowResWater||!lowResWaterContext)return;
@@ -3797,7 +3801,7 @@ export function createLocalFloodUI({
     const nextFrame=document.createElement('canvas');
     nextFrame.width=outWidth;nextFrame.height=outHeight;
     const nc=nextFrame.getContext('2d');
-    if(!data.depthMm||!renderSoftWaterCanvas(nc,data,outWidth,outHeight,{showShallow:showShallowWater,showContrast:showStormContrast&&displayMode==='year'})){
+    if(!data.depthMm||!renderSoftWaterCanvas(nc,data,outWidth,outHeight,{showShallow:true,showContrast:false,scenario:rainPreset})){
       lowResWaterContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
       nc.imageSmoothingEnabled=true;nc.imageSmoothingQuality='high';
       nc.drawImage(lowResWater,0,0,outWidth,outHeight);
