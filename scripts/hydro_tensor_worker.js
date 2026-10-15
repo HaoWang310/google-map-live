@@ -28,6 +28,7 @@ function solve(data){
   const primaryX=new Float32Array(n),primaryY=new Float32Array(n);
   const crossCos4=new Float32Array(n),crossSin4=new Float32Array(n);
   const confidence=new Float32Array(n),suitability=new Float32Array(n);
+  const crossSuitability=new Float32Array(n);
   const drainageRank=new Float32Array(n),avoidMask=new Float32Array(n);
   const floodProximity=new Float32Array(n),validMask=new Uint8Array(n);
   const cos2=new Float32Array(n),sin2=new Float32Array(n);
@@ -171,6 +172,7 @@ function solve(data){
     // sloped dry land allow balanced orthogonal urban layout.
     const slope=Math.hypot(slopeX[i],slopeY[i]);
     const crossAllowed=cross*clamp(1-slope/.12,0,1)*suitability[i];
+    crossSuitability[i]=crossAllowed;
     const minor=.06+.36*crossAllowed;
     const major=minor+.1+.72*confidence[i];
     tensorXX[i]=minor+(major-minor)*ux*ux;
@@ -184,7 +186,7 @@ function solve(data){
     dataSource:'OS Terrain 50 DEM / terrain drainage / rainfall scenario',
     fields:{tensorXX,tensorXY,tensorYY,primaryX,primaryY,
       crossCos4,crossSin4,confidence,suitability,
-      drainageRank,avoidMask,floodProximity,validMask,
+      drainageRank,avoidMask,floodProximity,crossSuitability,validMask,
       slopeX,slopeY}};
   return out;
 }
