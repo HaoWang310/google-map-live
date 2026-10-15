@@ -195,7 +195,9 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
       const extent=Math.max(1,Math.floor(stride*.55));
       for(let dy=0;dy<=extent;dy++)for(let dx=0;dx<=extent;dx++){
         const px=Math.min(cols-2,x+dx),py=Math.min(rows-2,y+dy),idx=py*cols+px;
-        if(strength[idx]<6||!validAt(px+.5,py+.5))continue;
+        // DEM downhill potential remains eligible at 2026 even when
+        // the hydraulic solver has zero water. Rendering stays subdued.
+        if(!validAt(px+.5,py+.5))continue;
         const catchment=terrainGuide?.catchment[idx]??encodedCatchment(idx);
         const wet=Math.max(strength[idx]/255,(modeledDepthMm?.[idx]||0)/80);
         const slope=Math.min(1,(terrainGuide?.slope[idx]||0)*28);
@@ -455,8 +457,15 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     // along rainwater convergence / DEM gradient direction.
     for(let i=0;i<n;i++){
       if(!terrainGuide?.mask[i])continue;
-      const u=terrainGuide.dirX[i],v=terrainGuide.dirY[i];
-      const catchment=terrainGuide.catchment[i],wet=hydraulicActivity(i);
+      const wet=hydraulicActivity(i);
+      const hydX=field.vx[i]/127,hydY=field.vy[i]/127;
+      const actual=Math.hypot(hydX,hydY)>.1&&wet>.015;
+      const mixing=actual?Math.min(.94,.72+.22*wet):0;
+      const gx=terrainGuide.dirX[i]*(1-mixing)+hydX*mixing;
+      const gy=terrainGuide.dirY[i]*(1-mixing)+hydY*mixing;
+      const length=Math.hypot(gx,gy)||1;
+      const u=gx/length,v=gy/length;
+      const catchment=terrainGuide.catchment[i];
       const primary=.25+.55*Math.sqrt(catchment)+.20*wet;
       const minor=.06+.12*(1-catchment);
       tensorXX[i]=minor+(primary-minor)*u*u;
