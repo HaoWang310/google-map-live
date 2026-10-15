@@ -1,4 +1,4 @@
-/* London Map · v3.22.45-hydro-tensor-dynamic.
+/* London Map · v3.22.46-tensor-base-wet.
    Hydro tensor only: OS Terrain 50 DEM, contributing-area drainage,
    modeled 2026-2100 depth/head-gradient and real OSM building barriers.
    The symmetric 2x2 tensor is hydrological ORIENTATION, not measured velocity,
@@ -34,6 +34,11 @@ function solve(data){
   const demRadiusY=Math.max(1,Math.ceil(demSupportMeters/dy));
   const tensorXX=new Float32Array(n),tensorXY=new Float32Array(n),tensorYY=new Float32Array(n);
   const primaryX=new Float32Array(n),primaryY=new Float32Array(n);
+  // A distinct terrain/catchment orientation persists even when depth=0.
+  // These are only derived from measured DEM gradients, never generated
+  // arbitrarily on unsupported perfectly flat areas.
+  const basePrimaryX=new Float32Array(n),basePrimaryY=new Float32Array(n);
+  const baseConfidence=new Float32Array(n),baseIntensity=new Float32Array(n);
   const crossCos4=new Float32Array(n),crossSin4=new Float32Array(n);
   const confidence=new Float32Array(n),suitability=new Float32Array(n);
   const crossSuitability=new Float32Array(n);
@@ -73,6 +78,59 @@ function solve(data){
       slopeX[i]=(terrain[right]-terrain[left])/((right-left)*dx);
     if(top!==bottom&&valid(top)&&valid(bottom))
       slopeY[i]=(terrain[bottom]-terrain[top])/((bottom-top)/w*dy);
+  }
+  // Valid topographic gradient evidence underpins an always-visible BASE
+  // tensor layer. Accumulation ranks strengthen coherence but never invent
+  // an absolute direction where no downhill information exists.
+  for(let i=0;i<n;i++)if(validMask[i]){
+    const gx=slopeX[i],gy=slopeY[i],steep=Math.hypot(gx,gy);
+    if(steep>1e-6){
+      basePrimaryX[i]=-gx/steep;basePrimaryY[i]=-gy/steep;
+      baseConfidence[i]=clamp(.26+.74*steep/(steep+.012),0,1);
+      baseIntensity[i]=clamp(.30+.44*Math.sqrt(drainageRank[i])+
+        .26*baseConfidence[i],0,1);
+    }
+  }
+  // Propagate an observed local DEM orientation only across adjacent valid
+  // cells and no more than 50m. This bridges building-edge derivative gaps
+  // without treating interpolated guidance as independent high-res DEM data.
+  const baseRadius=Math.max(0,Math.min(4,Math.floor(50/Math.max(dx,dy))));
+  if(baseRadius>0){
+    const nextX=new Float32Array(n),nextY=new Float32Array(n),
+      nextC=new Float32Array(n);
+    for(let pass=0;pass<baseRadius;pass++){
+      nextX.set(basePrimaryX);nextY.set(basePrimaryY);
+      nextC.set(baseConfidence);
+      let updated=0;
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+        const i=y*w+x;
+        if(!validMask[i]||baseConfidence[i]>.0001)continue;
+        let ax=0,ay=0,weight=0;
+        const neighbors=[x>0?i-1:-1,x+1<w?i+1:-1,
+          y>0?i-w:-1,y+1<h?i+w:-1];
+        for(const j of neighbors){
+          if(j<0||!validMask[j]||baseConfidence[j]<=.05)continue;
+          const strength=baseConfidence[j];
+          ax+=basePrimaryX[j]*strength;
+          ay+=basePrimaryY[j]*strength;
+          weight+=strength;
+        }
+        const magnitude=Math.hypot(ax,ay);
+        if(weight>.15&&magnitude/weight>.40){
+          nextX[i]=ax/magnitude;nextY[i]=ay/magnitude;
+          nextC[i]=Math.min(.6,weight/4)*Math.pow(.72,pass+1);
+          updated++;
+        }
+      }
+      if(!updated)break;
+      basePrimaryX.set(nextX);basePrimaryY.set(nextY);
+      baseConfidence.set(nextC);
+    }
+    for(let i=0;i<n;i++)if(validMask[i]&&baseConfidence[i]>.02&&
+      baseIntensity[i]===0){
+      baseIntensity[i]=clamp(.21+.42*Math.sqrt(drainageRank[i])+
+        .20*baseConfidence[i],0,1);
+    }
   }
   // Precompute flood avoidance PROXIMITY by a bounded, masked diffusion
   // in native cells, not by creating spurious high-resolution sample points.
@@ -276,7 +334,8 @@ function solve(data){
       drainageRank,avoidMask,floodProximity,crossSuitability,validMask,
       slopeX,slopeY,corridorRank,corridorAxisX,corridorAxisY,
       corridorDistance,trunkMask,secondaryX,secondaryY,
-      rainfallInfluence,hydroIntensity,floodConstraint}};
+      rainfallInfluence,hydroIntensity,floodConstraint,
+      basePrimaryX,basePrimaryY,baseConfidence,baseIntensity}};
   return out;
 }
 self.onmessage=event=>{
