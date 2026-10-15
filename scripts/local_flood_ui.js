@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.34-apple-ui';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.35-water-smooth';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -332,7 +332,8 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       // produce checkerboard holes. Hard nearest-cell footprint is kept.
       const wetMean=(w00*wa*a+w10*wb*b+w01*wc*c+w11*wd*d)/
         Math.max(0.000001,occupancy);
-      const depth=0.65*depths[nearest]/1000+0.35*wetMean;
+      // Render-only blend: reduce visible terracing without inventing flood depth.
+      const depth=0.30*depths[nearest]/1000+0.70*wetMean;
       let lo=palette[0],hi=palette[palette.length-1];
       for(let k=1;k<palette.length;k++)
         if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
@@ -352,7 +353,9 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
         :(.51+.29*smooth(.020,.60,depth));
       // Smooth only visual alpha at wet-dry edges, never extend into a
       // dry/invalid physical solver cell or alter the counted flooded area.
-      alpha*=.52+.48*smooth(.15,.95,occupancy);
+      // Anti-aliased interior shoreline: the nearest solver cell MUST be wet,
+      // so no extra area appears in buildings or outside the parcel.
+      alpha*=smooth(.42,.94,occupancy);
       // Contrast is a categorical comparison of actual solver depths;
       // highlight never changes the physical depth or water mesh height.
       const cls=contrast?.[nearest]||0;
@@ -450,11 +453,11 @@ function createFloodVolumeLayer(maplibregl,bounds){
           '// comparison coloring kept separate from main water material',
           '// cyan/purple comparison overlay suppressed',
           'float threshold=u_shallow>0.5?0.001:0.020;',
-          'float edge=smoothstep(threshold-0.0003,threshold+0.0013,depth);',
+          'float edge=smoothstep(threshold-0.0012,threshold+0.0035,depth);',
           'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
           'if(depth<0.020){alpha=(0.34+0.18*smoothstep(0.001,0.02,depth))*edge;}',
           '// no contrast-driven alpha',
-          'if(v_meta.w>0.5){water*=0.86;alpha*=0.94;}',
+          'if(v_meta.w>0.5){water*=0.96;alpha*=0.82;}',
           'fragColor=vec4(water,alpha);',
           '}'
         ].join('\n');
@@ -555,7 +558,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
       // display mesh uses contour interpolation between measured solver cells.
       // This avoids square steps along flooded edges and does NOT add water to
       // the worker grid or alter collision/hydrology statistics.
-      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/36000)));
+      const stride=Math.max(1,Math.ceil(Math.sqrt(widths*rows/72000)));
       const meshCols=Math.ceil(widths/stride),meshRows=Math.ceil(rows/stride);
       const sampled=new Float32Array(meshCols*meshRows);
       const foam=new Float32Array(meshCols*meshRows);
@@ -590,23 +593,27 @@ function createFloodVolumeLayer(maplibregl,bounds){
         this.displayDepth[i]+=Math.max(-0.06,Math.min(0.06,(sampled[i]-this.displayDepth[i])*.28));
       }
       sampled.set(this.displayDepth);
-      // A narrow display-only low-pass removes harsh adjacent mesh terraces;
-      // zero-valued solver cells remain dry, preserving isolated structures.
+      // Two low-pass passes only on display depths. Dry solver cells stay dry.
+      // A nine-tap kernel smooths diagonal corners as well as orthogonal steps.
       const meshSoft=new Float32Array(sampled.length);
-      for(let row=0;row<meshRows;row++)for(let col=0;col<meshCols;col++){
-        const index=row*meshCols+col,value=sampled[index];
-        if(value<=0)continue;
-        let total=value*4,weight=4;
-        for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]]){
-          const x=col+dx,y=row+dy;
-          if(x<0||y<0||x>=meshCols||y>=meshRows)continue;
-          const n=sampled[y*meshCols+x];
-          if(n<=0)continue;
-          total+=n;weight++;
+      for(let pass=0;pass<2;pass++){
+        for(let row=0;row<meshRows;row++)for(let col=0;col<meshCols;col++){
+          const idx=row*meshCols+col,value=sampled[idx];
+          if(value<=0){meshSoft[idx]=0;continue;}
+          let total=value*8,weight=8;
+          for(let oy=-1;oy<=1;oy++)for(let ox=-1;ox<=1;ox++){
+            if(!ox&&!oy)continue;
+            const x=col+ox,y=row+oy;
+            if(x<0||y<0||x>=meshCols||y>=meshRows)continue;
+            const n=sampled[y*meshCols+x];
+            if(n<=0)continue;
+            const w=ox&&oy?1:2;
+            total+=n*w;weight+=w;
+          }
+          meshSoft[idx]=total/weight;
         }
-        meshSoft[index]=total/weight;
+        sampled.set(meshSoft);
       }
-      sampled.set(meshSoft);
       const cutoff=this.showShallow?0.001:0.020; // display cutoff only, solver unchanged
       const metre=this.metreScale;
       const quads=[];
@@ -624,16 +631,36 @@ function createFloodVolumeLayer(maplibregl,bounds){
         makeVertex(b,side,undefined,category);
         makeVertex(c,side,undefined,category);
       };
+      // Up to 2x display mesh tessellation; hard cap avoids costly GPU uploads.
+      const subdivisions=meshCols*meshRows<=30000?2:1;
+      const renderCols=meshCols*subdivisions,renderRows=meshRows*subdivisions;
+      const validCells=data.validMask?new Uint8Array(data.validMask):null;
+      const fieldAt=(field,x,y)=>{
+        const cx=Math.max(0,Math.min(meshCols-1,x));
+        const cy=Math.max(0,Math.min(meshRows-1,y));
+        const x0=Math.floor(cx),y0=Math.floor(cy);
+        const x1=Math.min(meshCols-1,x0+1),y1=Math.min(meshRows-1,y0+1);
+        const tx=cx-x0,ty=cy-y0;
+        const top=field[y0*meshCols+x0]*(1-tx)+field[y0*meshCols+x1]*tx;
+        const bottom=field[y1*meshCols+x0]*(1-tx)+field[y1*meshCols+x1]*tx;
+        return top*(1-ty)+bottom*ty;
+      };
       const physicalNode=(col,row)=>{
-        const valid=col>=0&&row>=0&&col<meshCols&&row<meshRows;
-        const idx=row*meshCols+col;
-        const u=Math.max(0,Math.min(widths,(col+.5)*stride));
-        const v=Math.max(0,Math.min(rows,(row+.5)*stride));
+        const within=col>=0&&row>=0&&col<renderCols&&row<renderRows;
+        const gx=col/subdivisions,gy=row/subdivisions;
+        const u=Math.max(0,Math.min(widths,(gx+.5)*stride));
+        const v=Math.max(0,Math.min(rows,(gy+.5)*stride));
+        const nativeX=Math.max(0,Math.min(widths-1,Math.floor(u)));
+        const nativeY=Math.max(0,Math.min(rows-1,Math.floor(v)));
+        // Keep the exact native solver obstacle/study-area mask at subcell nodes.
+        const exposed=within&&(!validCells||validCells[nativeY*widths+nativeX]!==0);
+        const colIndex=Math.max(0,Math.min(meshCols-1,Math.round(gx)));
+        const rowIndex=Math.max(0,Math.min(meshRows-1,Math.round(gy)));
         return {
           x:nw.x+u*dx,y:nw.y+v*dy,u,v,
-          d:valid?sampled[idx]:0,
-          foam:valid?foam[idx]*.45:0,
-          category:valid?categories[idx]:0,
+          d:exposed?fieldAt(sampled,gx,gy):0,
+          foam:exposed?fieldAt(foam,gx,gy)*.45:0,
+          category:exposed?categories[rowIndex*meshCols+colIndex]:0,
           contour:false
         };
       };
@@ -669,16 +696,16 @@ function createFloodVolumeLayer(maplibregl,bounds){
           const a=poly[k],b=poly[(k+1)%poly.length];
           if(!a.contour||!b.contour)continue;
           // Shorelines are thin softened lips, not deep rectangular walls.
-          const za=Math.max(cutoff*metre,visualHeight(a.d)-.027*metre);
-          const zb=Math.max(cutoff*metre,visualHeight(b.d)-.027*metre);
+          const za=Math.max(cutoff*metre,visualHeight(a.d)-.009*metre);
+          const zb=Math.max(cutoff*metre,visualHeight(b.d)-.009*metre);
           makeVertex(a,1);makeVertex(b,1);
           makeVertex(b,1,zb);
           makeVertex(a,1);makeVertex(b,1,zb);
           makeVertex(a,1,za);
         }
       };
-      for(let row=-1;row<meshRows;row++){
-        for(let col=-1;col<meshCols;col++){
+      for(let row=-1;row<renderRows;row++){
+        for(let col=-1;col<renderCols;col++){
           const a=physicalNode(col,row),b=physicalNode(col+1,row);
           const c=physicalNode(col+1,row+1),d=physicalNode(col,row+1);
           const n=[a,b,c,d];
@@ -2211,7 +2238,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.34-apple-ui</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.35-water-smooth</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3443,8 +3470,11 @@ export function createLocalFloodUI({
     removeWaterLayers();
     canvas=document.createElement('canvas');
     canvas.id='localFloodCanvas';
-    waterUpscale=Math.max(1,Math.min(4,
-      Math.floor(1920/Math.max(1,info.cols,info.rows))));
+    // Adaptive 2D super-sampling, capped to keep large sites responsive.
+    const targetSide=Math.floor(2400/Math.max(1,info.cols,info.rows));
+    const pixelBudget=Math.floor(Math.sqrt(4200000/
+      Math.max(1,info.cols*info.rows)));
+    waterUpscale=Math.max(1,Math.min(6,targetSide,pixelBudget));
     canvas.width=info.cols*waterUpscale;
     canvas.height=info.rows*waterUpscale;
     lowResWater=document.createElement('canvas');
