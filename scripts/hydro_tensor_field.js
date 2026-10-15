@@ -129,24 +129,14 @@ export function createHydroTensorRenderer(args){
     return fromMerc(renderGeo.nw[0]+p.x*renderGeo.dx,renderGeo.nw[1]-p.y*renderGeo.dy);
   }
   function viewOptions(){
-    const g=result.grid;
-    let metersPerPixel=(2*Math.PI*R*g.groundScale)/(512*2**(map.getZoom?.()??15));
-    let viewRect=[0,0,result.cols,result.rows];
-    try{
-      if(map.project){
-        const a=map.project(fromMerc(g.left,g.top)),b=map.project(fromMerc(g.left+g.cellProjectedM,g.top));
-        const pixels=Math.hypot(b.x-a.x,b.y-a.y);
-        if(pixels>.001)metersPerPixel=result.cellX/pixels;
-      }
-      const bounds=map.getBounds?.();
-      if(bounds){
-        const nw=toMerc([bounds.getWest(),bounds.getNorth()]),se=toMerc([bounds.getEast(),bounds.getSouth()]);
-        const pad=12;
-        viewRect=[(nw[0]-g.left)/g.cellProjectedM-pad,(g.top-nw[1])/g.cellProjectedM-pad,
-          (se[0]-g.left)/g.cellProjectedM+pad,(g.top-se[1])/g.cellProjectedM+pad];
-      }
-    }catch{/* An unloaded viewport uses the complete known source grid. */}
-    return {metersPerPixel,viewRect};
+    // Geometry covers the ENTIRE selected site. A camera pan, zoom, pitch,
+    // right-click rotation or resize must never rerun expensive integration.
+    // The original native grid and slider parameters own its stable scale.
+    if(!result)return {metersPerPixel:1,viewRect:[0,0,1,1]};
+    return {
+      metersPerPixel:clamp(result.cellX/12,.65,1.8),
+      viewRect:[0,0,result.cols,result.rows]
+    };
   }
   function installDirectionalPreview(computed){
     if(!computed?.fields||features.length||!enabled)return false;
@@ -351,15 +341,8 @@ export function createHydroTensorRenderer(args){
     status((scenario?.year??2026)+' 年 · 更新真实双方向流线，保留当前画面…');
     pumpGeometry();
   }
-  const onViewportChanged=()=>{
-    if(!enabled||!result||disposed)return;
-    const view=viewOptions(),key=JSON.stringify([Math.round(Math.log2(view.metersPerPixel)*4),...view.viewRect.map(v=>Math.round(v/8))]);
-    if(key===lastViewKey)return;lastViewKey=key;
-    if(geometryTimer)clearTimeout(geometryTimer);
-    geometryTimer=setTimeout(()=>{geometryTimer=0;if(enabled&&result&&!disposed)queueGeometry()},100);
-  };
-  map.on?.('moveend',onViewportChanged);
-  map.on?.('resize',onViewportChanged);
+  // Static parcel geometry is camera-independent. MapLibre reprojects existing
+  // GeoJSON on drag/rotate/pitch/zoom; there is no geometry Worker on moveend.
   function applyStyle(){
     const present=settings.mode==='presentation';
     for(const [id,show] of [[lineLayerId,settings.showFilaments],
@@ -466,7 +449,7 @@ export function createHydroTensorRenderer(args){
   function tick(time){
     if(!enabled){stop();return}
     animation=requestAnimationFrame(tick);
-    if(time-lastAnimationDraw<55)return;
+    if(time-lastAnimationDraw<95)return;
     lastAnimationDraw=time;
     const elapsed=Math.max(0,(time-animationOrigin)/1000);
     const duration=replayGrowthActive?Math.max(850,4300/Math.max(.5,settings.speed||1)):
@@ -554,7 +537,7 @@ export function createHydroTensorRenderer(args){
       controlsGeometryTimer=setTimeout(()=>{
         controlsGeometryTimer=0;
         if(enabled&&result&&!disposed)queueGeometry();
-      },140);
+      },240);
       status('参数预览中 · '+timelineYear+' 年流线重算中…');
     }else if(modeChanged||visibilityChanged)restart();
   }
@@ -702,7 +685,6 @@ export function createHydroTensorRenderer(args){
     if(controlsGeometryTimer)clearTimeout(controlsGeometryTimer);
     if(requestTimer)clearTimeout(requestTimer);
     if(geometryTimer)clearTimeout(geometryTimer);
-    map.off?.('moveend',onViewportChanged);map.off?.('resize',onViewportChanged);
     geometryWorker?.terminate();geometryWorker=null;geometryPending=null;
     worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
     src()?.setData(empty());ribbonSource()?.setData(empty());
