@@ -512,7 +512,9 @@ const SPONGE_ASSUMPTIONS={
 
 function applySpongeInterventions(){
   if(!sim)return;
-  const {cols,rows,cell,inside,obstacle}=sim;
+  // Ground water may flood building bases, but landscaping facilities cannot
+  // silently occupy an existing building footprint.
+  const {cols,rows,cell,inside,buildingFootprint}=sim;
   if(!sim.svCapacity||sim.svCapacity.length!==cols*rows){
     sim.svCapacity=new Float32Array(cols*rows);
     sim.svInfilMmH=new Float32Array(cols*rows);
@@ -543,7 +545,7 @@ function applySpongeInterventions(){
         const x=sim.left+(c+.5)*cell;
         if((x-cx)**2+(y-cy)**2>r2)continue;
         const idx=r*cols+c;
-        if(!inside[idx]||obstacle[idx])continue;
+        if(!inside[idx]||buildingFootprint[idx])continue;
         // Overlapping facilities never stack beyond the single most generous
         // assumption. This avoids double counting infiltration and storage.
         sim.svCapacity[idx]=Math.max(sim.svCapacity[idx],rule.storageM);
