@@ -41,7 +41,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.49-tensor-streamlines',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.51-ground-flood-footprints',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -480,7 +480,7 @@ export function createHydroTensorRenderer(args){
     if(!result)return null;
     const f=result.fields,c=result.context;
     const out={
-      source:'OS Terrain 50 DEM, DEM-derived contributing area, modeled 2026–2100 depth/hydraulic-head direction and building barriers',
+      source:'OS Terrain 50 DEM, DEM-derived contributing area, modeled 2026–2100 depth/hydraulic-head direction; passable building bases',
       tensorSemantics:'hydrological orientation axes (principal/orthogonal), NOT future road lines or true m/s velocity',
       scenarioYear:result.scenario?.year??2026,
       stage:{...result.scenario},crs:'EPSG:4326',localBasis:'east/south in local ground metres',
@@ -550,7 +550,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.50-tensor-site-fix',
+    return {schema:'london-tensor-site-v1',version:'3.22.51-ground-flood-footprints',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
