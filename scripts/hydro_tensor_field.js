@@ -196,8 +196,12 @@ export function createHydroTensorRenderer(args){
       ['primary','secondary']:[settings.direction];
     const stride=clamp(Math.round(12-settings.density*.09),3,12);
     const totalMax=Math.min(520,Math.round(70+settings.density*4.1));
+    // Guarantee both primary and secondary tensor eigen-directions retain
+    // independent drawing budgets in Dual mode.
+    const maxPerBranch=Math.ceil(totalMax/branches.length);
     const newLines=[];
     for(const branch of branches){
+      let branchCount=0;
       const seeds=[];
       for(let y=1;y<rows-1;y+=stride)for(let x=1;x<cols-1;x+=stride){
         let choice=-1,best=-1;
@@ -213,7 +217,7 @@ export function createHydroTensorRenderer(args){
       seeds.sort((a,b)=>b.score-a.score||a.id-b.id);
       const occupied=new Uint8Array(cols*rows);
       for(const seed of seeds){
-        if(newLines.length>=totalMax)break;
+        if(branchCount>=maxPerBranch)break;
         if(occupied[seed.id]||!validAt(seed.x,seed.y,branch))continue;
         const maxSteps=Math.round((16+settings.length*1.2)*(0.7+seed.score*.7));
         const backward=integrate(seed.x,seed.y,branch,-1,Math.round(maxSteps*.48));
@@ -236,6 +240,7 @@ export function createHydroTensorRenderer(args){
           .23*Math.sqrt(acc/points.length),0,1);
         newLines.push({branch,coordinates,distances,total,rank,
           color:branch==='secondary'?'#91a9de':color(rank),index:newLines.length});
+        branchCount++;
         for(let j=0;j<points.length;j+=2){
           const p=points[j],idx=Math.floor(p.y)*cols+Math.floor(p.x);
           if(idx>=0&&idx<occupied.length)occupied[idx]=1;
@@ -580,7 +585,7 @@ export function createHydroTensorRenderer(args){
     }
     if(!enabled){
       stop();src()?.setData(empty());ribbonSource()?.setData(empty());
-    dots()?.setData(empty());
+      dots()?.setData(empty());
       return;
     }
     if(result){buildLines();buildRibbons();restart()}
