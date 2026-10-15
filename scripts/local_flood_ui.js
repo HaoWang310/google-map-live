@@ -1367,6 +1367,7 @@ export function createLocalFloodUI({
     focusThresholdTimer=setTimeout(()=>{
       focusThresholdTimer=null;
       updateFocusAnalysisLayers();
+      syncFocusFloodWaterRendering();
     },130);
   }
 
@@ -4511,7 +4512,13 @@ export function createLocalFloodUI({
     }
     if(changed)publishBuildingScene();
   });
-  for(const id of ['localFloodFocusEA','localFloodFocusDrainage','networkThreshold','networkThresholdInput']){
+  // EA and DEM reference checkboxes are PRESENTATION ONLY. Never dispatch
+  // extra flood simulation frames or mutate its parameters on checkbox clicks.
+  for(const id of ['localFloodFocusEA','localFloodFocusDrainage']){
+    $(id)?.addEventListener('change',()=>scheduleFocusContextRefresh());
+  }
+  // Only the hydrological threshold is a physical solver input.
+  for(const id of ['networkThreshold','networkThresholdInput']){
     $(id)?.addEventListener('change',()=>{
       scheduleFocusContextRefresh();
       simulator?.setParams(currentParams());
