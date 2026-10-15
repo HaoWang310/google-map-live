@@ -782,6 +782,46 @@
       color:#bcbcc2;font-size:9px;line-height:1.5;
     }
 
+
+    /* v3.22.39-hydro-tensor: independent tensor control panel; no solver/global canvas changes. */
+    .site-hydro-ui .site-vector-panel{
+      background:#111113;border:1px solid #39393e;
+      border-radius:16px;padding:13px;
+    }
+    .site-hydro-ui .site-vector-panel .site-hydro-section-title{
+      font-size:10px;letter-spacing:.04em;line-height:1.35;
+    }
+    .site-hydro-ui .site-tensor-caption{
+      font-size:9px;letter-spacing:.055em;
+      color:#92929a;margin:7px 0 9px;
+    }
+    .site-hydro-ui .site-tensor-subtitle{
+      font-size:9px!important;color:#9b9ba3;
+      margin:12px 0 7px;letter-spacing:.10em!important;
+    }
+    .site-hydro-ui .site-tensor-directions{
+      grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;
+      margin:3px 0 12px;
+    }
+    .site-hydro-ui .site-tensor-directions .site-vector-mode{
+      padding:7px 3px;font-size:9px;min-height:36px;
+    }
+    .site-hydro-ui .site-vector-panel .site-vector-param input[type="range"]{
+      accent-color:#ededf0;
+    }
+    .site-hydro-ui .site-vector-panel .site-vector-param{
+      margin-bottom:2px;
+    }
+    .site-hydro-ui .site-vector-panel .site-vector-params{
+      gap:10px;
+    }
+    .site-hydro-ui .site-vector-panel .site-vector-provenance{
+      font-size:9px;line-height:1.65;color:#9898a2;
+    }
+    .site-hydro-ui .site-vector-panel #siteHudVectorStatus{
+      color:#d2d2d7;
+    }
+
 </style>
 </head>
 <body>
@@ -799,7 +839,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.38-catchment-tensor</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.39-hydro-tensor</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -1175,11 +1215,11 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.38-catchment-tensor';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.39-hydro-tensor';
   import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.38-catchment-tensor';
+  const APP_VERSION='3.22.39-hydro-tensor';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
