@@ -1071,11 +1071,22 @@ export function createLocalFloodUI({
     const session={id:++tensorSessionId,index:-1,awaitingYear:null,awaitingToken:null,
       originalYear:futureYear,completed:false,grid:peak.grid,rainfallCase:rainPreset};
     tensorSession=session;
+    lastFlowUpdateAt=0;
     hydroVector?.clear();
     hydroVector?.setEnabled(true);
     hydroVector?.setTimelineYear(2026,{instant:true});
     setSiteHud('siteHudTensorGrowthStatus','正在读取当前场地真实地形与汇水格网…');
     simulator?.requestFlowField();
+    // An unavailable DEM/context must return to the existing rain picture
+    // instead of leaving the user with an indefinitely black tensor scene.
+    tensorStageTimer=setTimeout(()=>{
+      tensorStageTimer=0;
+      if(tensorSession!==session||session.index>=0)return;
+      hydroDisplay.flow=false;stopTensorSequence({restoreRain:true});
+      const box=siteHud('siteHudShowFlow');if(box)box.checked=false;
+      updateHydroLayerVisibility();
+      status('张量场启动超时：未取得匹配的 DEM／汇水格网；雨水模拟已恢复。',true);
+    },15000);
     return true;
   }
 
@@ -3661,7 +3672,10 @@ export function createLocalFloodUI({
         const session=tensorSession;
         if(!sameHydroGrid(data.grid,session.grid))return;
         tensorContext=data.spatialContext;
-        if(session.index<0)advanceTensorStage(session,0);
+        if(session.index<0){
+          if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
+          advanceTensorStage(session,0);
+        }
       },
       onStatus:data=>{
         hydroState=data.state;
@@ -4022,7 +4036,7 @@ export function createLocalFloodUI({
       data.scenarioYear===tensorSession.awaitingYear&&
       data.scenarioToken===tensorSession.awaitingToken&&
       data.annualAreaStage?.rainfallCase===tensorSession.rainfallCase)
-      updateFocusFlowVectors(data);
+      updateFocusFlowVectors({...data,forceVectorRefresh:true});
 
     const nextImpacted=new Set(data.impactedIds||[]);
 
