@@ -1,4 +1,5 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.36-apple-ui';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.37-vector-field';
+import {createHydroVectorRenderer} from './hydro_vector_field.js?v=3.22.37-vector-field';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -832,6 +833,7 @@ export function createLocalFloodUI({
   let isolateViewer=null;
   let isolateViewerElement=null;
   let volumetricWater=null;
+  let hydroVector=null;
   let focusWaterBounds=null;
   let focusSiteSerial=0;
   let focusAppliedThreshold=null;
@@ -1069,6 +1071,8 @@ export function createLocalFloodUI({
   const FOCUS_FLOW_SOURCE='focus-flow-source';
   const FOCUS_FLOW_LAYER='focus-flow-streamlines';
   const FOCUS_FLOW_GLOW='focus-flow-streamlines-glow';
+  const FOCUS_FLOW_PARTICLES='focus-flow-particles';
+  const FOCUS_FLOW_PARTICLE_LAYER='focus-flow-particle-layer';
 
 
   const focusReferenceTileSize=512;
@@ -1674,20 +1678,34 @@ export function createLocalFloodUI({
     if(!viewer)return;
     syncFocusFloodWaterRendering();
     const desired=hydroDisplay.flow?'visible':'none';
-    for(const id of [FOCUS_FLOW_GLOW,FOCUS_FLOW_LAYER]){
-      if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!==desired)
-        viewer.setLayoutProperty(id,'visibility',desired);
-    }
+    hydroVector?.setEnabled(hydroDisplay.flow);
+    // Dark academic scene is applied only while the independent flow layer is on.
+    const ground=hydroDisplay.flow?'#11151b':'#e8e7e2';
+    const green=hydroDisplay.flow?'#192822':'#bfd9b1';
+    const road=hydroDisplay.flow?'#2b323b':'#c4c2bd';
+    for(const [id,property,color] of [
+      ['focus-parcel-ground','fill-color',ground],
+      ['focus-green-ground','fill-color',green],
+      ['focus-road-casing','fill-color',road],
+      ['focus-road-surface','fill-color',hydroDisplay.flow?'#3c4551':['match',['get','kind'],'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff']]
+    ])if(viewer.getLayer(id))viewer.setPaintProperty(id,property,color);
     setFocusPitchMode();
     for(const id of [FOCUS_2D,FOCUS_3D]){
       if(viewer.getLayer(id))viewer.setPaintProperty(id,
         id===FOCUS_3D?'fill-extrusion-color':'fill-color',
-        hydroDisplay.collision?buildingColourExpression():'#ff9f1a');
+        hydroDisplay.flow?'#8b929d':
+          hydroDisplay.collision?buildingColourExpression():'#ff9f1a');
+    }
+    // Drainage is independent reference context; its existing toggle remains
+    // authoritative outside vector view.
+    if(viewer.getLayer(FOCUS_DRAINAGE_LAYER)){
+      const on=hydroDisplay.flow||focusContextSettings().drainage;
+      viewer.setLayoutProperty(FOCUS_DRAINAGE_LAYER,'visibility',on?'visible':'none');
+      viewer.setPaintProperty(FOCUS_DRAINAGE_LAYER,'raster-opacity',
+        hydroDisplay.flow?.30:.52);
     }
     simulator?.setParams(currentParams());
-    const source=viewer.getSource(FOCUS_FLOW_SOURCE);
-    if(!hydroDisplay.flow)source?.setData(spongeCollection([]));
-    else if(prepared)simulator?.requestFlowField();
+    if(hydroDisplay.flow&&prepared)simulator?.requestFlowField();
   }
 
   function focusStyle(details){
@@ -1712,6 +1730,7 @@ export function createLocalFloodUI({
           siteFacilities.map(siteSpongeFeature).filter(Boolean)
         )},
         [FOCUS_FLOW_SOURCE]:{type:'geojson',lineMetrics:true,data:spongeCollection([])},
+        [FOCUS_FLOW_PARTICLES]:{type:'geojson',data:spongeCollection([])},
         [FOCUS_EA_SOURCE]:{
           type:'raster',tiles:[focusContextUrl('ea',analysis.threshold)],
           tileSize:512,minzoom:13,maxzoom:17
@@ -1783,6 +1802,16 @@ export function createLocalFloodUI({
             'line-width':['get','width'],
             'line-opacity':0.91
           }},
+        {id:FOCUS_FLOW_PARTICLE_LAYER,type:'circle',source:FOCUS_FLOW_PARTICLES,
+          layout:{visibility:'none'},
+          paint:{
+            'circle-color':['get','color'],
+            'circle-radius':['get','radius'],
+            'circle-opacity':.82,
+            'circle-blur':.20,
+            'circle-stroke-width':.3,
+            'circle-stroke-color':'#c9ebff'
+          }},
         // The dashed red boundary is a ground-level graphic, not an overlay
         // painted across roofs/walls. Extruded buildings must draw after it
         // for physically correct occlusion from every camera bearing.
@@ -1818,8 +1847,8 @@ export function createLocalFloodUI({
     if(!viewer)return;
     const is3D=viewer.getPitch()>.5;
     for(const [id,v] of [
-      [FOCUS_2D,hydroDisplay.flow?'none':is3D?'none':'visible'],
-      [FOCUS_3D,hydroDisplay.flow?'none':is3D?'visible':'none']
+      [FOCUS_2D,is3D?'none':'visible'],
+      [FOCUS_3D,is3D?'visible':'none']
     ]){
       if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!==v){
         viewer.setLayoutProperty(id,'visibility',v);
@@ -1850,6 +1879,9 @@ export function createLocalFloodUI({
     if(focusThresholdTimer)clearTimeout(focusThresholdTimer);
     focusThresholdTimer=null;
     const viewer=isolateViewer;
+    hydroVector?.dispose();
+    hydroVector=null;
+    delete window.getLondonHydroVectorFieldData;
     isolateViewer=null;
     volumetricWater=null;
     if(viewer){
@@ -2238,7 +2270,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.36-apple-ui</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.37-vector-field</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2337,10 +2369,21 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
       '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
-      '<div class="site-hydro-section"><div class="site-hydro-section-title">04 · 独立向量场</div>',
-      '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox"> 单独查看水文向量场</label>',
-      '<div class="site-hydro-mini">默认关闭。开启后暂时隐藏洪水颜色和3D建筑，仅显示连续流线、道路和灰色建筑基底；关闭后恢复洪水画面。计算数据、年份与受淹统计不变。</div>',
-      '<div class="site-hydro-mini">流线颜色和粗细表示相对流动强度，并非真实测得的 m/s。2026 年零积水时没有流线，请查看较晚年份。</div>',
+      '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · HYDROLOGICAL VECTOR FIELD</div>',
+      '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 显示独立水文向量场</label>',
+      '<div class="site-vector-modes" role="group" aria-label="Vector Field 显示模式"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">Analysis</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">Presentation</button></div>',
+      '<div class="site-vector-params">',
+      '<label class="site-vector-param"><span>Density · 密度<output id="siteHudVectorDensityValue">55</output></span><input id="siteHudVectorDensity" type="range" min="0" max="100" step="1" value="55"></label>',
+      '<label class="site-vector-param"><span>Length · 长度<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
+      '<label class="site-vector-param"><span>Width · 线宽<output id="siteHudVectorWidthValue">1.4</output></span><input id="siteHudVectorWidth" type="range" min="0.5" max="3.5" step="0.1" value="1.4"></label>',
+      '<label class="site-vector-param"><span>Opacity · 透明度<output id="siteHudVectorOpacityValue">0.85</output></span><input id="siteHudVectorOpacity" type="range" min="0.1" max="1" step="0.05" value="0.85"></label>',
+      '<label class="site-vector-param"><span>Glow · 发光<output id="siteHudVectorGlowValue">0.5</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0.5"></label>',
+      '<label class="site-vector-param"><span>Particle Speed · 粒子速度<output id="siteHudVectorSpeedValue">1</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="1"></label>',
+      '<label class="site-vector-param"><span>Growth · 生长速度<output id="siteHudVectorGrowthValue">1</output></span><input id="siteHudVectorGrowth" type="range" min="0.5" max="3" step="0.1" value="1"></label>',
+      '</div>',
+      '<div class="site-vector-scale"><span>LOW</span><div aria-hidden="true"></div><span>HIGH</span></div>',
+      '<div class="site-hydro-mini" id="siteHudVectorStatus">等待计算流场 · 选择情景后运行</div>',
+      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 DEM · 汇水栅格 · 水深坡降 · 建筑遮罩<br>RELATIVE INTENSITY · 非实测 m/s</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -2781,6 +2824,34 @@ export function createLocalFloodUI({
       hydroDisplay[flag]=e.target.checked;
       updateHydroLayerVisibility();
     };
+    const vectorControls=[
+      ['Density','density'],['Length','length'],['Width','width'],
+      ['Opacity','opacity'],['Glow','glow'],['Speed','speed'],
+      ['Growth','growth']
+    ];
+    for(const [name,key] of vectorControls){
+      const slider=siteHud('siteHudVector'+name);
+      const output=siteHud('siteHudVector'+name+'Value');
+      if(!slider)continue;
+      slider.oninput=()=>{
+        if(output)output.textContent=slider.value;
+        if(key==='growth'){
+          // Growth rate scales the duration of presentation reveal, not hydrology.
+          hydroVector?.configure({growth:Number(slider.value)});
+        }else hydroVector?.configure({[key]:Number(slider.value)});
+      };
+    }
+    for(const button of container.querySelectorAll('[data-vector-mode]')){
+      button.onclick=()=>{
+        const mode=button.dataset.vectorMode;
+        for(const item of container.querySelectorAll('[data-vector-mode]')){
+          const active=item.dataset.vectorMode===mode;
+          item.classList.toggle('active',active);
+          item.setAttribute('aria-pressed',String(active));
+        }
+        hydroVector?.configure({mode});
+      };
+    }
     siteHud('siteHudRun').onclick=()=>{
       if(!prepared)return;
       if(longTermMode){
@@ -2834,7 +2905,7 @@ export function createLocalFloodUI({
         volumetricWater.count=0;
         volumetricWater.dirty=true;
       }
-      isolateViewer?.getSource(FOCUS_FLOW_SOURCE)?.setData(spongeCollection([]));
+      hydroVector?.clear();
       // Restore orange buildings (including the base outlines) and cancel
       // the red flooded-building state from the previous prediction.
       hideSelectedBuildings=false;
@@ -2883,6 +2954,16 @@ export function createLocalFloodUI({
       throw error;
     }
     isolateViewer=viewer;
+    hydroVector=createHydroVectorRenderer({
+      map:viewer,sourceId:FOCUS_FLOW_SOURCE,
+      particleSourceId:FOCUS_FLOW_PARTICLES,
+      glowLayerId:FOCUS_FLOW_GLOW,lineLayerId:FOCUS_FLOW_LAYER,
+      particleLayerId:FOCUS_FLOW_PARTICLE_LAYER,
+      getBounds:()=>focusWaterBounds,
+      onStatus:message=>setSiteHud('siteHudVectorStatus',message)
+    });
+    // Typed-array spatial contract for the later Tensor -> Wool -> Parcels stage.
+    window.getLondonHydroVectorFieldData=()=>hydroVector?.exportStructuredData()||null;
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
     lastFlowUpdateAt=0;
@@ -3644,134 +3725,15 @@ export function createLocalFloodUI({
 
 
 
-  // The colour scale expresses relative hydraulic-gradient intensity,
-  // not physical velocity in metres/second (solver is not calibrated).
-  function hydroFlowColour(strength){
-    const stops=[
-      [0,[167,244,255]],[0.20,[117,218,255]],
-      [0.45,[71,171,255]],[0.70,[56,123,246]],
-      [1,[116,91,236]]
-    ];
-    const t=Math.max(0,Math.min(1,strength));
-    let a=stops[0],b=stops[stops.length-1];
-    for(let k=1;k<stops.length;k++){
-      if(t<=stops[k][0]){a=stops[k-1];b=stops[k];break;}
-    }
-    const f=(t-a[0])/Math.max(.00001,b[0]-a[0]);
-    return '#'+a[1].map((v,i)=>
-      Math.round(v+(b[1][i]-v)*f).toString(16).padStart(2,'0')).join('');
-  }
-
-  function buildHydroStreamlines(data){
-    const field=data?.flowField;
-    if(!field||!focusWaterBounds)return spongeCollection([]);
-    const {cols,rows}=field;
-    if(!cols||!rows||cols*rows>70000)return spongeCollection([]);
-    const vx=new Int8Array(field.vx),vy=new Int8Array(field.vy);
-    const intensity=new Uint8Array(field.intensity);
-    if(vx.length!==cols*rows||vy.length!==vx.length||
-       intensity.length!==vx.length)return spongeCollection([]);
-    const nw=mercator(focusWaterBounds[0][0],focusWaterBounds[0][1]);
-    const ne=mercator(focusWaterBounds[1][0],focusWaterBounds[1][1]);
-    const sw=mercator(focusWaterBounds[3][0],focusWaterBounds[3][1]);
-    const cellX=(ne[0]-nw[0])/cols,cellY=(nw[1]-sw[1])/rows;
-    const value=(x,y)=>{
-      if(x<0||y<0||x>=cols||y>=rows)return null;
-      const ix=Math.floor(x),iy=Math.floor(y),index=iy*cols+ix;
-      // A zero-intensity cell means dry, outside the site or a building.
-      // This nearest-cell test prevents paths leaking through buildings.
-      if(intensity[index]<6)return null;
-      const cx=x-.5,cy=y-.5,x0=Math.floor(cx),y0=Math.floor(cy);
-      let dx=0,dy=0,speed=0,total=0;
-      for(let oy=0;oy<=1;oy++)for(let ox=0;ox<=1;ox++){
-        const xx=x0+ox,yy=y0+oy;
-        if(xx<0||yy<0||xx>=cols||yy>=rows)continue;
-        const j=yy*cols+xx;
-        if(intensity[j]<6)continue;
-        const weight=(ox?cx-x0:1-(cx-x0))*
-          (oy?cy-y0:1-(cy-y0));
-        dx+=vx[j]/127*weight;
-        dy+=vy[j]/127*weight;
-        speed+=intensity[j]/255*weight;
-        total+=weight;
-      }
-      const size=Math.hypot(dx,dy);
-      if(total<.04||size<.09)return null;
-      return {dx:dx/size,dy:dy/size,speed:speed/total};
-    };
-    const toLngLat=(point)=>unmercator(
-      nw[0]+point.x*cellX,nw[1]-point.y*cellY
-    );
-    const trace=(sx,sy,sign)=>{
-      const points=[];
-      let x=sx,y=sy;
-      for(let k=0;k<32;k++){
-        const v=value(x,y);
-        if(!v)break;
-        points.push({x,y,speed:v.speed});
-        const step=.62;
-        const halfway=value(x+v.dx*sign*step/2,
-          y+v.dy*sign*step/2)||v;
-        const nx=x+halfway.dx*sign*step;
-        const ny=y+halfway.dy*sign*step;
-        if(nx<0||ny<0||nx>=cols||ny>=rows)break;
-        if(!value(nx,ny))break;
-        x=nx;y=ny;
-      }
-      return points;
-    };
-    const occupied=new Uint8Array(cols*rows);
-    const features=[];
-    const stride=Math.max(2,Math.round(Math.sqrt(cols*rows/460)));
-    let traces=0;
-    for(let row=1;row<rows-1&&traces<440;row+=stride){
-      for(let col=1;col<cols-1&&traces<440;col+=stride){
-        const index=row*cols+col;
-        if(occupied[index]||intensity[index]<6)continue;
-        const seedX=col+.5,seedY=row+.5;
-        const forward=trace(seedX,seedY,1);
-        const backward=trace(seedX,seedY,-1);
-        const points=backward.reverse().slice(0,-1).concat(forward);
-        if(points.length<5)continue;
-        traces++;
-        // Segment colours smoothly follow the underlying intensity.
-        // Break only every four interpolated points for manageable GeoJSON.
-        for(let start=0;start<points.length-1;start+=4){
-          const portion=points.slice(start,Math.min(points.length,start+5));
-          if(portion.length<2)continue;
-          const avg=portion.reduce((sum,p)=>sum+p.speed,0)/portion.length;
-          features.push({
-            type:'Feature',
-            properties:{
-              color:hydroFlowColour(avg),
-              width:Math.max(.85,Math.min(2.4,1+1.35*avg)),
-              relativeIntensity:avg
-            },
-            geometry:{type:'LineString',coordinates:portion.map(toLngLat)}
-          });
-        }
-        // Suppress near-duplicate starting positions, not the path itself.
-        for(let k=0;k<points.length;k+=4){
-          const p=points[k],x=Math.floor(p.x),y=Math.floor(p.y);
-          if(x>=0&&x<cols&&y>=0&&y<rows)occupied[y*cols+x]=1;
-        }
-      }
-    }
-    return spongeCollection(features);
-  }
-
+  // FlowField direction / relative intensity is calculated in the existing
+  // worker from DEM hydraulic head and building obstructions. This adapter
+  // never adjusts rainfall, solver physics or simulated volume.
   function updateFocusFlowVectors(data){
-    if(!isolateViewer||!focusWaterBounds)return;
-    const source=isolateViewer.getSource(FOCUS_FLOW_SOURCE);
-    if(!source)return;
-    if(!hydroDisplay.flow||!data?.flowField){
-      source.setData(spongeCollection([]));
-      return;
-    }
+    if(!hydroDisplay.flow||!hydroVector||!data?.flowField)return;
     const now=performance.now();
-    if(now-lastFlowUpdateAt<130&&data.stats?.timeMin>0)return;
+    if(now-lastFlowUpdateAt<430&&!data.spatialContext)return;
     lastFlowUpdateAt=now;
-    source.setData(buildHydroStreamlines(data));
+    hydroVector.setField(data.flowField,data.spatialContext||null);
   }
 
   function handleFrame(data){
