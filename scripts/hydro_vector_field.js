@@ -7,7 +7,7 @@
 export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,getBounds,onStatus}){
   const empty=()=>({type:'FeatureCollection',features:[]});
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
-  const preset={density:55,length:65,width:1.4,opacity:.85,glow:.5,speed:1,mode:'analysis'};
+  const preset={density:55,length:65,width:1.4,opacity:.85,glow:.5,speed:1,growth:1,mode:'analysis'};
   let config={...preset},enabled=false,field=null,context=null,bounds=null;
   let traces=[],segments=[],lastDraw=0,lastGeometry=0,raf=0,start=0,lastMessage='';
   let progress=1,wasAnimating=false,epoch=0;
@@ -229,7 +229,7 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     if(time-lastDraw<55)return;
     lastDraw=time;
     const elapsed=(time-start)/1000;
-    const fraction=clamp(elapsed/2.6,0,1);
+    const fraction=clamp(elapsed*config.growth/2.6,0,1);
     if(fraction<1||!wasAnimating){
       renderLines(fraction);
       wasAnimating=fraction<1;
@@ -254,6 +254,7 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     next.opacity=clamp(Number(next.opacity)||.1,.1,1);
     next.glow=clamp(Number(next.glow)||0,0,1);
     next.speed=clamp(Number(next.speed)||0,0,3);
+    next.growth=clamp(Number(next.growth)||.5,.5,3);
     next.mode=next.mode==='presentation'?'presentation':'analysis';
     const regenerate=next.density!==config.density||next.length!==config.length||next.width!==config.width;
     const switchMode=next.mode!==config.mode;
@@ -277,7 +278,13 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
       if(Object.values(arrays).every(a=>a.length===n))context=arrays;
     }
     if(!enabled)return;
-    build();restart();
+    build();
+    // A new hydraulic frame must never restart the animation; preserve
+    // its elapsed phase and reveal newly calculated segments immediately.
+    if(config.mode==='presentation'&&raf){
+      const elapsed=(performance.now()-start)/1000;
+      renderLines(clamp(elapsed*config.growth/2.6,0,1));
+    }else restart();
   }
   function setEnabled(on){
     enabled=Boolean(on);
