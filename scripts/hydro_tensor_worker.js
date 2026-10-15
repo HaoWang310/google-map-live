@@ -1,6 +1,6 @@
 /* London Map · v3.22.48-tensor-continuity.
    Hydro tensor only: OS Terrain 50 DEM, contributing-area drainage,
-   modeled 2026-2100 depth/head-gradient and real OSM building barriers.
+   modeled 2026-2100 depth/head-gradient; building ground footprints are passable.
    The symmetric 2x2 tensor is hydrological ORIENTATION, not measured velocity,
    not a designed road centerline, and not higher-resolution DEM information. */
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
@@ -68,7 +68,7 @@ function solve(data){
   const dominantProcess=new Uint8Array(n);
   const coarseRadiusX=Math.max(1,Math.ceil(150/dx)),coarseRadiusY=Math.max(1,Math.ceil(150/dy));
   const waterActive=new Float32Array(n),hydX=new Float32Array(n),hydY=new Float32Array(n);
-  const valid=i=>i>=0&&i<n&&inside[i]!==0&&!barrier[i]&&Number.isFinite(terrain[i]);
+  const valid=i=>i>=0&&i<n&&inside[i]!==0&&Number.isFinite(terrain[i]);
   // Decode the raster's LOG upstream-area encoding to a normalized log rank,
   // never treat codes as rainfall volume or an actual measured drain flow.
   for(let i=0;i<n;i++){
@@ -82,8 +82,8 @@ function solve(data){
       drainageMask[i]=accumulation[i]>=thresholdCode?1:0;
     }
   }
-  // Physical topography exists under buildings; barriers mask water routing,
-  // not the underlying DEM derivative. Do not cross parcel/NoData gaps.
+  // Building bases are passable in this ground-scale orientation model.
+  // Terrain / drainage gradients must still respect parcel / NoData gaps.
   const terrainValid=i=>i>=0&&i<n&&inside[i]!==0&&Number.isFinite(terrain[i]);
   function derivative(x,y,ox,oy,radius,spacing,minSupport=50){
     const i=y*w+x;let lo=0,hi=0;
@@ -299,45 +299,8 @@ function solve(data){
     }
     cos2.set(tmpC);sin2.set(tmpS);evidence.set(tmpE);
   }
-  // Nearest building geometry constrains axes within a 30m band. Its tangent
-  // is a GEOMETRIC constraint, not a measured flow. No tensor is invented
-  // where the data supplied no directional energy.
-  const nearest=new Int32Array(n);nearest.fill(-1);
-  const distance2=new Float32Array(n);distance2.fill(Infinity);
-  let obstacleCells=0;
-  for(let i=0;i<n;i++)if(barrier[i]){nearest[i]=i;distance2[i]=0;obstacleCells++}
-  const sweep=(reverse)=>{
-    for(let q=0;q<n;q++){
-      const i=reverse?n-1-q:q,x=i%w,y=(i/w)|0;
-      for(const [ox,oy] of reverse?[[1,0],[0,1],[1,1],[-1,1]]:[[-1,0],[0,-1],[-1,-1],[1,-1]]){
-        const xx=x+ox,yy=y+oy;if(xx<0||yy<0||xx>=w||yy>=h)continue;
-        const seed=nearest[yy*w+xx];if(seed<0)continue;
-        const sx=seed%w,sy=(seed/w)|0,d=(x-sx)**2*dx*dx+(y-sy)**2*dy*dy;
-        if(d<distance2[i]){distance2[i]=d;nearest[i]=seed}
-      }
-    }
-  };
-  if(obstacleCells){sweep(false);sweep(true);sweep(false);sweep(true)}
-  for(let i=0;i<n;i++){
-    if(!validMask[i]||evidence[i]<=EPS||nearest[i]<0)continue;
-    const distance=Math.sqrt(distance2[i]);
-    const near=Math.max(dx,dy)*1.01,band=Math.max(30,near+1);
-    if(distance>=band||distance<EPS)continue;
-    const strength=distance<=near?1:((band-distance)/(band-near))**2;
-    obstacleConstraint[i]=strength;
-    const x=i%w,y=(i/w)|0,seed=nearest[i];
-    const nx=(x-seed%w)*dx/distance,ny=(y-((seed/w)|0))*dy/distance;
-    const xx=(evidence[i]+cos2[i])/2,xy=sin2[i]/2,yy=(evidence[i]-cos2[i])/2;
-    const a=1-strength*nx*nx,b=-strength*nx*ny,c=1-strength*ny*ny;
-    let px=a*a*xx+2*a*b*xy+b*b*yy,
-      py=b*b*xx+2*b*c*xy+c*c*yy,
-      pxy=a*b*xx+(a*c+b*b)*xy+b*c*yy;
-    const blocked=Math.max(0,evidence[i]-px-py);
-    // Redistribute blocked normal guidance to the wall tangent while
-    // preserving PSD and trace; this does not move any modeled floodwater.
-    px+=blocked*ny*ny;py+=blocked*nx*nx;pxy-=blocked*nx*ny;
-    cos2[i]=px-py;sin2[i]=2*pxy;evidence[i]=px+py;
-  }
+  // Buildings are NOT wall barriers; do not bias axes toward footprint edges.
+  const obstacleCells=0;
   for(let i=0;i<n;i++){
     if(!validMask[i])continue;
     const trace=evidence[i],gap=Math.min(trace,Math.hypot(cos2[i],sin2[i]));
@@ -404,13 +367,13 @@ function solve(data){
     drainageThresholdKm2:threshold,
     drainageDirectionMethod:'local accumulation-ridge PCA; undirected; not D8 connectivity',
     diagnostics:{counts,drainageD8Available:false,groundMetreBasis:true,
-      obstacleCells,continuityRadiusM:continuityRadius,regularizationIterations:smooth>0?iterations:0,
+      obstacleCells,buildingFootprintsPassable:true,continuityRadiusM:continuityRadius,regularizationIterations:smooth>0?iterations:0,
       hierarchy:'regional DEM (150m support), local DEM (50m support), accumulation ridge, local depth head',
       yearUsedOnlyForMetadata:true,
       hydraulicDepthAvailable:data.depthAvailable!==false},
     demNativeResolutionM:demSupportMeters,
     terrainGradientSupportM:[demRadiusX*dx,demRadiusY*dy],
-    dataSource:'OS Terrain 50 DEM (>=50m gradient support), contributing area, dynamic modeled rainfall/depth and building mask',
+    dataSource:'OS Terrain 50 DEM (>=50m gradient support), contributing area, dynamic modeled rainfall/depth; building bases passable',
     fieldSemantics:'symmetric hydrological tensor; relative intensity; no measured speed, no roads',
     fields:{tensorXX,tensorXY,tensorYY,primaryX,primaryY,
       crossCos4,crossSin4,confidence,suitability,
