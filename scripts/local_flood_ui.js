@@ -1900,6 +1900,7 @@ export function createLocalFloodUI({
       ['focus-road-surface','fill-color',hydroDisplay.flow?'#000000':['match',['get','kind'],'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff']]
     ])if(viewer.getLayer(id))viewer.setPaintProperty(id,property,color);
     setFocusPitchMode();
+    syncFocusFootprintVisibility(); // only when mode state changes
     for(const id of [FOCUS_2D,FOCUS_3D]){
       if(viewer.getLayer(id))viewer.setPaintProperty(id,
         id===FOCUS_3D?'fill-extrusion-color':'fill-color',
@@ -2080,8 +2081,9 @@ export function createLocalFloodUI({
         viewer.setLayoutProperty(id,'visibility',v);
       }
     }
+    // Footprint colors and visibility do not depend on camera pitch.
+    // Avoid forcing paint-style updates on every rotation frame.
     syncFocusFloodWaterRendering();
-    syncFocusFootprintVisibility();
   }
 
   function installFocusFloodVolume(viewer){
@@ -3209,6 +3211,7 @@ export function createLocalFloodUI({
       // the initial independent 3D camera or basic building display.
       installFocusFloodVolume(viewer);
       setFocusPitchMode();
+      syncFocusFootprintVisibility();
       updateFocusAnalysisLayers();
       // Controls can be toggled before the map style finishes loading.
       // Rehydrate the vector layers once their GeoJSON sources are ready.
