@@ -1,7 +1,7 @@
-/* v3.22.43-tensor-ribbon · Continuous tensor filaments and drainage ribbon on native cells.
-   Separate worker computes the design tensor. Rendering interpolates its
-   eigenvectors only for display; never invents finer DEM observations.
-   Animation particle speeds denote only visual travel along LINE fields. */
+/* v3.22.45-hydro-tensor-dynamic · Hydrological 2x2 tensor field, not a road proposal.
+   The original DEM and flood solver remain unchanged. Visualization is
+   gradually revealed over the 2026–2100 design-scenario timeline;
+   particles illustrate eigenfield axes and do not represent measured speed. */
 export function createHydroTensorRenderer(args){
   const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
     ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus}=args;
@@ -11,7 +11,7 @@ export function createHydroTensorRenderer(args){
     terrainWeight:35,drainageWeight:45,avoidance:70,
     smoothness:60,crossStrength:60,
     density:55,length:65,width:1.4,opacity:.85,glow:.5,
-    speed:1,growth:1,mode:'analysis',direction:'dual',
+    speed:1,growth:1,mode:'presentation',direction:'dual',
     showRibbon:true,showFilaments:true,ribbonConcentration:68,
     ribbonWidth:42,trunkEmphasis:75,curvatureSmoothing:65
   };
@@ -22,6 +22,8 @@ export function createHydroTensorRenderer(args){
   let pendingFrame=null,lines=[],features=[],animation=0,animationOrigin=0;
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[];
   let lastAnimationDraw=0,renderedFraction=0,reported='';
+  let yearGrowth=0.22,growthFrom=0.22,growthTo=0.22,growthChangeAt=0;
+  let lastRenderedYear=2026;
   const R=6378137;
   const toMerc=([lng,lat])=>[R*lng*Math.PI/180,R*Math.log(Math.tan(Math.PI/4+clamp(lat,-85,85)*Math.PI/180/2))];
   const fromMerc=(x,y)=>[x/R*180/Math.PI,(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI];
@@ -32,7 +34,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.43-tensor-ribbon',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.45-hydro-tensor-dynamic',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -52,14 +54,28 @@ export function createHydroTensorRenderer(args){
         result={...data,fields};
         lastSubmitted=performance.now();
         buildLines();buildRibbons();applyStyle();
-        // Do not restart the growth animation for each arriving hydrological frame.
-        if(settings.mode==='presentation'&&animation){
-          drawLines(clamp((performance.now()-animationOrigin)/2800*
-            settings.growth,0,1));
-        }else restart();
-        status('Tensor '+scenario.year+' · '+lines.length+
-          ' 张量细线 / '+ribbons.length+' 主汇水线束 · DEM '+
-          data.demNativeResolutionM+' m · 非实测流速');
+        const newTarget=clamp(.20+.80*(scenario.year-2026)/74,.20,1);
+        const now=performance.now();
+        if(!animation||settings.mode!=='presentation'){
+          yearGrowth=newTarget;
+          growthFrom=newTarget;
+        }else{
+          // Preserve current reveal during year changes; never restart at 0.
+          growthFrom=yearGrowth;
+        }
+        growthTo=newTarget;
+        growthChangeAt=now;
+        lastRenderedYear=scenario.year;
+        if(settings.mode==='presentation'){
+          if(!animation)restart();
+          else drawLines(yearGrowth);
+        }else{
+          drawLines(newTarget);
+          dots()?.setData(empty());
+        }
+        status(scenario.year+' 年 · 水文张量场 '+lines.length+
+          ' 条主次方向线 / '+ribbons.length+' 条汇水线束 · DEM '+
+          data.demNativeResolutionM+' m · 相对强度（非水速）');
       };
       return true;
     }catch(error){
@@ -123,7 +139,7 @@ export function createHydroTensorRenderer(args){
       // A line FIELD has no inherent positive direction: select the locally
       // continuous eigenvector sign relative to the last integration step.
       if(previous&&dx*previous.x+dy*previous.y<0){dx=-dx;dy=-dy}
-      const axisStrength=f.confidence[k];
+      const axisStrength=f.hydroIntensity[k];
       sumX+=dx*w;sumY+=dy*w;count+=w;
       strength+=axisStrength*w;acc+=f.drainageRank[k]*w;
       suit+=f.suitability[k]*w;
@@ -188,8 +204,8 @@ export function createHydroTensorRenderer(args){
         for(let oy=0;oy<Math.max(1,stride*.5);oy+=1)for(let ox=0;ox<Math.max(1,stride*.5);ox+=1){
           const cx=Math.min(cols-2,x+ox),cy=Math.min(rows-2,y+oy),k=cy*cols+cx;
           const score=f.suitability[k]*(branch==='secondary'?f.crossSuitability[k]:1)*
-            (.35+.65*f.confidence[k])*
-            (.80+.20*Math.sqrt(f.drainageRank[k]));
+            (.28+.72*f.confidence[k])*
+            (.50+.50*f.hydroIntensity[k]);
           if(score>best&&score>.06){best=score;choice=k}
         }
         if(choice>=0)seeds.push({x:choice%cols+.5,y:Math.floor(choice/cols)+.5,score:best,id:choice});
@@ -216,7 +232,8 @@ export function createHydroTensorRenderer(args){
           if(j>0)total+=Math.hypot(points[j].x-points[j-1].x,points[j].y-points[j-1].y);
           if(j>0)distances.push(total);
         }
-        rank=clamp(.55*rank/points.length+.45*Math.sqrt(acc/points.length),0,1);
+        rank=clamp(.77*rank/points.length+
+          .23*Math.sqrt(acc/points.length),0,1);
         newLines.push({branch,coordinates,distances,total,rank,
           color:branch==='secondary'?'#91a9de':color(rank),index:newLines.length});
         for(let j=0;j<points.length;j+=2){
@@ -230,7 +247,8 @@ export function createHydroTensorRenderer(args){
     features=lines.map(line=>({type:'Feature',properties:{
       color:line.color,analysisColor:line.branch==='primary'?'#a6b7c6':'#71869e',
       width:settings.width*(line.branch==='primary'?1:.72)*(.55+.95*line.rank),
-      opacity:line.branch==='primary'?.75:.42,
+      opacity:(line.branch==='primary'?.86:.44)*
+        (.30+.70*line.rank),
       branch:line.branch,relativeGuidance:line.rank
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
   }
@@ -346,11 +364,18 @@ export function createHydroTensorRenderer(args){
         flush();
         for(const coords of chunks){
           const balance=1-Math.abs(offset)/(widthCells+.001);
-          const rank=clamp(.6*core.rank+.4*balance,0,1);
+          // Frame-dependent catchment intensity changes ribbon brightness
+          // as modeled flood conditions evolve (not added water volume).
+          const coreIndex=Math.max(0,Math.min(cols*rows-1,
+            Math.floor(core.path[Math.floor(core.path.length/2)].y)*cols+
+            Math.floor(core.path[Math.floor(core.path.length/2)].x)));
+          const wetness=f.rainfallInfluence[coreIndex]||0;
+          const rank=clamp(.54*core.rank+.24*balance+.22*wetness,0,1);
           ribbons.push({index:ribbons.length,coordinates:coords,
             rank,color:color(rank),
             width:settings.width*(.28+.50*balance),
-            opacity:.20+.70*balance,isHydrologicalReference:true});
+            opacity:(.16+.67*balance)*(.30+.70*(f.rainfallInfluence[coreIndex]||0)),
+            isHydrologicalReference:true});
           if(ribbons.length>=280)break;
         }
         if(ribbons.length>=280)break;
@@ -461,18 +486,29 @@ export function createHydroTensorRenderer(args){
     if(time-lastAnimationDraw<65)return;
     lastAnimationDraw=time;
     const elapsed=Math.max(0,(time-animationOrigin)/1000);
-    const progress=clamp(elapsed*settings.growth/3.1,0,1);
-    if(progress<1||renderedFraction<1){
-      drawLines(progress);renderedFraction=progress;
+    const transition=clamp((time-growthChangeAt)/
+      Math.max(110,420/settings.growth),0,1);
+    const eased=transition*transition*(3-2*transition);
+    yearGrowth=growthFrom+(growthTo-growthFrom)*eased;
+    if(Math.abs(yearGrowth-renderedFraction)>.009||transition>=1&&renderedFraction!==yearGrowth){
+      drawLines(yearGrowth);renderedFraction=yearGrowth;
     }
-    drawParticles(elapsed,progress);
+    drawParticles(elapsed,yearGrowth);
   }
   function restart(){
-    stop();renderedFraction=0;animationOrigin=performance.now();
-    lastAnimationDraw=0;applyStyle();
+    stop();animationOrigin=performance.now();
+    lastAnimationDraw=0;renderedFraction=-1;applyStyle();
     if(!enabled)return;
-    if(settings.mode==='presentation')animation=requestAnimationFrame(tick);
-    else{drawLines(1);dots()?.setData(empty())}
+    if(settings.mode==='presentation'){
+      yearGrowth=growthTo;growthFrom=yearGrowth;
+      growthChangeAt=performance.now();
+      drawLines(yearGrowth);
+      renderedFraction=yearGrowth;
+      animation=requestAnimationFrame(tick);
+    }else{
+      yearGrowth=growthTo;drawLines(yearGrowth);
+      renderedFraction=yearGrowth;dots()?.setData(empty());
+    }
   }
   function configure(patch){
     if(disposed)return;
@@ -531,7 +567,13 @@ export function createHydroTensorRenderer(args){
     if(enabled)queueSolve(meta.force===true);
   }
   function setEnabled(on){
-    enabled=Boolean(on)&&!disposed;
+    const requested=Boolean(on)&&!disposed;
+    if(enabled===requested){
+      // Repeated visibility refresh must not reset the year's animation
+      // or constantly rebuild the same tensor ribbons.
+      applyStyle();return;
+    }
+    enabled=requested;
     const state=enabled?'visible':'none';
     for(const id of [lineLayerId,glowLayerId,ribbonLayerId,ribbonGlowLayerId]){
       if(map.getLayer(id))map.setLayoutProperty(id,'visibility',state);
@@ -549,6 +591,7 @@ export function createHydroTensorRenderer(args){
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     requestId++;result=null;flow=null;context=null;depth=null;
     lines=[];features=[];ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
+    lastRenderedYear=2026;yearGrowth=.20;growthFrom=.20;growthTo=.20;
     stop();src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());
     status('等待 DEM / 汇水 / 雨水计算数据');
@@ -557,7 +600,9 @@ export function createHydroTensorRenderer(args){
     if(!result)return null;
     const f=result.fields,c=context;
     const out={
-      source:'OS Terrain 50 DEM + derived drainage + modeled flood constraint',
+      source:'OS Terrain 50 DEM, DEM-derived contributing area, modeled 2026–2100 depth/hydraulic-head direction and building barriers',
+      tensorSemantics:'hydrological orientation axes (principal/orthogonal), NOT future road lines or true m/s velocity',
+      scenarioYear:lastRenderedYear,
       stage:{...scenario},crs:'EPSG:4326',localBasis:'native flood-solver grid',
       boundsLngLat:getBounds(),cols:result.cols,rows:result.rows,
       cellX:result.cellX,cellY:result.cellY,
