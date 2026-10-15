@@ -277,7 +277,10 @@ function onceIdle(map,timeout=2200){
  * A hard solver-valid mask protects buildings and the study-area perimeter;
  * bilinear depth sampling and smooth alpha soften only the visible shoreline.
  */
-function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
+function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
+  const showShallow=options.showShallow===true;
+  const contrast=options.showContrast===true&&frame.comparisonMask?
+    new Uint8Array(frame.comparisonMask):null;
   const width=frame.width,height=frame.height;
   const depths=new Uint16Array(frame.depthMm);
   const valid=frame.validMask?new Uint8Array(frame.validMask):null;
@@ -304,12 +307,14 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
       const x0=Math.floor(u),tx=u-x0;
       const nearest=index(Math.round(u),Math.round(v));
       if(valid&&!valid[nearest])continue;
+      // Never fill dry cells merely because bilinear neighbours are wet.
+      if(depths[nearest]<(showShallow?1:20))continue;
       const a=depths[index(x0,y0)]/1000;
       const b=depths[index(x0+1,y0)]/1000;
       const c=depths[index(x0,y0+1)]/1000;
       const d=depths[index(x0+1,y0+1)]/1000;
       const depth=lerp(lerp(a,b,tx),lerp(c,d,tx),ty);
-      if(depth<.00075)continue;
+      if(depth<(showShallow?.001:.020))continue;
       let lo=palette[0],hi=palette[palette.length-1];
       for(let k=1;k<palette.length;k++)
         if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
@@ -320,11 +325,24 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight){
       const light=Math.max(0,ripples)*7+rim*8;
       const foam=(contacts?.[nearest]||0)*smooth(.012,.08,depth)*8;
       const pos=(y*outWidth+x)*4;
-      dest[pos]=Math.min(255,lerp(lo[1],hi[1],t)+light+foam);
-      dest[pos+1]=Math.min(255,lerp(lo[2],hi[2],t)+light+foam);
-      dest[pos+2]=Math.min(255,lerp(lo[3],hi[3],t)+light+foam*.3);
-      dest[pos+3]=Math.round((.58+.34*smooth(.008,.35,depth))*
-        smooth(.00045,.0018,depth)*255);
+      const shallow=depth<.020;
+      let rgb=[lerp(lo[1],hi[1],t)+light+foam,
+        lerp(lo[2],hi[2],t)+light+foam,
+        lerp(lo[3],hi[3],t)+light+foam*.3];
+      let alpha=shallow
+        ?(showShallow?.16*smooth(.001,.020,depth):0)
+        :(.55+.43*smooth(.02,.60,depth))*smooth(.0195,.025,depth);
+      // Contrast is a categorical comparison of actual solver depths;
+      // highlight never changes the physical depth or water mesh height.
+      const cls=contrast?.[nearest]||0;
+      if(!shallow&&cls===1){rgb=[47,230,209];alpha=Math.max(alpha,.90);}
+      else if(!shallow&&cls===2){rgb=[133,113,244];alpha=Math.max(alpha,.90);}
+      else if(cls===3){rgb=[240,171,73];alpha=Math.max(alpha,.30);}
+      if(shallow&&showShallow)rgb=[139,190,211];
+      dest[pos]=Math.min(255,rgb[0]);
+      dest[pos+1]=Math.min(255,rgb[1]);
+      dest[pos+2]=Math.min(255,rgb[2]);
+      dest[pos+3]=Math.round(alpha*255);
     }
   }
   context.putImageData(image,0,0);
@@ -750,6 +768,12 @@ export function createLocalFloodUI({
     extreme:{rate:50,total:100,label:'特大暴雨'}
   });
   let rainPreset='moderate';
+  let showShallowWater=false,showStormContrast=true;
+  let stormContrastPair='moderate-average';
+  const contrastBaseMm=()=>!showStormContrast||displayMode!=='year'||fehDurationDepthsMm
+    ?null:rainPreset==='moderate'&&stormContrastPair==='moderate-average'
+      ?5.5:rainPreset==='extreme'&&stormContrastPair==='extreme-moderate'
+        ?40:null;
   let displayMode='year',eventTimeMin=0,criticalDurationMin=120;
   let fehDurationDepthsMm=null; // only explicitly entered FEH DDF values
   const presetRainRate=()=>RAIN_PRESETS[rainPreset].rate;
@@ -780,6 +804,7 @@ export function createLocalFloodUI({
     eventTotalMm:RAIN_PRESETS[rainPreset].total,
     durationMin:120,
     fehDurationDepthsMm,
+    compareBaseMm:contrastBaseMm(),
     displayMode,eventTimeMin,
     interventions:siteFacilities.map(({id,type,lng,lat,radiusM})=>({id,type,lng,lat,radiusM})),
     infiltrationMmH:Number($('localFloodInfil')?.value??0.5),
@@ -3645,7 +3670,7 @@ export function createLocalFloodUI({
     const nextFrame=document.createElement('canvas');
     nextFrame.width=outWidth;nextFrame.height=outHeight;
     const nc=nextFrame.getContext('2d');
-    if(!data.depthMm||!renderSoftWaterCanvas(nc,data,outWidth,outHeight)){
+    if(!data.depthMm||!renderSoftWaterCanvas(nc,data,outWidth,outHeight,{showShallow:showShallowWater,showContrast:showStormContrast&&displayMode==='year'})){
       lowResWaterContext.putImageData(new ImageData(pixels,data.width,data.height),0,0);
       nc.imageSmoothingEnabled=true;nc.imageSmoothingQuality='high';
       nc.drawImage(lowResWater,0,0,outWidth,outHeight);
