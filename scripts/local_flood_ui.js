@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.41-lean-hydro-ui';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.42-water-edge-aa';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.39-hydro-tensor-dem50';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -316,9 +316,9 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       const u=(x+.5)*width/outWidth-.5;
       const x0=Math.floor(u),tx=u-x0;
       const nearest=index(Math.round(u),Math.round(v));
+      // Buildings and site perimeter retain the exact native solver mask.
       if(valid&&!valid[nearest])continue;
-      // Never fill dry cells merely because bilinear neighbours are wet.
-      if(depths[nearest]<wetThreshold*1000)continue;
+      const nearestIsWet=depths[nearest]>=wetThreshold*1000;
       const i00=index(x0,y0),i10=index(x0+1,y0);
       const i01=index(x0,y0+1),i11=index(x0+1,y0+1);
       const a=valid&&!valid[i00]?0:depths[i00]/1000;
@@ -329,12 +329,13 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       const wa=a>=wetThreshold?1:0,wb=b>=wetThreshold?1:0;
       const wc=c>=wetThreshold?1:0,wd=d>=wetThreshold?1:0;
       const occupancy=w00*wa+w10*wb+w01*wc+w11*wd;
-      // Interpolate only true wet neighbours, so dry-cell corners cannot
-      // produce checkerboard holes. Hard nearest-cell footprint is kept.
+      // Subcell wet coverage: interpolate the visual contour between pixels,
+      // not the simulation's real depths, building masks or wet-area metrics.
+      if(occupancy<=0.16)continue;
       const wetMean=(w00*wa*a+w10*wb*b+w01*wc*c+w11*wd*d)/
         Math.max(0.000001,occupancy);
-      // Render-only blend: reduce visible terracing without inventing flood depth.
-      const depth=0.30*depths[nearest]/1000+0.70*wetMean;
+      const depth=nearestIsWet?
+        0.30*depths[nearest]/1000+0.70*wetMean:wetMean;
       let lo=palette[0],hi=palette[palette.length-1];
       for(let k=1;k<palette.length;k++)
         if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
@@ -352,11 +353,10 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       let alpha=shallow
         ?((avg?.39:.31)+.18*smooth(.001,.020,depth))
         :(.51+.29*smooth(.020,.60,depth));
-      // Smooth only visual alpha at wet-dry edges, never extend into a
-      // dry/invalid physical solver cell or alter the counted flooded area.
-      // Anti-aliased interior shoreline: the nearest solver cell MUST be wet,
-      // so no extra area appears in buildings or outside the parcel.
-      alpha*=smooth(.42,.94,occupancy);
+      // Continuous visual shoreline: low-alpha fringe only in valid, dry
+      // neighbouring pixels. Invalid and building pixels stay transparent.
+      alpha*=smooth(.16,.85,occupancy)*(nearestIsWet?1:.38);
+      if(alpha<.004)continue;
       // Contrast is a categorical comparison of actual solver depths;
       // highlight never changes the physical depth or water mesh height.
       const cls=contrast?.[nearest]||0;
@@ -454,7 +454,9 @@ function createFloodVolumeLayer(maplibregl,bounds){
           '// comparison coloring kept separate from main water material',
           '// cyan/purple comparison overlay suppressed',
           'float threshold=u_shallow>0.5?0.001:0.020;',
-          'float edge=smoothstep(threshold-0.0012,threshold+0.0035,depth);',
+          '// pixel-adaptive antialiasing for 3D water silhouettes',
+          'float edgeWidth=max(0.006,2.0*fwidth(depth));',
+          'float edge=smoothstep(max(0.0,threshold-0.0012),threshold+edgeWidth,depth);',
           'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
           'if(depth<0.020){alpha=(0.34+0.18*smoothstep(0.001,0.02,depth))*edge;}',
           '// no contrast-driven alpha',
@@ -632,8 +634,11 @@ function createFloodVolumeLayer(maplibregl,bounds){
         makeVertex(b,side,undefined,category);
         makeVertex(c,side,undefined,category);
       };
-      // Up to 2x display mesh tessellation; hard cap avoids costly GPU uploads.
-      const subdivisions=meshCols*meshRows<=30000?2:1;
+      // More detailed visual contours on small sites. <=120k display nodes;
+      // the DEM and flood calculation grids are never resampled as input.
+      const displayCells=meshCols*meshRows;
+      const subdivisions=displayCells<=5000?4:
+        displayCells<=12000?3:displayCells<=30000?2:1;
       const renderCols=meshCols*subdivisions,renderRows=meshRows*subdivisions;
       const validCells=data.validMask?new Uint8Array(data.validMask):null;
       const fieldAt=(field,x,y)=>{
@@ -2245,7 +2250,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.41-lean-hydro-ui</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.42-water-edge-aa</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
