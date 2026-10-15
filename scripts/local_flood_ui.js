@@ -1198,7 +1198,7 @@ export function createLocalFloodUI({
     // Independent EA ordinal probability overlay. Not a flood depth layer.
     for(const [id,on] of [
       [FOCUS_EA_LAYER,false],
-      [FOCUS_DRAINAGE_LAYER,ctx.drainage]]){
+      [FOCUS_DRAINAGE_LAYER,ctx.drainage||hydroDisplay.flow]]){
       if(viewer.getLayoutProperty(id,'visibility')!==(on?'visible':'none')){
         viewer.setLayoutProperty(id,'visibility',on?'visible':'none');
       }
@@ -1611,6 +1611,7 @@ export function createLocalFloodUI({
     if(prepared&&isolatedSelection&&longTermMode)requestYear(futureYear);
     hydroState='reset';lastHydroFrame=null;
     siteHydroHistory.length=0;
+    hydroVector?.clear();
     updateSiteHydroDashboard();
     redrawSpongeSite();
   }
