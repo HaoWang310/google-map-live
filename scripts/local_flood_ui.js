@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.51-ground-flood-footprints';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.51-ground-flood-footprints';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.52-live-tensor-growth';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -910,7 +910,7 @@ export function createLocalFloodUI({
   let awaitingInitialReset=false;
   // The standalone 2026–2100 timeline now uses one coherent annual
   // accumulation scenario; its removed checkbox is no longer required.
-  let lastRequestedScenarioToken=0;
+  let lastRequestedScenarioToken=0,yearSeekDebounce=0;
   const yearFrames=new Map();
   let applyingYearFrame=false;
   let pendingBaselineFrame=false;
@@ -948,7 +948,7 @@ export function createLocalFloodUI({
     clearYearFrames();
     updateFocusAnalysisLayers();
     setSiteHud('siteHudRiskFusionNote',
-      '统一水流路径：三档降雨共用 DEM / 建筑阻挡 / 汇水网络。EA 风险及官方水深独立校核，不改变水流方向。');
+      '统一水流路径：三档降雨共用 DEM / 可淹没建筑基地 / 汇水网络。EA 风险及官方水深独立校核，不改变水流方向。');
     if(siteHud('siteHudFutureStage'))siteHud('siteHudFutureStage').disabled=true;
     for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
       if(siteHud(id))siteHud(id).disabled=true;
@@ -973,19 +973,26 @@ export function createLocalFloodUI({
   const seekYear=value=>{
     stopAnnual();
     futureYear=Math.max(2026,Math.min(2100,Math.round(Number(value)||2026)));
+    // The accepted curves reveal immediately on both timeline sliders.
+    // Hydrology data remains authoritative only once this year's Worker finishes.
     simYearDisplay();
-    if(longTermMode&&!(displayMode==='year'&&showCachedYear(futureYear))){
-      if(requestYear(futureYear))
-        status('正在加载 '+futureYear+' 年'+
-          (floodMode==='rain-risk'?'降雨＋EA 独立校核':
-            floodMode==='rain'?'仅降雨':'外部水位')+'情景…');
-    }
+    if(!longTermMode)return;
+    if(displayMode==='year'&&showCachedYear(futureYear))return;
+    clearTimeout(yearSeekDebounce);
+    const requestedYear=futureYear;
+    yearSeekDebounce=setTimeout(()=>{
+      yearSeekDebounce=0;
+      if(!isolatedSelection||!prepared||requestedYear!==futureYear)return;
+      if(requestYear(requestedYear))
+        status('正在计算 '+requestedYear+' 年洪水和真实张量场；线条生长是即时预览…');
+    },145); // Debounce heavy rain-event runs during fast scrubbing.
   };
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
   let riskEnvelope=null; // maximum predicted depth encountered through the current year
   const clearRiskEnvelope=()=>{riskEnvelope=null;};
   const WATER_BLEND_MS=580;
-  const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;};
+  const stopAnnual=()=>{annualPlaying=false;clearTimeout(annualAdvanceTimer);annualAdvanceTimer=null;
+    if(yearSeekDebounce){clearTimeout(yearSeekDebounce);yearSeekDebounce=0;}};
   // No undisclosed climate uplift: the three chosen 2h rainfall inputs are used unchanged.
   const climateRainFactor=()=>1;
   const siteHydroHistory=[];
@@ -2018,6 +2025,7 @@ export function createLocalFloodUI({
     setSiteRainMode();
   }
   function simYearDisplay(){
+    hydroVector?.setTimelineYear(futureYear);
     setSiteHud('siteHudYearText',String(futureYear));
     setSiteHud('siteHudTensorYear',String(futureYear));
     for(const id of ['siteHudYear','siteHudFooterYear'])if(siteHud(id))siteHud(id).value=String(futureYear);
@@ -2317,7 +2325,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.50-tensor-site-fix</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.52-live-tensor-growth</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2395,7 +2403,7 @@ export function createLocalFloodUI({
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · 水文张量场</div>',
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用张量场</label>',
-      '<div class="site-hydro-mini site-tensor-caption">基础地形方向常显 · 积水影响逐年增强</div>',
+      '<div class="site-hydro-mini site-tensor-caption">拖动年份即时显现线场生长 · 数据随后按实际水深重算</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">分析模式</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">演示模式</button></div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
@@ -2412,6 +2420,9 @@ export function createLocalFloodUI({
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>弱</span><div aria-hidden="true"></div><span>强</span></div>',
+      '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">线条生长预览 · 等待启动</div>',
+      '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 回放张量场生成（约4秒）</button>',
+      '<div class="site-hydro-mini" style="font-size:11px">回放与线条生长百分比是可视化进度，不代表真实逐年道路建设；方向仍取当前计算场景。</div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
@@ -2460,7 +2471,7 @@ export function createLocalFloodUI({
       '<div id="siteHudDrainStatus" class="site-hydro-mini">地形网络：等待瓦片</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">DATA PROVENANCE</div>',
       '<div class="site-hydro-mini">EA 风险等级 = 长期概率，不是水深；地形网络 = 汇水路径，不是地下管网；',
-      '动态水深 = 输入降雨、地形和建筑障碍的概念模拟。此工具不能替代工程级洪水模型。</div></div></aside>',
+      '动态水深 = 输入降雨、地形及可淹没建筑基地的概念模拟。此工具不能替代工程级洪水模型。</div></div></aside>',
       '<div class="site-hydro-zoom">独立地块 3D · 拖动平移 / 右键旋转 / 滚轮缩放</div>',
       '<footer class="site-hydro-footer">',
       '<button id="siteHudRun" class="site-hydro-btn primary" style="flex:0 0 85px" type="button">▶ 运行</button>',
@@ -2537,7 +2548,7 @@ export function createLocalFloodUI({
       if(siteHud('siteHudUseRiskGuide'))
         siteHud('siteHudUseRiskGuide').disabled=false;
       setSiteHud('siteHudRiskFusionNote',
-        '平均、中等、特大暴雨使用相同 DEM 高程、建筑障碍和地形汇水路径（路径权重不因雨强或 EA 风险分级而切换）。EA 官方范围与深度只用于独立结果校核。');
+        '平均、中等、特大暴雨使用相同 DEM 高程、可淹没建筑基地和地形汇水路径（路径权重不因雨强或 EA 风险分级而切换）。EA 官方范围与深度只用于独立结果校核。');
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
         (floodMode==='rain-risk'
@@ -2782,6 +2793,7 @@ export function createLocalFloodUI({
         hydroVector?.configure({[key]:Number(slider.value)});
       };
     }
+    siteHud('siteHudTensorReplay').onclick=()=>hydroVector?.replayGrowth();
     for(const button of container.querySelectorAll('[data-vector-mode]')){
       button.onclick=()=>{
         const mode=button.dataset.vectorMode;
@@ -2937,8 +2949,15 @@ export function createLocalFloodUI({
       ribbonGlowLayerId:FOCUS_TENSOR_RIBBON_GLOW,
       particleLayerId:FOCUS_FLOW_PARTICLE_LAYER,
       getBounds:()=>focusWaterBounds,
-      onStatus:message=>setSiteHud('siteHudVectorStatus',message)
+      onStatus:message=>setSiteHud('siteHudVectorStatus',message),
+      onProgress:({year,fraction,geometryYear,waitingForGeometry})=>{
+        const exact=geometryYear===year&&!waitingForGeometry;
+        setSiteHud('siteHudTensorGrowthStatus','线条生长 '+Math.round(fraction*100)+
+          '% · '+year+' 年'+(exact?' · 年份数据匹配':
+            ' · 显示预览，真实方向重算中'));
+      }
     });
+    hydroVector.setTimelineYear(futureYear,{instant:true});
     // Typed native-grid design tensor contract for future Wool and roads.
     window.getLondonHydroTensorFieldData=()=>hydroVector?.exportStructuredData()||null;
     window.getLondonHydroTensorDiagnostics=(stride=4)=>hydroVector?.exportDiagnostics(stride)||null;
