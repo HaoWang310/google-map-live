@@ -522,7 +522,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
       }
       // Temporal low-pass on displayed depth avoids hard mesh jumps between
       // yearly scenarios; calculation values and statistics remain unchanged.
-      if(force||data.annualAreaStage?.kind==='rainfall-risk-scenario'||
+      if(force||['rainfall-risk-scenario','storm-event'].includes(data.annualAreaStage?.kind)||
          !this.displayDepth||this.displayDepth.length!==sampled.length)
         this.displayDepth=sampled.slice();
       else for(let i=0;i<sampled.length;i++){
@@ -1500,6 +1500,8 @@ export function createLocalFloodUI({
     simulator?.pause();
     simulator?.reset();
     simulator?.setParams(currentParams());
+    stopAnnual();clearYearFrames();
+    if(prepared&&isolatedSelection&&longTermMode)requestYear(futureYear);
     hydroState='reset';lastHydroFrame=null;
     siteHydroHistory.length=0;
     updateSiteHydroDashboard();
@@ -2328,7 +2330,7 @@ export function createLocalFloodUI({
           ?'四种独立降雨历时结合 EA 地表水风险和 DEM 汇流，2026–2100 展示最大水深设计包络，2100 达到设计峰值；中间年份为插值，不是官方逐年洪水预测。'
           :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
-        'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
+        '2026—2100 为研究设计包络展示刻度，2100 达到最大规划情景；不是年度气象预测，也不等于单场暴雨持续74年。':
         '外部洪水仅使用手动给定的同基准绝对水位；无真实边界数据不能自动运行。不是 EA 官方洪水水位预报。'));
       resetFuture();
       if(needsExternalStage()&&!Number.isFinite(externalStageM)){
@@ -3664,7 +3666,7 @@ export function createLocalFloodUI({
     const paintBlend=()=>{
       if(!canvasContext||!canvas)return;
       const alpha=Math.min(1,(performance.now()-waterBlendStart)/
-        (data.annualAreaStage?.kind==='rainfall-risk-scenario'?150:WATER_BLEND_MS));
+        (['rainfall-risk-scenario','storm-event'].includes(data.annualAreaStage?.kind)?125:WATER_BLEND_MS));
       canvasContext.clearRect(0,0,outWidth,outHeight);
       const blend=alpha*alpha*(3-2*alpha);
       canvasContext.globalAlpha=1-blend;
