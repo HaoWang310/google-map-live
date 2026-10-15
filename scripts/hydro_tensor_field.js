@@ -32,7 +32,7 @@ export function createHydroTensorRenderer(args){
   let timelineYear=2026;
   const revealForYear=y=>{const t=clamp((y-2026)/74,0,1);return .08+.92*t*t*(3-2*t)};
   let yearGrowth=revealForYear(timelineYear),growthFrom=yearGrowth,growthTo=yearGrowth,growthChangeAt=0;
-  let lastRenderedYear=2026;
+  let lastRenderedYear=2026,replayGrowthActive=false;
   const R=6378137;
   const toMerc=([lng,lat])=>[R*lng*Math.PI/180,R*Math.log(Math.tan(Math.PI/4+clamp(lat,-85,85)*Math.PI/180/2))];
   const fromMerc=(x,y)=>[x/R*180/Math.PI,(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI];
@@ -348,13 +348,16 @@ export function createHydroTensorRenderer(args){
     if(time-lastAnimationDraw<55)return;
     lastAnimationDraw=time;
     const elapsed=Math.max(0,(time-animationOrigin)/1000);
-    const transition=clamp((time-growthChangeAt)/Math.max(140,290/settings.growth),0,1);
+    const duration=replayGrowthActive?Math.max(850,4300/Math.max(.5,settings.speed||1)):
+      Math.max(140,290/settings.growth);
+    const transition=clamp((time-growthChangeAt)/duration,0,1);
     const eased=transition*transition*(3-2*transition);
     yearGrowth=growthFrom+(growthTo-growthFrom)*eased;
     if(Math.abs(yearGrowth-renderedFraction)>.006||
        (transition>=1&&renderedFraction!==yearGrowth)){
       drawLines(yearGrowth);renderedFraction=yearGrowth;
     }
+    if(transition>=1)replayGrowthActive=false;
     if(settings.mode==='presentation')drawParticles(elapsed,yearGrowth);
     else if(transition>=1)stop();
   }
@@ -371,7 +374,7 @@ export function createHydroTensorRenderer(args){
     if(disposed)return;
     const next=clamp(Math.round(Number(year)||2026),2026,2100);
     if(next===timelineYear&&!instant)return;
-    timelineYear=next;
+    timelineYear=next;replayGrowthActive=false;
     const target=revealForYear(next);
     if(instant||!enabled||!geometrySnapshot){
       growthTo=target;growthFrom=target;yearGrowth=target;
@@ -380,6 +383,15 @@ export function createHydroTensorRenderer(args){
     }
     // Reveal current geometry immediately; the authoritative year recomputes.
     growthFrom=yearGrowth;growthTo=target;growthChangeAt=performance.now();
+    if(!animation)animation=requestAnimationFrame(tick);
+  }
+  function replayGrowth(){
+    if(!enabled||!geometrySnapshot||disposed)return;
+    // Playback reveals accepted trajectories; it does not rerun the hydrology.
+    replayGrowthActive=true;
+    growthFrom=0;yearGrowth=0;growthTo=revealForYear(timelineYear);
+    growthChangeAt=performance.now();
+    drawLines(0);renderedFraction=0;
     if(!animation)animation=requestAnimationFrame(tick);
   }
   function configure(patch){
@@ -500,6 +512,7 @@ export function createHydroTensorRenderer(args){
     geometryDesired++;geometryPending=null;
     lines=[];baseLines=[];wetLines=[];features=[];
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
+    replayGrowthActive=false;
     lastRenderedYear=2026;yearGrowth=revealForYear(timelineYear);growthFrom=yearGrowth;growthTo=yearGrowth;
     stop();src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());
@@ -595,7 +608,7 @@ export function createHydroTensorRenderer(args){
       pending:{tensor:Boolean(requestTimer)||result.requestId!==requestId,geometry:geometryBusy||Boolean(geometryPending)},
       acceptance:'NOT verified in the user-selected parcel; source data export, not a visual acceptance report'};
   }
-  return {configure,setTimelineYear,setField,setEnabled,clear,dispose,exportStructuredData,
+  return {configure,setTimelineYear,replayGrowth,setField,setEnabled,clear,dispose,exportStructuredData,
     exportSiteSnapshot,
     exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
     exportGeometry:()=>geometrySnapshot?{grid:{...geometrySnapshot.grid},scenario:{...geometrySnapshot.scenario},
