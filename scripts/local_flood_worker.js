@@ -918,7 +918,12 @@ function sendFrame(){
   // EVEN WHEN the tensor overlay is visually off. Otherwise the toggle creates
   // a circular dependency: no flow field -> cannot enable tensor -> no flow.
   const annualScenarioFrame=annualAreaStage?.kind==='rainfall-risk-scenario';
-  const flowField=buildHydroFlowField(annualScenarioFrame);
+  // One flow field for the accepted 2100 peak is sufficient to unlock the
+  // tensor mode. Intermediate years produce flow vectors only if requested
+  // for tensor construction, so flood-only playback stays lightweight.
+  const needYearlyFlow=annualScenarioFrame&&
+    (annualFrameYear===2100||annualAreaStage.tensorRequested===true);
+  const flowField=buildHydroFlowField(needYearlyFlow);
   const buffers=[pixels.buffer,depthMm.buffer,contactMask.buffer,validMask.buffer];
   if(flowField)buffers.push(flowField.vx.buffer,
     flowField.vy.buffer,flowField.intensity.buffer);
@@ -1211,6 +1216,7 @@ onmessage=async({data})=>{
         year,fraction:progress,designStageFactor:stagingFactor,
         floodMode:forecast.mode,
         rainfallCase:data.rainfallCase||null,
+        tensorRequested:data.includeTensorFlow===true,
         designRainTotalMm:forecast.critical.depth,
         durationMin:forecast.critical.duration,
         eventTimeMin:selectedTimeMin,
