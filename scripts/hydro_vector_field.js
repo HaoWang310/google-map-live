@@ -300,8 +300,28 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     lineSource()?.setData(empty());dotSource()?.setData(empty());
     setStatus('等待水文流场数据 · 先运行降雨模拟');
   }
+  function demSlopes(){
+    const n=field.cols*field.rows,x=new Float32Array(n),y=new Float32Array(n);
+    if(!context?.terrain)return {x,y};
+    const grid=geoContext();
+    const dx=Math.abs(grid?.dx||1),dy=Math.abs(grid?.dy||1);
+    const inside=i=>context.inside?.[i]!==0&&!context.obstacle?.[i]
+      &&Number.isFinite(context.terrain[i]);
+    for(let row=0;row<field.rows;row++)for(let col=0;col<field.cols;col++){
+      const i=row*field.cols+col;
+      if(!inside(i))continue;
+      const west=col>0?i-1:i,east=col<field.cols-1?i+1:i;
+      const north=row>0?i-field.cols:i,south=row<field.rows-1?i+field.cols:i;
+      if(inside(west)&&inside(east)&&east!==west)
+        x[i]=(context.terrain[east]-context.terrain[west])/(dx*(east===i||west===i?1:2));
+      if(inside(north)&&inside(south)&&south!==north)
+        y[i]=(context.terrain[south]-context.terrain[north])/(dy*(south===i||north===i?1:2));
+    }
+    return {x,y};
+  }
   function exportStructuredData(){
     if(!field)return null;
+    const slope=context?.terrain?demSlopes():null;
     return {
       source:'OS Terrain 50 DEM + modeled hydraulic gradient + building mask',
       CRS:'EPSG:4326',vectorCRS:'solver-grid',units:'relative (not m/s)',
@@ -309,7 +329,9 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
       vectorX:new Int8Array(field.vx),vectorY:new Int8Array(field.vy),
       relativeIntensity:new Uint8Array(field.strength),
       elevationM:context?.terrain?new Float32Array(context.terrain):null,
+      demSlopeX:slope?.x||null,demSlopeY:slope?.y||null,
       drainageAccumulationEncoded:context?.accumulation?new Uint16Array(context.accumulation):null,
+      wetFlowConstraintMask:Uint8Array.from(field.strength,p=>p>=6?1:0),
       parcelMask:context?.inside?new Uint8Array(context.inside):null,
       buildingBarrierMask:context?.obstacle?new Uint8Array(context.obstacle):null,
       semantics:{direction:'DEM and modeled water-head gradient',
