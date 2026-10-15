@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.39-hydro-tensor';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.40-clean-ui';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.39-hydro-tensor-dem50';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -851,12 +851,7 @@ export function createLocalFloodUI({
     extreme:{rate:50,total:100,label:'特大暴雨'}
   });
   let rainPreset='moderate';
-  let showShallowWater=true,showStormContrast=true;
-  let stormContrastPair='moderate-average';
-  const contrastBaseMm=()=>!showStormContrast||displayMode!=='year'||fehDurationDepthsMm
-    ?null:rainPreset==='moderate'&&stormContrastPair==='moderate-average'
-      ?5.5:rainPreset==='extreme'&&stormContrastPair==='extreme-moderate'
-        ?40:null;
+  let showShallowWater=true;
   let displayMode='year',eventTimeMin=0,criticalDurationMin=120;
   let fehDurationDepthsMm=null; // only explicitly entered FEH DDF values
   const presetRainRate=()=>RAIN_PRESETS[rainPreset].rate;
@@ -888,7 +883,6 @@ export function createLocalFloodUI({
     eventTotalMm:RAIN_PRESETS[rainPreset].total,
     durationMin:120,
     fehDurationDepthsMm,
-    compareBaseMm:contrastBaseMm(),
     displayMode,eventTimeMin,
     interventions:siteFacilities.map(({id,type,lng,lat,radiusM})=>({id,type,lng,lat,radiusM})),
     infiltrationMmH:Number($('localFloodInfil')?.value??0.5),
@@ -1964,35 +1958,6 @@ export function createLocalFloodUI({
   function updateSiteHydroDashboard(frame=lastHydroFrame){
     if(!isolatedSelection)return;
     const v=frame?.stats;
-    const c=frame?.comparisonStats;
-    if(siteHud('siteHudContrastStatus')){
-      const ha=m2=>(Number(m2||0)/10000).toFixed(2);
-      if(c&&displayMode==='year'&&showStormContrast){
-        setSiteHud('siteHudContrastStatus',c.lowerTotalMm+' mm → '+c.upperTotalMm+
-          ' mm · '+c.comparisonYear+' 年，同一地块同一设施配置的四历时包络对比');
-        setSiteHud('siteHudContrastNewArea','+'+ha(c.newWetAreaM2)+' ha');
-        setSiteHud('siteHudContrastNetArea',(c.netWetAreaM2>=0?'+':'')+
-          ha(c.netWetAreaM2)+' ha');
-        setSiteHud('siteHudContrastMaxDepth',(c.maxDepthDifferenceM>=0?'+':'')+
-          Number(c.maxDepthDifferenceM).toFixed(2)+' m');
-        setSiteHud('siteHudContrastNewBuildings','+'+c.newImpactedBuildings+' 栋');
-        setSiteHud('siteHudContrastAdditional','加深≥10 cm 面积：'+
-          ha(c.markedDeeperAreaM2)+' ha；较强情景未覆盖的旧积水：'+
-          ha(c.lostWetAreaM2)+' ha；建筑净变化：'+
-          (c.netImpactedBuildings>=0?'+':'')+c.netImpactedBuildings+' 栋。');
-      }else{
-        setSiteHud('siteHudContrastStatus',displayMode==='event'
-          ?'单场分钟模式不叠加多历时包络差值，避免不同控制历时的错位比较。'
-          :fehDurationDepthsMm
-            ?'输入 FEH DDF 后暂停自动跨等级比较：须分别提供同一AEP下两套各历时雨量。'
-            :rainPreset==='average'
-              ?'平均降雨为基准情景；选择中等或特大暴雨查看增量。'
-              :showStormContrast?'正在计算同年弱降雨参考包络…':'对比高亮已关闭。');
-        for(const id of ['siteHudContrastNewArea','siteHudContrastNetArea',
-          'siteHudContrastMaxDepth','siteHudContrastNewBuildings'])setSiteHud(id,'—');
-        setSiteHud('siteHudContrastAdditional','');
-      }
-    }
     if(siteHud('siteHudOfficialAgreement')){
       if(v?.officialDepthAvailable){
         const ha=x=>(Number(x||0)/10000).toFixed(2)+' ha';
@@ -2280,7 +2245,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.39-hydro-tensor</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.40-clean-ui</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2372,9 +2337,6 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉隐藏，不影响水文计算）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
       '<label class="site-hydro-check"><input id="siteHudShowShallow" type="checkbox" checked> 显示浅湿润（1–20 mm；默认开启，不增加真实降雨量）</label>',
-      '<label class="site-hydro-check"><input id="siteHudShowContrast" type="checkbox" checked> 计算与较弱降雨的差异（右侧数值，不改变水体颜色）</label>',
-      '<label class="site-hydro-row">降雨情景对比 <select id="siteHudComparePair" style="flex:1;min-width:140px"><option value="moderate-average" selected>中等 − 平均</option><option value="extreme-moderate">特大暴雨 − 中等</option></select></label>',
-      '<div class="site-hydro-mini">地图使用指定蓝色水深渐变，场景差异仅在右侧以原始计算网格的数值比较，不再用亮青或紫色覆盖水面。非 EA 实时洪水。</div>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
       '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
@@ -2417,14 +2379,6 @@ export function createLocalFloodUI({
       '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:linear-gradient(90deg,#1545b7,#041c4b)"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
       '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:linear-gradient(90deg,#041c4b,#041c4b)"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
       '</div><div class="site-hydro-depth-note" id="siteHudFloodPhase">尚未运行 · 无动态积水</div></div>',
-      '<div class="site-hydro-section" id="siteHudScenarioContrastSection"><div class="site-hydro-section-title">SCENARIO DIFFERENCE · 降雨情景差异</div>',
-      '<div id="siteHudContrastStatus" class="site-hydro-mini">四历时真实网格差异等待求解。切换情景对比以查看新增淹没。</div>',
-      '<div class="site-hydro-metric"><small>新增淹没面积（较弱情景未淹没）</small><b id="siteHudContrastNewArea">— ha</b></div>',
-      '<div class="site-hydro-metric"><small>积水面积净变化</small><b id="siteHudContrastNetArea">— ha</b></div>',
-      '<div class="site-hydro-metric"><small>最大水深差（两个场景各自最大值之差）</small><b id="siteHudContrastMaxDepth">— m</b></div>',
-      '<div class="site-hydro-metric"><small>新增受影响建筑（ID差集）</small><b id="siteHudContrastNewBuildings">— 栋</b></div>',
-      '<div id="siteHudContrastAdditional" class="site-hydro-mini"></div>',
-      '</div>',
       '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.000 m</b></div>',
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
       '<div class="site-hydro-metric"><small>IMPACTED BUILDINGS · 受影响建筑</small><b id="siteHudImpacted">0 栋</b></div>',
@@ -2448,7 +2402,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section-title" style="margin-top:9px">MULTI-DURATION · 四历时控制暴雨</div>',
       '<div id="siteHudCriticalStorm" class="site-hydro-mini">待求解四场暴雨，按峰值积水面积选出控制历时</div>',
       '<div id="siteHudStormComparison" class="site-hydro-mini">30 / 60 / 120 / 360 min：等待面积与水深比较</div>',
-      '<div class="site-hydro-mini">比较口径：模拟水深 ≥ 0.02 m；EA 为官方 0.1% AEP 七档水深范围。EA 外范围出现的计算积水将标记为差异，不直接裁剪或伪造水量。</div>',
+      '<div class="site-hydro-mini">EA 独立校核口径：模型积水 ≥ 0.02 m；官方参考为 0.1% AEP 七档水深。参考范围不会裁剪模拟积水，也不会改变水文求解。</div>',
       '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">© Environment Agency · 深度来源 ↗</a></div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAP DATA STATUS</div>',
       '<div id="siteHudEAStatus" class="site-hydro-mini">EA 风险：等待瓦片</div>',
@@ -2557,45 +2511,16 @@ export function createLocalFloodUI({
       if(volumetricWater)volumetricWater.lastBuildAt=0;
       try{handleFrame(lastHydroFrame);}finally{applyingYearFrame=previous;}
     };
-    const refreshScenarioContrast=()=>{
-      stopAnnual();clearYearFrames();
-      if(lastHydroFrame){
-        // Discard an old contrast mask immediately while new stats compute.
-        lastHydroFrame={...lastHydroFrame,comparisonMask:null,comparisonStats:null};
-        redrawDisplayOnly();
-      }
-      if(prepared&&longTermMode&&isolatedSelection){
-        requestYear(futureYear);
-      }else updateSiteHydroDashboard();
-    };
     const shallowToggle=siteHud('siteHudShowShallow');
     if(shallowToggle)shallowToggle.onchange=e=>{
       showShallowWater=Boolean(e.target.checked);
       updateSiteHydroDashboard();
       redrawDisplayOnly();
     };
-    const contrastToggle=siteHud('siteHudShowContrast');
-    if(contrastToggle)contrastToggle.onchange=e=>{
-      showStormContrast=Boolean(e.target.checked);
-      refreshScenarioContrast();
-    };
-    const contrastPair=siteHud('siteHudComparePair');
-    if(contrastPair)contrastPair.onchange=e=>{
-      stormContrastPair=e.target.value==='extreme-moderate'?'extreme-moderate':'moderate-average';
-      const desired=stormContrastPair==='extreme-moderate'?'extreme':'moderate';
-      if(rainPreset!==desired){
-        // Compare a selected strong storm to exactly its weaker reference.
-        // The visible strong-storm scenario must match the difference legend.
-        const select=siteHud('siteHudFutureClimate');
-        if(select){select.value=desired;select.onchange?.({target:select});}
-      }else refreshScenarioContrast();
-    };
     siteHud('siteHudTimeMode').onchange=e=>{
       stopAnnual();
       displayMode=e.target.value==='event'?'event':'year';
       clearYearFrames(); // year and event do not share comparison buffers
-      if(displayMode==='event')setSiteHud('siteHudContrastStatus',
-        '单场暴雨为独立分钟时间轴，不显示多历时包络差异。');
       const box=siteHud('siteHudEventControls');
       if(box)box.style.display=displayMode==='event'?'block':'none';
       for(const id of ['siteHudYear','siteHudFooterYear']){
@@ -2715,8 +2640,6 @@ export function createLocalFloodUI({
     };
         siteHud('siteHudFutureClimate').onchange=e=>{
       rainPreset=Object.prototype.hasOwnProperty.call(RAIN_PRESETS,e.target.value)?e.target.value:'moderate';
-      stormContrastPair=rainPreset==='extreme'?'extreme-moderate':'moderate-average';
-      if(siteHud('siteHudComparePair'))siteHud('siteHudComparePair').value=stormContrastPair;
       rainfallMode='manual';manualFourHourMm=null;
       fehDurationDepthsMm=null; // different precipitation scenarios cannot reuse old FEH entries
       for(const m of [30,60,120,360])if(siteHud('siteHudDdf'+m))siteHud('siteHudDdf'+m).value='';
@@ -2823,7 +2746,6 @@ export function createLocalFloodUI({
       siteFacilities=[];
       hydroDisplay={depth:true,flow:false,collision:true,volume:true};
       if(siteHud('siteHudShowShallow'))siteHud('siteHudShowShallow').checked=showShallowWater;
-      if(siteHud('siteHudShowContrast'))siteHud('siteHudShowContrast').checked=showStormContrast;
       for(const [id,flag] of [
         ['siteHudShowDepth','depth'],
         ['siteHudShowVolume','volume'],
