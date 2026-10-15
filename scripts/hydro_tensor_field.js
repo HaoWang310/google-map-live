@@ -73,9 +73,10 @@ export function createHydroTensorRenderer(args){
           drawLines(newTarget);
           dots()?.setData(empty());
         }
-        status(scenario.year+' 年 · 水文张量场 '+lines.length+
-          ' 条主次方向线 / '+ribbons.length+' 条汇水线束 · DEM '+
-          data.demNativeResolutionM+' m · 相对强度（非水速）');
+        status(scenario.year+' 年 · 基础地形 '+baseLines.length+
+          ' 条（常显） · 积水影响 '+wetLines.length+
+          ' 条（逐年变化） · 汇水线束 '+ribbons.length+
+          ' 条 · DEM '+data.demNativeResolutionM+' m · 非实测水速');
       };
       return true;
     }catch(error){
