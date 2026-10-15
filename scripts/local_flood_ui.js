@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.49-tensor-streamlines';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.50-tensor-site-fix';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.51-ground-flood-footprints';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.51-ground-flood-footprints';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -270,8 +270,8 @@ function onceIdle(map,timeout=2200){
 
 
 // Volumetric water is a display-only custom MapLibre layer. Geometry is built
-// exclusively from the flood solver's obstacle-masked depth field, never from
-// arbitrary random flood shapes. Building collisions stay in the solver.
+// exclusively from the flood solver's passable ground-depth field, never from
+// arbitrary random flood shapes. Building impacts come from a separate footprint mask.
 
 /**
  * Render-only water compositor. The simulation depths, wet-area statistics,
@@ -1328,8 +1328,8 @@ export function createLocalFloodUI({
 
   function updateFocusBuildings(){
     isolateViewer?.getSource(FOCUS_BUILDINGS)?.setData(focusBuildingData());
-    // The footprint is a separate, always-populated copy of the actual clipped
-    // building geometry. Hiding extrusions never deletes the flood-collision map.
+    // Keep footprints for optional visuals and impact highlighting, but not
+    // hydrological blocking. Hide the footprint when buildings are hidden.
     isolateViewer?.getSource(FOCUS_FOOTPRINT_SOURCE)?.setData({
       type:'FeatureCollection',features:selectedBuildingVisuals()
     });
@@ -1338,9 +1338,9 @@ export function createLocalFloodUI({
 
   function syncFocusFootprintVisibility(){
     if(!isolateViewer)return;
-    const visible=hydroDisplay.flow
-      ?(tensorShowBuildings?'visible':'none')
-      :(hideSelectedBuildings?'visible':'none');
+    // Hiding the building must also hide its detached neutral footprint.
+    const visible=hydroDisplay.flow&&tensorShowBuildings&&!hideSelectedBuildings
+      ?'visible':'none';
     // Neutral footprints are shown only in the independent vector view.
     for(const [id,paint,defaultPaint] of [
       [FOCUS_FOOTPRINT_FILL,'fill-color',
@@ -2386,7 +2386,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" style="margin-top:6px">下雨模拟以 50 m DEM 为底图计算。设施的局部额外入渗和可容纳水深采用概念参数，不应视为现场试验值。</div>',
       '</div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 显示</div>',
-      '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉隐藏，不影响水文计算）</label>',
+      '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉；积水可覆盖建筑地面占地）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
       '<label class="site-hydro-check"><input id="siteHudShowShallow" type="checkbox" checked> 显示浅湿润（1–20 mm；默认开启，不增加真实降雨量）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
@@ -2415,7 +2415,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
-      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 模拟水深 · 建筑障碍<br>2026—2100 随年份更新。张量线及粒子不表示真实水流速度。</div>',
+      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 模拟水深 · 建筑占地可淹没<br>2026—2100 随年份更新。张量线及粒子不表示真实水流速度。</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -3540,7 +3540,7 @@ export function createLocalFloodUI({
           if(data.state==='running')isolateViewer?.triggerRepaint();
         }
         updateSiteHydroDashboard();
-        if(data.state==='running')status('模拟运行中：雨水沿 50 m 地形势能流动，OSM 建筑作为不可穿透障碍。');
+        if(data.state==='running')status('模拟运行中：雨水按地形和水头传播，建筑底面可淹没，不形成隐形阻水区。');
         else if(data.state==='paused')status('模拟已暂停。');
         else if(data.state==='complete'){
           if(annualPlaying&&isolatedSelection&&futureYear<2100){
