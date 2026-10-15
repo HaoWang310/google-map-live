@@ -379,11 +379,13 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'in vec3 a_pos;',
           'in vec4 a_meta;',
           'in float a_contact;',
+          'in float a_contrast;',
           'uniform mat4 u_matrix;',
           'uniform float u_time;',
           'uniform float u_metres;',
           'out vec4 v_meta;',
           'out float v_contact;',
+          'flat out float v_contrast;',
           'void main(){',
           'vec3 p=a_pos;',
           'float depth=max(0.0,a_meta.z);',
@@ -394,6 +396,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'gl_Position=u_matrix*vec4(p,1.0);',
           'v_meta=a_meta;',
           'v_contact=a_contact;',
+          'v_contrast=a_contrast;',
           '}'
         ].join('\n');
         const fragment=[
@@ -401,6 +404,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'precision highp float;',
           'in vec4 v_meta;',
           'in float v_contact;',
+          'flat in float v_contrast;',
           'uniform float u_time;',
           'out vec4 fragColor;',
           'void main(){',
@@ -419,8 +423,11 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'water=mix(water,vec3(0.55,0.83,1.0),glint*(0.04+0.05*deep));',
           'float contactFoam=clamp(v_contact*0.22*(0.55+0.45*abs(ripple)),0.0,0.22);',
           'water=mix(water,vec3(0.86,0.98,1.0),contactFoam);',
-          'float edge=smoothstep(0.0007,0.0020,depth);',
-          'float alpha=(0.63+0.30*smoothstep(0.006,0.35,depth))*edge;',
+          'if(v_contrast>1.5)water=vec3(0.52,0.44,0.96);',
+          'else if(v_contrast>0.5)water=vec3(0.18,0.90,0.82);',
+          'float edge=smoothstep(0.0195,0.025,depth);',
+          'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
+          'if(v_contrast>0.5)alpha=max(alpha,0.90*edge);',
           'if(v_meta.w>0.5){water*=0.86;alpha*=0.94;}',
           'fragColor=vec4(water,alpha);',
           '}'
@@ -456,16 +463,19 @@ function createFloodVolumeLayer(maplibregl,bounds){
         this.vao=gl.createVertexArray();
         gl.bindVertexArray(this.vao);
         gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
-        const stride=8*4;
+        const stride=9*4;
         const coords=gl.getAttribLocation(program,'a_pos');
         const meta=gl.getAttribLocation(program,'a_meta');
         const contact=gl.getAttribLocation(program,'a_contact');
+        const contrastLoc=gl.getAttribLocation(program,'a_contrast');
         gl.enableVertexAttribArray(coords);
         gl.vertexAttribPointer(coords,3,gl.FLOAT,false,stride,0);
         gl.enableVertexAttribArray(meta);
         gl.vertexAttribPointer(meta,4,gl.FLOAT,false,stride,3*4);
         gl.enableVertexAttribArray(contact);
         gl.vertexAttribPointer(contact,1,gl.FLOAT,false,stride,7*4);
+        gl.enableVertexAttribArray(contrastLoc);
+        gl.vertexAttribPointer(contrastLoc,1,gl.FLOAT,false,stride,8*4);
         gl.bindVertexArray(null);
         gl.bindBuffer(gl.ARRAY_BUFFER,null);
         const origin=maplibregl.MercatorCoordinate.fromLngLat(bounds[0]);
@@ -506,6 +516,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
       const buffer=data.depthMm;
       const depths=new Uint16Array(buffer);
       const contacts=data.contactMask?new Uint8Array(data.contactMask):null;
+      const compare=Boolean(this.showContrast&&data.comparisonMask)?
+        new Uint8Array(data.comparisonMask):null;
       if(depths.length!==widths*rows)return;
       const nw=maplibregl.MercatorCoordinate.fromLngLat(bounds[0]);
       const ne=maplibregl.MercatorCoordinate.fromLngLat(bounds[1]);
@@ -520,15 +532,18 @@ function createFloodVolumeLayer(maplibregl,bounds){
       const meshCols=Math.ceil(widths/stride),meshRows=Math.ceil(rows/stride);
       const sampled=new Float32Array(meshCols*meshRows);
       const foam=new Float32Array(meshCols*meshRows);
+      const categories=new Uint8Array(meshCols*meshRows);
       for(let rr=0;rr<meshRows;rr++){
         for(let cc=0;cc<meshCols;cc++){
-          let peak=0,sum=0,amount=0,hit=0;
+          let peak=0,sum=0,amount=0,hit=0,hasNew=false,hasDeep=false;
           for(let y=rr*stride;y<Math.min(rows,(rr+1)*stride);y++){
             for(let x=cc*stride;x<Math.min(widths,(cc+1)*stride);x++){
               const i=y*widths+x,d=depths[i]/1000;
               peak=Math.max(peak,d);
               sum+=d;amount++;
               if(contacts?.[i])hit++;
+              if(compare?.[i]===1)hasNew=true;
+              if(compare?.[i]===2)hasDeep=true;
             }
           }
           const id=rr*meshCols+cc;
@@ -536,6 +551,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           // some channel peaks through the performance downsampling step.
           sampled[id]=stride===1?peak:Math.max(sum/Math.max(1,amount),peak*0.72);
           foam[id]=Math.min(1,hit/Math.max(1,amount)*1.1);
+          categories[id]=hasNew?1:hasDeep?2:0;
         }
       }
       // Temporal low-pass on displayed depth avoids hard mesh jumps between
@@ -564,16 +580,22 @@ function createFloodVolumeLayer(maplibregl,bounds){
         meshSoft[index]=total/weight;
       }
       sampled.set(meshSoft);
-      const cutoff=0.0015; // v3.22.24: physically computed 1.5 mm film visible in 3D
+      const cutoff=this.showShallow?0.0015:0.020; // display cutoff only, solver unchanged
       const metre=this.metreScale;
       const quads=[];
-      const visualHeight=depth=>Math.max(0.0015,Math.min(3,depth*1.45))*metre;
-      const makeVertex=(point,side,zOverride)=>{
+      const visualHeight=depth=>Math.max(cutoff,Math.min(3,depth*1.45))*metre;
+      const makeVertex=(point,side,zOverride,category)=>{
         const z=zOverride===undefined?visualHeight(point.d):zOverride;
-        quads.push(point.x,point.y,z,point.u,point.v,point.d,side,point.foam);
+        quads.push(point.x,point.y,z,point.u,point.v,point.d,side,point.foam,
+          category??point.category??0);
       };
       const triangle=(a,b,c,side=0)=>{
-        makeVertex(a,side);makeVertex(b,side);makeVertex(c,side);
+        // Flat categorical tint: same comparison class for whole triangle.
+        const category=([a.category,b.category,c.category].includes(1))?1:
+          ([a.category,b.category,c.category].includes(2)?2:0);
+        makeVertex(a,side,undefined,category);
+        makeVertex(b,side,undefined,category);
+        makeVertex(c,side,undefined,category);
       };
       const physicalNode=(col,row)=>{
         const valid=col>=0&&row>=0&&col<meshCols&&row<meshRows;
@@ -584,6 +606,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           x:nw.x+u*dx,y:nw.y+v*dy,u,v,
           d:valid?sampled[idx]:0,
           foam:valid?foam[idx]*.45:0,
+          category:valid?categories[idx]:0,
           contour:false
         };
       };
@@ -593,6 +616,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,
           u:a.u+(b.u-a.u)*t,v:a.v+(b.v-a.v)*t,
           d:cutoff,foam:a.foam+(b.foam-a.foam)*t,
+          category:a.category===1||b.category===1?1:a.category===2||b.category===2?2:0,
           contour:true
         };
       };
@@ -618,8 +642,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
           const a=poly[k],b=poly[(k+1)%poly.length];
           if(!a.contour||!b.contour)continue;
           // Shorelines are thin softened lips, not deep rectangular walls.
-          const za=Math.max(.0015*metre,visualHeight(a.d)-.027*metre);
-          const zb=Math.max(.0015*metre,visualHeight(b.d)-.027*metre);
+          const za=Math.max(cutoff*metre,visualHeight(a.d)-.027*metre);
+          const zb=Math.max(cutoff*metre,visualHeight(b.d)-.027*metre);
           makeVertex(a,1);makeVertex(b,1);
           makeVertex(b,1,zb);
           makeVertex(a,1);makeVertex(b,1,zb);
@@ -650,6 +674,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
             u:(a.u+c.u)*.5,v:(a.v+c.v)*.5,
             d:(a.d+b.d+c.d+d.d)*.25,
             foam:(a.foam+b.foam+c.foam+d.foam)*.25,
+            category:[a,b,c,d].some(n=>n.category===1)?1:[a,b,c,d].some(n=>n.category===2)?2:0,
             contour:false
           };
           for(let k=0;k<4;k++){
@@ -661,7 +686,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
         }
       }
       this.mesh=new Float32Array(quads);
-      this.count=this.mesh.length/8;
+      this.count=this.mesh.length/9;
       this.dirty=true;
       this.map.triggerRepaint();
     },
@@ -3655,6 +3680,8 @@ export function createLocalFloodUI({
     }
     const pixels=new Uint8ClampedArray(data.pixels);
     if(isolatedSelection&&volumetricWater?.ready&&data.depthMm){
+      volumetricWater.showShallow=showShallowWater;
+      volumetricWater.showContrast=showStormContrast&&displayMode==='year';
       volumetricWater.updateFrame(data,applyingYearFrame);
     }
     if(!lowResWater||!lowResWaterContext)return;
