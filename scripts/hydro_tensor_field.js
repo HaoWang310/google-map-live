@@ -410,10 +410,20 @@ export function createHydroTensorRenderer(args){
     const visibilityChanged=['direction','showRibbon','showFilaments'].some(k=>settings[k]!==next[k]);
     const modeChanged=next.mode!==settings.mode;
     settings=next;
-    if(solverChanged)queueSolve();
-    else if(geometryChanged&&result)queueGeometry();
-    else if(modeChanged||visibilityChanged)restart();
-    else applyStyle();
+    applyStyle();
+    if(solverChanged){
+      if(controlsGeometryTimer){clearTimeout(controlsGeometryTimer);controlsGeometryTimer=0}
+      queueSolve();
+      status(timelineYear+' 年 · 正在按新地形／汇水／积水权重重算方向…');
+    }else if(geometryChanged&&result){
+      drawLines(yearGrowth);renderedFraction=yearGrowth; // immediate geometry preview
+      if(controlsGeometryTimer)clearTimeout(controlsGeometryTimer);
+      controlsGeometryTimer=setTimeout(()=>{
+        controlsGeometryTimer=0;
+        if(enabled&&result&&!disposed)queueGeometry();
+      },140);
+      status('参数预览中 · '+timelineYear+' 年流线重算中…');
+    }else if(modeChanged||visibilityChanged)restart();
   }
   function setField(data,spatialContext,meta={}){
     if(disposed||!data)return;
@@ -484,6 +494,7 @@ export function createHydroTensorRenderer(args){
   }
   function clear(){
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
+    if(controlsGeometryTimer){clearTimeout(controlsGeometryTimer);controlsGeometryTimer=0}
     requestId++;result=null;flow=null;context=null;depth=null;geometryDiagnostics=null;geometrySnapshot=null;
     scenarioSnapshots.clear();
     geometryDesired++;geometryPending=null;
@@ -538,6 +549,7 @@ export function createHydroTensorRenderer(args){
   }
   function dispose(){
     disposed=true;stop();
+    if(controlsGeometryTimer)clearTimeout(controlsGeometryTimer);
     if(requestTimer)clearTimeout(requestTimer);
     if(geometryTimer)clearTimeout(geometryTimer);
     map.off?.('moveend',onViewportChanged);map.off?.('resize',onViewportChanged);
@@ -568,7 +580,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.51-ground-flood-footprints',
+    return {schema:'london-tensor-site-v1',version:'3.22.52-live-tensor-growth',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
@@ -576,7 +588,8 @@ export function createHydroTensorRenderer(args){
         generatedLines:features.length,displayedLines:settings.showFilaments?
           features.filter(f=>settings.direction==='dual'||f.properties.branch===settings.direction).length:0,
         generatedRibbons:ribbonFeatures.length,displayedRibbons:settings.showRibbon?ribbonFeatures.length:0,
-        staticFraction:settings.mode==='analysis'?1:renderedFraction},
+        staticFraction:renderedFraction,timelineYear,
+        yearRevealIsVisualOnly:true,geometryYear:geometrySnapshot?.scenario?.year??null},
       geometry:geometrySnapshot?{scenario:geometrySnapshot.scenario,parameters:geometrySnapshot.parameters,
         diagnostics:geometryDiagnostics,field:features,ribbons:ribbonFeatures}:null,
       pending:{tensor:Boolean(requestTimer)||result.requestId!==requestId,geometry:geometryBusy||Boolean(geometryPending)},
