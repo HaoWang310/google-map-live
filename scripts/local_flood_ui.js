@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.51-ground-flood-footprints';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.53-tensor-live-stability';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.54-rainfall-responsive-tensor';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.54-rainfall-responsive-tensor';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -923,7 +923,7 @@ export function createLocalFloodUI({
     return true;
   };
   const scenarioRequest=year=>({
-    year,climateScenario,floodMode,
+    year,climateScenario,floodMode,rainfallCase:rainPreset,
     eventRainMmH:presetRainRate(),
     eventTotalMm:RAIN_PRESETS[rainPreset].total,
     durationMin:120,
@@ -2325,7 +2325,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.53-tensor-live-stability</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.54-rainfall-responsive-tensor</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2403,7 +2403,7 @@ export function createLocalFloodUI({
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · 水文张量场</div>',
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用张量场</label>',
-      '<div class="site-hydro-mini site-tensor-caption">拖动年份实时显现 · 保留旧线直到新方向场计算完成</div>',
+      '<div class="site-hydro-mini site-tensor-caption">积水范围与水深驱动局部张量曲线密度及方向 · 不虚构排水路径</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">分析模式</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">演示模式</button></div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
@@ -3547,7 +3547,12 @@ export function createLocalFloodUI({
           current.scenarioYear===futureYear&&
           (!longTermMode||current.scenarioToken===lastRequestedScenarioToken));
         const snapshotMatches=data.scenarioYear===futureYear&&
-          (!longTermMode||data.scenarioToken===lastRequestedScenarioToken);
+          (!longTermMode||data.scenarioToken===lastRequestedScenarioToken)&&
+          (!data.annualAreaStage?.rainfallCase||
+            data.annualAreaStage.rainfallCase===rainPreset);
+        // Do not ever label an old rainfall scenario with the newly selected
+        // year/intensity before its actual water-depth frame has arrived.
+        if(!matching&&!snapshotMatches)return;
         updateFocusFlowVectors({
           ...data,
           flowField:matching?(current.flowField||data.flowField):data.flowField,
@@ -3789,6 +3794,7 @@ export function createLocalFloodUI({
     setSiteHud('siteHudTensorYear',String(year));
     hydroVector.setField(data.flowField,data.spatialContext||null,{
       year,kind:data.annualAreaStage?.kind||'rainfall-simulation',
+      rainPreset:data.annualAreaStage?.rainfallCase||null,
       depthMm:data.depthMm||null,grid:data.grid,token:data.scenarioToken,
       drainageThresholdKm2:Number($('networkThreshold')?.value)||0,
       force:data.forceVectorRefresh===true
@@ -3814,7 +3820,9 @@ export function createLocalFloodUI({
         // Both date and request token must match. A prior rainfall scenario
         // can finish with the SAME year after the user selects a new preset.
         if(data.scenarioYear!==futureYear||
-           data.scenarioToken!==lastRequestedScenarioToken)return;
+           data.scenarioToken!==lastRequestedScenarioToken||
+           (data.annualAreaStage.rainfallCase&&
+             data.annualAreaStage.rainfallCase!==rainPreset))return;
         if(data.annualAreaStage.kind==='rainfall-risk-scenario')
           yearFrames.set(data.scenarioYear,data);
       }else{
