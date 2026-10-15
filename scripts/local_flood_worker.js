@@ -195,7 +195,7 @@ function rasterizeBuilding(simulation,building){
         if(!simulation.inside[i])continue;
         const x=simulation.left+(col+.5)*simulation.cell;
         if(polygonIntersectsCell(x,y,simulation.cell,rings)){
-          simulation.obstacle[i]=1;
+          simulation.buildingFootprint[i]=1;
           const nextId=building.id+1;
           const previousId=simulation.buildingIds[i];
           // Several OSM vector-tile fragments can occupy the same hydrology
@@ -239,7 +239,9 @@ async function setup(data){
 
   const terrain=new Float32Array(cols*rows);
   const inside=new Uint8Array(cols*rows);
+  // Buildings are affected assets, never impermeable solver obstacles.
   const obstacle=new Uint8Array(cols*rows);
+  const buildingFootprint=new Uint8Array(cols*rows);
   const buildingIds=new Uint32Array(cols*rows);
   const boundary=new Uint8Array(cols*rows);
   const accumulation=new Uint16Array(cols*rows);
@@ -270,7 +272,7 @@ async function setup(data){
 
   sim={
     left:box.left,right:box.right,bottom:box.bottom,top:box.top,
-    cols,rows,cell,terrain,inside,obstacle,buildingIds,boundary,
+    cols,rows,cell,terrain,inside,obstacle,buildingFootprint,buildingIds,boundary,
     overlappingBuildingIds:new Map(),
     accumulation,drainageAvailable:Boolean(upstreamCodes),
     water:new Float32Array(cols*rows),
@@ -292,6 +294,7 @@ async function setup(data){
     left:box.left,top:box.top,cellProjectedM:cell,
     groundScale:Math.cos(centreLat*Math.PI/180),
     axisX:'east',axisY:'south',groundMetric:'local Mercator scale at site centre'};
+  // Preserve real building footprints for impact stats without blocking water.
   for(const building of sim.buildings)rasterizeBuilding(sim,building);
   applySpongeInterventions();
 
@@ -310,7 +313,7 @@ async function setup(data){
       if(terrain[i]<minZ)minZ=terrain[i];
       if(terrain[i]>maxZ)maxZ=terrain[i];
     }
-    if(obstacle[i])buildingCells++;
+    if(buildingFootprint[i])buildingCells++;
   }
 
   // Select the low-lying tenth of boundary cells as a provisional inlet
@@ -622,8 +625,8 @@ function simulationStep(dt=5){
       if(h<0.0001||!inside[i]||obstacle[i])continue;
       const head=terrain[i]+h;
       // Eight-neighbour surface transfer follows DEM + water-surface head.
-      // Diagonal flow is blocked if either orthogonal side is a building or
-      // outside the study site (no corner-cutting through walls).
+      // Diagonal flow is blocked if either orthogonal side is
+      // outside the study site (no corner-cutting across the parcel boundary).
       // Water is moved between cells, not created by roads or EA risk classes.
       const neighbours=[];
       let sumWeight=0,maxDrop=0;
@@ -782,7 +785,7 @@ function buildHydroFlowField(force=false){
       if(x<0||x>=cols||y<0||y>=rows)continue;
       const j=y*cols+x;
       if(!inside[j]||obstacle[j])continue;
-      // No streamline may cut a diagonal corner through a building.
+      // Do not cross a diagonal corner outside the parcel.
       if(dx&&dy){
         const sideX=row*cols+x,sideY=y*cols+col;
         if(!inside[sideX]||!inside[sideY]||
@@ -812,24 +815,25 @@ function buildHydroFlowField(force=false){
 
 function sendFrame(){
   if(!sim)return;
-  const {cols,rows,inside,obstacle,buildingIds,water,cell,svCapacity}=sim;
+  const {cols,rows,inside,obstacle,buildingFootprint,buildingIds,water,cell,svCapacity}=sim;
   const pixels=new Uint8ClampedArray(cols*rows*4);
-  // Visual 3D water uses the SAME obstacle-masked solver depths. Quantized
+  // Visual 3D water uses the SAME ground-passable solver depths. Quantized
   // millimetres avoid a second high-bandwidth float field per frame.
   const depthMm=new Uint16Array(cols*rows);
   // Exact solver-cell visibility mask for antialiased rendering: prevent
-  // water softness from bleeding over building footprints or off the parcel.
+  // water softness from bleeding beyond the parcel.
   const validMask=new Uint8Array(cols*rows);
   for(let i=0;i<validMask.length;i++)
-    validMask[i]=inside[i]&&!obstacle[i]?1:0;
+    validMask[i]=inside[i]?1:0;
   const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,shallowCells=0,volume=0,retainedM3=0;
+  let floodedFootprintCells=0;
   let riskOverlapCells=0,riskKnownCells=0;
   let eaRefCells=0,eaOverlap=0,eaOutside=0,eaMissing=0,eaDepthConsistent=0,eaDepthCompared=0;
   const depthCells=new Uint32Array(SIM_DEPTH_BOUNDS.length);
   const impacted=new Set();
   const markCollidingBuilding=cellIndex=>{
-    if(!obstacle[cellIndex])return;
+    if(!buildingFootprint[cellIndex])return;
     const primaryId=buildingIds[cellIndex];
     if(primaryId)impacted.add(primaryId-1);
     const overlaps=sim.overlappingBuildingIds.get(cellIndex);
@@ -845,10 +849,10 @@ function sendFrame(){
     if(h>=0.001){
       depthMm[i]=Math.min(65535,Math.round(h*1000));
       const touchesBuilding=
-        (row>0&&obstacle[i-cols])||
-        (col<cols-1&&obstacle[i+1])||
-        (row<rows-1&&obstacle[i+cols])||
-        (col>0&&obstacle[i-1]);
+        (row>0&&buildingFootprint[i-cols])||
+        (col<cols-1&&buildingFootprint[i+1])||
+        (row<rows-1&&buildingFootprint[i+cols])||
+        (col>0&&buildingFootprint[i-1]);
       if(touchesBuilding)contactMask[i]=1;
     }
     retainedM3+=Math.min(water[i],svCapacity[i])*cell*cell;
@@ -872,6 +876,7 @@ function sendFrame(){
         }else eaOutside++;
       }
       wetCells++;volume+=h*cell*cell;
+      if(buildingFootprint[i])floodedFootprintCells++;
       if(sim.riskRank?.[i]>0&&sim.riskRank[i]<5)riskOverlapCells++;
     }
     if(sim.eaDepthAvailable&&eaClass>0&&h<0.02)eaMissing++;
@@ -885,6 +890,8 @@ function sendFrame(){
     pixels[p]=colour[0];pixels[p+1]=colour[1];pixels[p+2]=colour[2];pixels[p+3]=colour[3];
 
     if(h>=0.05){
+      // Flooded floors count as impacted even without adjacent street water.
+      markCollidingBuilding(i);
       if(row>0)markCollidingBuilding(i-cols);
       if(col<cols-1)markCollidingBuilding(i+1);
       if(row<rows-1)markCollidingBuilding(i+cols);
@@ -934,6 +941,7 @@ function sendFrame(){
       spongeCells:sim.spongeCellCount,
       spongeFacilities:sim.spongeFacilityCount,
       impactedCount:impacted.size,
+      floodedBuildingFootprintAreaM2:floodedFootprintCells*cell*cell,
       eaRiskOverlapPercent:wetCells>0?100*riskOverlapCells/wetCells:0,
       eaRiskMappedCells:riskKnownCells,
       eaRiskAvailable:Boolean(sim.riskAvailable),
@@ -1212,7 +1220,7 @@ onmessage=async({data})=>{
         criticalRainTotalMm:forecast.critical.depth,
         criticalPeakAreaM2:forecast.critical.areaM2,
         envelopeWetAreaM2:forecast.finalWetCount*sim.cell*sim.cell,
-        solverPathModel:'dem-building-drainage-identical-all-rain-scenarios-v3.22.29',
+        solverPathModel:'dem-passable-building-footprints-drainage-v3.22.51',
         eaReferenceOnly:true,
         riskReference:'EA present-day RoFSW risk + 2070s Upper End 0.1% AEP future depth: independent post-simulation comparison; never a hydrodynamic input',
         methodologicalNote:displayMode==='event'
