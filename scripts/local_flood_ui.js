@@ -406,6 +406,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'in float v_contact;',
           'flat in float v_contrast;',
           'uniform float u_time;',
+          'uniform float u_shallow;',
           'out vec4 fragColor;',
           'void main(){',
           'float depth=max(v_meta.z,0.0);',
@@ -425,9 +426,11 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'water=mix(water,vec3(0.86,0.98,1.0),contactFoam);',
           'if(v_contrast>1.5)water=vec3(0.52,0.44,0.96);',
           'else if(v_contrast>0.5)water=vec3(0.18,0.90,0.82);',
-          'float edge=smoothstep(0.0195,0.025,depth);',
+          'float threshold=u_shallow>0.5?0.0015:0.020;',
+          'float edge=smoothstep(threshold*0.95,threshold+0.005,depth);',
           'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
-          'if(v_contrast>0.5)alpha=max(alpha,0.90*edge);',
+          'if(depth<0.020){water=vec3(0.54,0.75,0.83);alpha=0.16*edge;}',
+          'if(v_contrast>0.5&&depth>=0.020)alpha=max(alpha,0.90*edge);',
           'if(v_meta.w>0.5){water*=0.86;alpha*=0.94;}',
           'fragColor=vec4(water,alpha);',
           '}'
@@ -459,6 +462,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
         this.matrixLoc=gl.getUniformLocation(program,'u_matrix');
         this.timeLoc=gl.getUniformLocation(program,'u_time');
         this.metresLoc=gl.getUniformLocation(program,'u_metres');
+        this.shallowLoc=gl.getUniformLocation(program,'u_shallow');
         this.buffer=gl.createBuffer();
         this.vao=gl.createVertexArray();
         gl.bindVertexArray(this.vao);
@@ -719,6 +723,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
       gl.uniformMatrix4fv(this.matrixLoc,false,matrix);
       gl.uniform1f(this.timeLoc,(performance.now()-this.timeBase)/1000);
       gl.uniform1f(this.metresLoc,this.metreScale);
+      gl.uniform1f(this.shallowLoc,this.showShallow?1:0);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
       gl.enable(gl.DEPTH_TEST);
