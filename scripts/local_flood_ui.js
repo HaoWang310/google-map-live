@@ -2979,6 +2979,12 @@ export function createLocalFloodUI({
       installFocusFloodVolume(viewer);
       setFocusPitchMode();
       updateFocusAnalysisLayers();
+      // Controls can be toggled before the map style finishes loading.
+      // Rehydrate the vector layers once their GeoJSON sources are ready.
+      if(hydroDisplay.flow){
+        hydroVector?.setEnabled(true);
+        if(prepared)simulator?.requestFlowField();
+      }
       const bounds=selectionBounds(polygon[0]);
       if(!bounds)return;
       viewer.fitBounds(bounds,{
