@@ -27,7 +27,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.39-hydro-tensor',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.39-hydro-tensor-dem50',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -49,7 +49,8 @@ export function createHydroTensorRenderer(args){
         buildLines();drawLines(1);applyStyle();
         if(settings.mode==='presentation')restart();
         status('Tensor '+scenario.year+' · '+lines.length+
-          ' 条道路方向引导线 · '+data.cellX.toFixed(1)+' m native grid · 非水速');
+          ' 条道路方向引导线 · DEM '+data.demNativeResolutionM+
+          ' m / 计算网格 '+data.cellX.toFixed(1)+' m · 非水速');
       };
       return true;
     }catch(error){
@@ -370,6 +371,9 @@ export function createHydroTensorRenderer(args){
       stage:{...scenario},crs:'EPSG:4326',localBasis:'native flood-solver grid',
       boundsLngLat:getBounds(),cols:result.cols,rows:result.rows,
       cellX:result.cellX,cellY:result.cellY,
+      demNativeResolutionM:result.demNativeResolutionM,
+      terrainGradientSupportM:result.terrainGradientSupportM,
+      terrainSamplingNote:'Simulation cells finer than 50m do not imply independent higher-resolution DEM data',
       designNotMeasuredVelocity:true,
       parameters:{...settings}
     };
