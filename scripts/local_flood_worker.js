@@ -9,6 +9,7 @@ const annualStateCache=new Map();
 let annualCacheKey='';
 let annualFrameYear=null;
 let annualRiskForecast=null;
+let contrastBaselineCache=null; // v3.22.30: other rainfall scenario, same land/solver assumptions
 let annualAreaStage=null;
 let timer=null;
 let params={
@@ -898,6 +899,7 @@ function sendFrame(){
       Math.max(0,Number(params.rainfall)||0);
   const flowField=buildHydroFlowField();
   const buffers=[pixels.buffer,depthMm.buffer,contactMask.buffer,validMask.buffer];
+  if(sim.contrastMask)buffers.push(sim.contrastMask.buffer);
   if(flowField)buffers.push(flowField.vx.buffer,
     flowField.vy.buffer,flowField.intensity.buffer);
   postMessage({
@@ -906,6 +908,8 @@ function sendFrame(){
     width:cols,height:rows,pixels:pixels.buffer,
     depthMm:depthMm.buffer,contactMask:contactMask.buffer,
     validMask:validMask.buffer,
+    comparisonMask:sim.contrastMask?sim.contrastMask.buffer:null,
+    comparisonStats:sim.contrastStats||null,
     flowField:flowField?{
       cols:flowField.cols,rows:flowField.rows,units:'relative',
       vx:flowField.vx.buffer,vy:flowField.vy.buffer,
@@ -1001,7 +1005,7 @@ onmessage=async({data})=>{
     }
     if(data.type==='setup'){
       annualStateCache.clear();annualCacheKey='';annualFrameYear=null;
-      annualRiskForecast=null;annualAreaStage=null;
+      annualRiskForecast=null;contrastBaselineCache=null;annualAreaStage=null;
       running=false;clearTimeout(timer);timer=null;
       await setup(data);
       return;
@@ -1140,6 +1144,59 @@ onmessage=async({data})=>{
         }finally{params=priorParams;applySpongeInterventions();}
       }
       const forecast=annualRiskForecast,progress=(year-2026)/74;
+      // Optional, independent comparison: all four durations of the
+      // lower-rainfall scenario use the SAME grid, building and drainage
+      // solver. This cannot affect the selected scenario's cached envelope.
+      const compareBase=Number(data.compareBaseMm);
+      const compareEnabled=data.displayMode!=='event'&&
+        [5.5,40].includes(compareBase)&&!customDepths&&
+        [40,100].includes(designTotalMm)&&compareBase<designTotalMm;
+      if(compareEnabled){
+        const contrastKey=JSON.stringify([forecast.key,compareBase]);
+        if(!contrastBaselineCache||contrastBaselineCache.key!==contrastKey){
+          postMessage({type:'status',state:'preparing',
+            message:'正在逐格计算对照降雨：'+compareBase+
+              ' mm 对比 '+designTotalMm+' mm。仅增强差异显示，不修改水动力规则…'});
+          const backupParams=params,backupWater=new Float32Array(sim.water);
+          const backupTime=sim.timeSec,backupPhase=sim.visualPhase;
+          const backupInfil=sim.spongeInfilM3;
+          const baseEnvelope=new Float32Array(sim.water.length);
+          try{
+            for(const duration of durations){
+              const rate=compareBase/(duration/60);
+              params={...backupParams,rainfall:rate,infiltration,duration,
+                stormProfile:'peak',assumedUrbanDrainageMmH:assumedUrbanDrainage,
+                rainSeriesMm15:null,externalStageM:externalStage,floodMode:mode,
+                externalRiseMin:Number(data.externalRiseMin)||30,
+                externalFallMin:Number(data.externalFallMin)||90,
+                externalInlet:data.externalInlet==='all'?'all':'low',
+                interventions,openBoundary:true,drainageGuide:drainage,
+                drainageThreshold:Number(data.drainageThreshold)||0};
+              applySpongeInterventions();
+              sim.water.fill(0);sim.delta.fill(0);
+              sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
+              const steps=Math.ceil(duration*60/30);
+              for(let step=1;step<=steps;step++){
+                simulationStep(Math.min(30,duration*60-sim.timeSec));
+                const shouldCheck=step===steps||step%Math.max(1,Math.round(steps/60))===0;
+                if(!shouldCheck)continue;
+                for(let i=0;i<sim.water.length;i++){
+                  if(!sim.inside[i]||sim.obstacle[i])continue;
+                  if(sim.water[i]>baseEnvelope[i])baseEnvelope[i]=sim.water[i];
+                }
+              }
+            }
+            contrastBaselineCache={key:contrastKey,envelope:baseEnvelope,
+              totalMm:compareBase};
+          }finally{
+            params=backupParams;applySpongeInterventions();
+            sim.water.set(backupWater);sim.delta.fill(0);
+            sim.timeSec=backupTime;sim.visualPhase=backupPhase;
+            sim.spongeInfilM3=backupInfil;
+          }
+        }
+      }
+
       const displayMode=data.displayMode==='event'?'event':'year';
       sim.water.fill(0);sim.delta.fill(0);
       let selectedTimeMin=0,stagingFactor=progress;
@@ -1166,6 +1223,62 @@ onmessage=async({data})=>{
       for(let i=0;i<sim.water.length;i++)
         if(sim.inside[i]&&!sim.obstacle[i]&&
           sim.water[i]-sim.svCapacity[i]>=0.02)displayedWet++;
+      // Compare the SAME year scaling in both independent storm envelopes.
+      // Mask: 0=unchanged/ordinary, 1=newly flooded, 2=depth increase >=10cm,
+      // 3=previously flooded but not in the stronger rain result.
+      sim.contrastMask=null;sim.contrastStats=null;
+      if(compareEnabled&&contrastBaselineCache){
+        const mask=new Uint8Array(sim.water.length);
+        const lowerBuildings=new Set(),higherBuildings=new Set();
+        let newCells=0,lostCells=0,commonCells=0,baseCells=0,strongCells=0;
+        let deeperCells=0,peakBase=0,peakStrong=0;
+        const {cols,rows,cell,inside,obstacle,buildingIds}=sim;
+        function collectBuildingIds(set,i){
+          for(const j of [i-cols,i-1,i+1,i+cols]){
+            if(j<0||j>=sim.water.length||!obstacle[j])continue;
+            if(Math.abs((i%cols)-(j%cols))>1)continue;
+            const id=buildingIds[j];
+            if(id)set.add(id-1);
+            const overlaps=sim.overlappingBuildingIds?.get(j);
+            if(overlaps)for(const additional of overlaps)set.add(additional-1);
+          }
+        }
+        for(let i=0;i<sim.water.length;i++){
+          if(!inside[i]||obstacle[i])continue;
+          const baseDepth=Math.max(0,contrastBaselineCache.envelope[i]*stagingFactor-sim.svCapacity[i]);
+          const strongDepth=Math.max(0,sim.water[i]-sim.svCapacity[i]);
+          peakBase=Math.max(peakBase,baseDepth);peakStrong=Math.max(peakStrong,strongDepth);
+          const baseWet=baseDepth>=0.02,strongWet=strongDepth>=0.02;
+          if(baseWet)baseCells++;
+          if(strongWet)strongCells++;
+          if(baseWet&&strongWet){
+            commonCells++;
+            if(strongDepth-baseDepth>=0.10){deeperCells++;mask[i]=2;}
+          }else if(strongWet){newCells++;mask[i]=1;}
+          else if(baseWet){lostCells++;mask[i]=3;}
+          if(baseDepth>=0.05)collectBuildingIds(lowerBuildings,i);
+          if(strongDepth>=0.05)collectBuildingIds(higherBuildings,i);
+        }
+        let addedBuildings=0,lostBuildings=0;
+        for(const id of higherBuildings)if(!lowerBuildings.has(id))addedBuildings++;
+        for(const id of lowerBuildings)if(!higherBuildings.has(id))lostBuildings++;
+        const m2=cell*cell;
+        sim.contrastMask=mask;
+        sim.contrastStats={
+          lowerTotalMm:compareBase,upperTotalMm:designTotalMm,
+          comparisonYear:year,comparisonKind:'multi-duration-peak-depth-envelope',
+          baseWetAreaM2:baseCells*m2,strongWetAreaM2:strongCells*m2,
+          netWetAreaM2:(strongCells-baseCells)*m2,
+          newWetAreaM2:newCells*m2,lostWetAreaM2:lostCells*m2,
+          sharedWetAreaM2:commonCells*m2,markedDeeperAreaM2:deeperCells*m2,
+          baseMaxDepthM:peakBase,strongMaxDepthM:peakStrong,
+          maxDepthDifferenceM:peakStrong-peakBase,
+          baseImpactedBuildings:lowerBuildings.size,
+          strongImpactedBuildings:higherBuildings.size,
+          newImpactedBuildings:addedBuildings,lostImpactedBuildings:lostBuildings,
+          netImpactedBuildings:higherBuildings.size-lowerBuildings.size
+        };
+      }
       annualFrameYear=year;
       annualAreaStage={
         kind:displayMode==='event'?'storm-event':'rainfall-risk-scenario',
@@ -1195,6 +1308,7 @@ onmessage=async({data})=>{
           :'2026–2100 shows a MONOTONIC DESIGN STAGING of the MULTI-EVENT MAXIMUM depth envelope, not a single storm or a year-by-year flood forecast. FEH DDF is user-provided only; fallback equal-total durations are sensitivity tests.'
       };
       sendFrame();
+      sim.contrastMask=null;sim.contrastStats=null;
       annualFrameYear=null;annualAreaStage=null;
       return;
     }
@@ -1221,7 +1335,7 @@ onmessage=async({data})=>{
     if(data.type==='reset-initial'){
       running=false;clearTimeout(timer);timer=null;
       annualStateCache.clear();annualCacheKey='';
-      annualRiskForecast=null;
+      annualRiskForecast=null;contrastBaselineCache=null;
       annualFrameYear=null;annualAreaStage=null;
       if(sim){
         sim.water.fill(0);
