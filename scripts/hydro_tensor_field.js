@@ -1,33 +1,38 @@
-/* v3.22.39-hydro-tensor · Tensor-field drawing on native solver cells.
+/* v3.22.43-tensor-ribbon · Continuous tensor filaments and drainage ribbon on native cells.
    Separate worker computes the design tensor. Rendering interpolates its
    eigenvectors only for display; never invents finer DEM observations.
    Animation particle speeds denote only visual travel along LINE fields. */
 export function createHydroTensorRenderer(args){
-  const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,getBounds,onStatus}=args;
+  const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
+    ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus}=args;
   const empty=()=>({type:'FeatureCollection',features:[]});
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const presets={
     terrainWeight:35,drainageWeight:45,avoidance:70,
     smoothness:60,crossStrength:60,
     density:55,length:65,width:1.4,opacity:.85,glow:.5,
-    speed:1,growth:1,mode:'analysis',direction:'dual'
+    speed:1,growth:1,mode:'analysis',direction:'dual',
+    showRibbon:true,showFilaments:true,ribbonConcentration:68,
+    ribbonWidth:42,trunkEmphasis:75,curvatureSmoothing:65
   };
   let settings={...presets},enabled=false,disposed=false;
   let context=null,flow=null,scenario={year:2026,kind:'design-envelope'};
   let depth=null,result=null,worker=null;
   let workerGeneration=0,requestId=0,requestTimer=0,lastSubmitted=0;
   let pendingFrame=null,lines=[],features=[],animation=0,animationOrigin=0;
+  let ribbons=[],ribbonFeatures=[],hydroCorePaths=[];
   let lastAnimationDraw=0,renderedFraction=0,reported='';
   const R=6378137;
   const toMerc=([lng,lat])=>[R*lng*Math.PI/180,R*Math.log(Math.tan(Math.PI/4+clamp(lat,-85,85)*Math.PI/180/2))];
   const fromMerc=(x,y)=>[x/R*180/Math.PI,(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI];
   const src=()=>map.getSource(sourceId),dots=()=>map.getSource(particleSourceId);
+  const ribbonSource=()=>ribbonSourceId?map.getSource(ribbonSourceId):null;
   const status=t=>{if(t!==reported){reported=t;onStatus?.(t)}};
   const isNumericArray=(v,n)=>v?.length===n;
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.39-hydro-tensor-dem50',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.43-tensor-ribbon',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -40,17 +45,21 @@ export function createHydroTensorRenderer(args){
         const n=data.cols*data.rows;
         const fields={};
         for(const [key,buffer] of Object.entries(data.fields)){
-          const Type=key==='validMask'?Uint8Array:Float32Array;
+          const Type=key==='validMask'||key==='trunkMask'?Uint8Array:Float32Array;
           fields[key]=new Type(buffer);
           if(fields[key].length!==n)return;
         }
         result={...data,fields};
         lastSubmitted=performance.now();
-        buildLines();drawLines(1);applyStyle();
-        if(settings.mode==='presentation')restart();
+        buildLines();buildRibbons();applyStyle();
+        // Do not restart the growth animation for each arriving hydrological frame.
+        if(settings.mode==='presentation'&&animation){
+          drawLines(clamp((performance.now()-animationOrigin)/2800*
+            settings.growth,0,1));
+        }else restart();
         status('Tensor '+scenario.year+' · '+lines.length+
-          ' 条道路方向引导线 · DEM '+data.demNativeResolutionM+
-          ' m / 计算网格 '+data.cellX.toFixed(1)+' m · 非水速');
+          ' 张量细线 / '+ribbons.length+' 主汇水线束 · DEM '+
+          data.demNativeResolutionM+' m · 非实测流速');
       };
       return true;
     }catch(error){
@@ -129,7 +138,7 @@ export function createHydroTensorRenderer(args){
   function integrate(sx,sy,branch,sign,max){
     let x=sx,y=sy,previous=null;
     const points=[];
-    const step=.55;
+    const step=.55-.18*(settings.curvatureSmoothing/100);
     for(let i=0;i<max;i++){
       const a=sample(x,y,branch,previous);
       if(!a)break;
@@ -169,8 +178,8 @@ export function createHydroTensorRenderer(args){
       dy:(nw[1]-sw[1])/result.rows};
     const {cols,rows,fields:f}=result,branches=settings.direction==='dual'?
       ['primary','secondary']:[settings.direction];
-    const stride=clamp(Math.round(16-settings.density*.13),3,15);
-    const totalMax=Math.min(300,Math.round(35+settings.density*2.1));
+    const stride=clamp(Math.round(12-settings.density*.09),3,12);
+    const totalMax=Math.min(520,Math.round(70+settings.density*4.1));
     const newLines=[];
     for(const branch of branches){
       const seeds=[];
@@ -217,61 +226,231 @@ export function createHydroTensorRenderer(args){
       }
     }
     lines=newLines;
-    const fc=[];
-    for(const line of lines){
-      for(let j=0;j<line.coordinates.length-1;j+=5){
-        const section=line.coordinates.slice(j,Math.min(line.coordinates.length,j+6));
-        fc.push({type:'Feature',properties:{
-          color:line.color,analysisColor:line.branch==='primary'?'#b1beca':'#75849d',
-          width:settings.width*(line.branch==='primary'?1.1:.8)*(.7+1.1*line.rank),
-          opacity:line.branch==='primary'?1:.68,
-          branch:line.branch,relativeGuidance:line.rank
-        },geometry:{type:'LineString',coordinates:section}});
+    // One continuous LineString per tensor trajectory; no 5-point seams.
+    features=lines.map(line=>({type:'Feature',properties:{
+      color:line.color,analysisColor:line.branch==='primary'?'#a6b7c6':'#71869e',
+      width:settings.width*(line.branch==='primary'?1:.72)*(.55+.95*line.rank),
+      opacity:line.branch==='primary'?.75:.42,
+      branch:line.branch,relativeGuidance:line.rank
+    },geometry:{type:'LineString',coordinates:line.coordinates}}));
+  }
+
+  // Compute visualization-only hydrological ribbons from upstream
+  // contributing-area corridors. Do NOT export ribbons as road geometry.
+  function hydroAt(x,y,previous,distanceLimit){
+    if(!result)return null;
+    const {cols,rows,fields:f}=result;
+    const ix=Math.floor(x),iy=Math.floor(y);
+    if(ix<0||iy<0||ix>=cols||iy>=rows)return null;
+    let id=iy*cols+ix;
+    if(!f.validMask[id]||f.corridorDistance[id]<0||
+      f.corridorDistance[id]>distanceLimit)return null;
+    // Bilinear interpolation in the original solver grid (display only).
+    const ox=x-.5,oy=y-.5,x0=Math.floor(ox),y0=Math.floor(oy);
+    const tx=ox-x0,ty=oy-y0;
+    let ax=0,ay=0,rank=0,sum=0;
+    for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
+      const xx=x0+dx,yy=y0+dy;
+      if(xx<0||yy<0||xx>=cols||yy>=rows)continue;
+      id=yy*cols+xx;
+      if(!f.validMask[id]||f.corridorDistance[id]<0||
+        f.corridorDistance[id]>distanceLimit)continue;
+      const weight=(dx?tx:1-tx)*(dy?ty:1-ty);
+      if(weight<=0)continue;
+      let vx=f.corridorAxisX[id],vy=f.corridorAxisY[id];
+      if(previous&&vx*previous.x+vy*previous.y<0){vx=-vx;vy=-vy}
+      ax+=vx*weight;ay+=vy*weight;
+      rank+=f.corridorRank[id]*weight;sum+=weight;
+    }
+    const mag=Math.hypot(ax,ay);
+    return sum>.14&&mag>.12?{x:ax/mag,y:ay/mag,rank:rank/sum}:null;
+  }
+  function hydroTrace(x,y,sign,steps,maxDistance){
+    let last=null;const path=[];
+    for(let k=0;k<steps;k++){
+      const a=hydroAt(x,y,last,maxDistance);if(!a)break;
+      const step=.44;
+      const mid=hydroAt(x+sign*a.x*step*.5,
+        y+sign*a.y*step*.5,a,maxDistance);
+      if(!mid)break;
+      const nx=x+mid.x*sign*step,ny=y+mid.y*sign*step;
+      if(!hydroAt(nx,ny,a,maxDistance)||
+        !hydroAt((x+nx)*.5,(y+ny)*.5,a,maxDistance))break;
+      if(Math.floor(x)!==Math.floor(nx)&&Math.floor(y)!==Math.floor(ny)&&
+        (!hydroAt(nx,y,a,maxDistance)||
+         !hydroAt(x,ny,a,maxDistance)))break;
+      path.push({x,y,rank:a.rank});x=nx;y=ny;last=a;
+    }
+    return path;
+  }
+  function buildRibbons(){
+    ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
+    if(!result?.fields?.trunkMask||!renderGeo)return;
+    const {cols,rows,fields:f}=result;
+    const seeds=[];
+    for(let y=1;y<rows-1;y+=2)for(let x=1;x<cols-1;x+=2){
+      let picked=-1,strength=0;
+      for(let j=0;j<2;j++)for(let i=0;i<2;i++){
+        const id=(y+j)*cols+x+i;
+        if(f.trunkMask[id]!==1)continue;
+        if(f.corridorRank[id]>strength){strength=f.corridorRank[id];picked=id}
+      }
+      if(picked>=0)seeds.push({id:picked,score:strength,
+        x:picked%cols+.5,y:Math.floor(picked/cols)+.5});
+    }
+    seeds.sort((a,b)=>b.score-a.score||a.id-b.id);
+    const cellSize=Math.min(result.cellX,result.cellY);
+    const maxDistance=cellSize*(1+settings.ribbonWidth/100*4);
+    const occupied=new Uint8Array(cols*rows);
+    for(const seed of seeds){
+      if(hydroCorePaths.length>=24)break;
+      if(occupied[seed.id])continue;
+      const budget=Math.round(110+settings.length*1.7);
+      const backward=hydroTrace(seed.x,seed.y,-1,
+        Math.floor(budget*.45),maxDistance);
+      const forward=hydroTrace(seed.x,seed.y,1,
+        Math.floor(budget*.55),maxDistance);
+      const path=backward.reverse().slice(0,-1).concat(forward);
+      if(path.length<14)continue;
+      let overlap=0;
+      for(let i=0;i<path.length;i+=6){
+        const p=path[i],id=Math.floor(p.y)*cols+Math.floor(p.x);
+        if(occupied[id])overlap++;
+      }
+      if(overlap>Math.max(3,path.length/18))continue;
+      hydroCorePaths.push({path,rank:seed.score});
+      for(let i=0;i<path.length;i+=2){
+        const p=path[i],id=Math.floor(p.y)*cols+Math.floor(p.x);
+        if(id>=0&&id<occupied.length)occupied[id]=1;
       }
     }
-    features=fc;
+    const strands=Math.min(19,5+Math.round(settings.ribbonConcentration*.14));
+    const widthCells=.3+settings.ribbonWidth/100*2.8;
+    for(const core of hydroCorePaths){
+      for(let k=0;k<strands;k++){
+        const offset=(k-(strands-1)/2)/Math.max(1,(strands-1)/2)*widthCells;
+        const chunks=[];let points=[];
+        const flush=()=>{if(points.length>=7)chunks.push(points);points=[]};
+        for(let j=1;j<core.path.length-1;j++){
+          const p=core.path[j],a=core.path[j-1],b=core.path[j+1];
+          const dx=b.x-a.x,dy=b.y-a.y,mag=Math.hypot(dx,dy);
+          if(mag<.001){flush();continue}
+          const x=p.x-dy/mag*offset,y=p.y+dx/mag*offset;
+          const ix=Math.floor(x),iy=Math.floor(y);
+          if(ix<0||iy<0||ix>=cols||iy>=rows){flush();continue}
+          const id=iy*cols+ix;
+          if(!f.validMask[id]||f.corridorDistance[id]<0||
+            f.corridorDistance[id]>maxDistance+cellSize){flush();continue}
+          points.push(toGeo({x,y}));
+        }
+        flush();
+        for(const coords of chunks){
+          const balance=1-Math.abs(offset)/(widthCells+.001);
+          const rank=clamp(.6*core.rank+.4*balance,0,1);
+          ribbons.push({index:ribbons.length,coordinates:coords,
+            rank,color:color(rank),
+            width:settings.width*(.28+.50*balance),
+            opacity:.20+.70*balance,isHydrologicalReference:true});
+          if(ribbons.length>=320)break;
+        }
+        if(ribbons.length>=320)break;
+      }
+      if(ribbons.length>=320)break;
+    }
+    ribbonFeatures=ribbons.map(line=>({
+      type:'Feature',properties:{
+        color:line.color,analysisColor:'#518bab',
+        width:line.width,opacity:line.opacity,
+        relativeGuidance:line.rank,hydrologyReference:true},
+      geometry:{type:'LineString',coordinates:line.coordinates}
+    }));
   }
   function applyStyle(){
     const present=settings.mode==='presentation';
+    for(const [id,show] of [[lineLayerId,settings.showFilaments],
+      [glowLayerId,settings.showFilaments],
+      [ribbonLayerId,settings.showRibbon],
+      [ribbonGlowLayerId,settings.showRibbon]]){
+      if(id&&map.getLayer(id))map.setLayoutProperty(id,'visibility',
+        enabled&&show?'visible':'none');
+    }
     if(map.getLayer(lineLayerId)){
-      map.setPaintProperty(lineLayerId,'line-color',present?['get','color']:['get','analysisColor']);
+      map.setPaintProperty(lineLayerId,'line-color',
+        present?['get','color']:['get','analysisColor']);
       map.setPaintProperty(lineLayerId,'line-width',['get','width']);
-      map.setPaintProperty(lineLayerId,'line-opacity',['*',settings.opacity*(present?1:.83),['get','opacity']]);
+      map.setPaintProperty(lineLayerId,'line-opacity',
+        ['*',settings.opacity*(present?.9:.73),['get','opacity']]);
     }
     if(map.getLayer(glowLayerId)){
       map.setPaintProperty(glowLayerId,'line-color',['get','color']);
-      map.setPaintProperty(glowLayerId,'line-width',['*',['get','width'],1.5+settings.glow*4]);
-      map.setPaintProperty(glowLayerId,'line-opacity',['*',
-        present?settings.glow*settings.opacity*.35:0,['get','opacity']]);
+      map.setPaintProperty(glowLayerId,'line-width',
+        ['*',['get','width'],1.5+settings.glow*4]);
+      map.setPaintProperty(glowLayerId,'line-opacity',
+        ['*',present?settings.glow*settings.opacity*.27:0,
+          ['get','opacity']]);
       map.setPaintProperty(glowLayerId,'line-blur',1+settings.glow*3);
+    }
+    if(ribbonLayerId&&map.getLayer(ribbonLayerId)){
+      map.setPaintProperty(ribbonLayerId,'line-color',
+        present?['get','color']:['get','analysisColor']);
+      map.setPaintProperty(ribbonLayerId,'line-width',
+        ['*',['get','width'],1+settings.trunkEmphasis/110]);
+      map.setPaintProperty(ribbonLayerId,'line-opacity',
+        ['*',settings.opacity*(present?.96:.5),['get','opacity']]);
+    }
+    if(ribbonGlowLayerId&&map.getLayer(ribbonGlowLayerId)){
+      map.setPaintProperty(ribbonGlowLayerId,'line-color',['get','color']);
+      map.setPaintProperty(ribbonGlowLayerId,'line-width',
+        ['*',['get','width'],2+settings.glow*5+
+          settings.trunkEmphasis/55]);
+      map.setPaintProperty(ribbonGlowLayerId,'line-opacity',
+        ['*',present?settings.glow*settings.opacity*.43:.05,
+          ['get','opacity']]);
+      map.setPaintProperty(ribbonGlowLayerId,'line-blur',1.4+settings.glow*4);
     }
     if(map.getLayer(particleLayerId)){
       map.setLayoutProperty(particleLayerId,'visibility',
         enabled&&present?'visible':'none');
-      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.82);
+      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.85);
     }
   }
-  function drawLines(frac){
-    if(!src())return;
-    const n=Math.floor(features.length*clamp(frac,0,1));
-    src().setData({type:'FeatureCollection',features:n===features.length?features:features.slice(0,n)});
+  function drawLines(fraction=1){
+    const f=clamp(fraction,0,1);
+    const reveal=items=>f>=1?items:items.map(feature=>{
+      const coords=feature.geometry.coordinates;
+      const length=Math.floor(1+(coords.length-1)*f);
+      if(length<2)return null;
+      return {...feature,geometry:{type:'LineString',
+        coordinates:coords.slice(0,length)}};
+    }).filter(Boolean);
+    src()?.setData({type:'FeatureCollection',
+      features:settings.showFilaments?reveal(features):[]});
+    ribbonSource()?.setData({type:'FeatureCollection',
+      features:settings.showRibbon?reveal(ribbonFeatures):[]});
   }
-  function drawParticles(elapsed,frac){
+  function drawParticles(elapsed,progress){
     if(!dots())return;
-    if(!enabled||settings.mode!=='presentation'){dots().setData(empty());return}
-    const count=Math.min(125,Math.round(24+settings.density*.9));
-    const particles=[];
-    for(let i=0;i<count&&lines.length;i++){
-      const line=lines[(i*37)%lines.length];
-      if(line.index>=lines.length*frac||line.total<.01)continue;
-      const speed=(.065+.08*line.rank)*settings.speed;
-      const t=((elapsed*speed+i*.61803398875)%1)*line.total;
-      let l=0,r=line.distances.length-1;
-      while(l+1<r){const m=(l+r)>>1;if(line.distances[m]<t)l=m;else r=m}
-      const u=(t-line.distances[l])/Math.max(.00001,line.distances[r]-line.distances[l]);
-      const a=line.coordinates[l],b=line.coordinates[r];
-      particles.push({type:'Feature',properties:{color:line.color,radius:.85+line.rank*1.25},
-        geometry:{type:'Point',coordinates:[a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u]}});
+    if(!enabled||settings.mode!=='presentation'){
+      dots().setData(empty());return
+    }
+    const particles=[],count=Math.min(145,Math.round(30+settings.density));
+    for(let i=0;i<count;i++){
+      const main=settings.showRibbon&&ribbons.length&&i%3===0;
+      const available=main?ribbons:lines;
+      if(!available.length||(!main&&!settings.showFilaments))continue;
+      const line=available[(i*37)%available.length];
+      if(line.index>=available.length*progress)continue;
+      const coords=line.coordinates;
+      if(coords.length<2)continue;
+      // Time is purely a display timeline; no true metres-per-second claim.
+      const u=(elapsed*settings.speed*(.06+.09*line.rank)+
+        i*.61803398875)%1;
+      const pos=u*(coords.length-1),j=Math.min(coords.length-2,Math.floor(pos));
+      const alpha=pos-j,a=coords[j],b=coords[j+1];
+      particles.push({type:'Feature',properties:{
+        color:line.color,radius:main?1.35+line.rank:.85+line.rank
+      },geometry:{type:'Point',coordinates:[
+        a[0]+(b[0]-a[0])*alpha,a[1]+(b[1]-a[1])*alpha]}});
     }
     dots().setData({type:'FeatureCollection',features:particles});
   }
@@ -279,12 +458,14 @@ export function createHydroTensorRenderer(args){
   function tick(time){
     if(!enabled||settings.mode!=='presentation'){stop();return}
     animation=requestAnimationFrame(tick);
-    if(time-lastAnimationDraw<50)return;
+    if(time-lastAnimationDraw<65)return;
     lastAnimationDraw=time;
     const elapsed=Math.max(0,(time-animationOrigin)/1000);
-    const fraction=clamp(elapsed*settings.growth/2.8,0,1);
-    if(fraction<1||renderedFraction<1){drawLines(fraction);renderedFraction=fraction}
-    drawParticles(elapsed,fraction);
+    const progress=clamp(elapsed*settings.growth/3.1,0,1);
+    if(progress<1||renderedFraction<1){
+      drawLines(progress);renderedFraction=progress;
+    }
+    drawParticles(elapsed,progress);
   }
   function restart(){
     stop();renderedFraction=0;animationOrigin=performance.now();
@@ -297,7 +478,11 @@ export function createHydroTensorRenderer(args){
     if(disposed)return;
     const next={...settings,...patch};
     for(const key of ['terrainWeight','drainageWeight','avoidance','smoothness',
-      'crossStrength','density','length'])next[key]=clamp(Number(next[key]),0,100);
+      'crossStrength','density','length','ribbonConcentration','ribbonWidth',
+      'trunkEmphasis','curvatureSmoothing'])
+      next[key]=clamp(Number(next[key]),0,100);
+    next.showRibbon=Boolean(next.showRibbon);
+    next.showFilaments=Boolean(next.showFilaments);
     next.width=clamp(Number(next.width),.5,3.5);
     next.opacity=clamp(Number(next.opacity),.1,1);
     next.glow=clamp(Number(next.glow),0,1);
@@ -308,11 +493,13 @@ export function createHydroTensorRenderer(args){
       next.direction:'dual';
     const solverChanged=['terrainWeight','drainageWeight','avoidance',
       'smoothness','crossStrength'].some(k=>settings[k]!==next[k]);
-    const geometryChanged=['density','length','direction','width'].some(k=>settings[k]!==next[k]);
+    const geometryChanged=['density','length','direction','width',
+      'ribbonConcentration','ribbonWidth','trunkEmphasis','curvatureSmoothing',
+      'showRibbon','showFilaments'].some(k=>settings[k]!==next[k]);
     const modeChanged=next.mode!==settings.mode;
     settings=next;
     if(solverChanged)queueSolve();
-    else if(geometryChanged&&result){buildLines();restart()}
+    else if(geometryChanged&&result){buildLines();buildRibbons();restart()}
     else if(modeChanged)restart();
     else applyStyle();
   }
@@ -346,21 +533,24 @@ export function createHydroTensorRenderer(args){
   function setEnabled(on){
     enabled=Boolean(on)&&!disposed;
     const state=enabled?'visible':'none';
-    for(const id of [lineLayerId,glowLayerId]){
+    for(const id of [lineLayerId,glowLayerId,ribbonLayerId,ribbonGlowLayerId]){
       if(map.getLayer(id))map.setLayoutProperty(id,'visibility',state);
     }
     if(!enabled){
-      stop();src()?.setData(empty());dots()?.setData(empty());
+      stop();src()?.setData(empty());ribbonSource()?.setData(empty());
+    dots()?.setData(empty());
       return;
     }
-    if(result){buildLines();restart()}
+    if(result){buildLines();buildRibbons();restart()}
     else if(flow&&context)queueSolve(true);
     applyStyle();
   }
   function clear(){
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
-    requestId++;result=null;flow=null;context=null;depth=null;lines=[];features=[];
-    stop();src()?.setData(empty());dots()?.setData(empty());
+    requestId++;result=null;flow=null;context=null;depth=null;
+    lines=[];features=[];ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
+    stop();src()?.setData(empty());ribbonSource()?.setData(empty());
+    dots()?.setData(empty());
     status('等待 DEM / 汇水 / 雨水计算数据');
   }
   function exportStructuredData(){
@@ -381,6 +571,8 @@ export function createHydroTensorRenderer(args){
     if(c)for(const [name,array] of Object.entries(c))out[name]=new array.constructor(array);
     if(depth)out.depthMm=new Uint16Array(depth);
     // Do not return road polylines as validated street designs.
+    out.hydrologyRibbonVisualOnly=true;
+    out.hydrologyRibbonCount=ribbons.length;
     out.nextStages=['Wool Algorithm','Road Network','Urban Parcel Subdivision'];
     return out;
   }
@@ -388,7 +580,8 @@ export function createHydroTensorRenderer(args){
     disposed=true;stop();
     if(requestTimer)clearTimeout(requestTimer);
     worker?.terminate();worker=null;
-    src()?.setData(empty());dots()?.setData(empty());
+    src()?.setData(empty());ribbonSource()?.setData(empty());
+    dots()?.setData(empty());
   }
   return {configure,setField,setEnabled,clear,dispose,exportStructuredData,
     getConfig:()=>({...settings})};
