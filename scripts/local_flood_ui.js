@@ -1866,6 +1866,35 @@ export function createLocalFloodUI({
   function updateSiteHydroDashboard(frame=lastHydroFrame){
     if(!isolatedSelection)return;
     const v=frame?.stats;
+    const c=frame?.comparisonStats;
+    if(siteHud('siteHudContrastStatus')){
+      const ha=m2=>(Number(m2||0)/10000).toFixed(2);
+      if(c&&displayMode==='year'&&showStormContrast){
+        setSiteHud('siteHudContrastStatus',c.lowerTotalMm+' mm → '+c.upperTotalMm+
+          ' mm · '+c.comparisonYear+' 年，同一地块同一设施配置的四历时包络对比');
+        setSiteHud('siteHudContrastNewArea','+'+ha(c.newWetAreaM2)+' ha');
+        setSiteHud('siteHudContrastNetArea',(c.netWetAreaM2>=0?'+':'')+
+          ha(c.netWetAreaM2)+' ha');
+        setSiteHud('siteHudContrastMaxDepth',(c.maxDepthDifferenceM>=0?'+':'')+
+          Number(c.maxDepthDifferenceM).toFixed(2)+' m');
+        setSiteHud('siteHudContrastNewBuildings','+'+c.newImpactedBuildings+' 栋');
+        setSiteHud('siteHudContrastAdditional','加深≥10 cm 面积：'+
+          ha(c.markedDeeperAreaM2)+' ha；较强情景未覆盖的旧积水：'+
+          ha(c.lostWetAreaM2)+' ha；建筑净变化：'+
+          (c.netImpactedBuildings>=0?'+':'')+c.netImpactedBuildings+' 栋。');
+      }else{
+        setSiteHud('siteHudContrastStatus',displayMode==='event'
+          ?'单场分钟模式不叠加多历时包络差值，避免不同控制历时的错位比较。'
+          :fehDurationDepthsMm
+            ?'输入 FEH DDF 后暂停自动跨等级比较：须分别提供同一AEP下两套各历时雨量。'
+            :rainPreset==='average'
+              ?'平均降雨为基准情景；选择中等或特大暴雨查看增量。'
+              :showStormContrast?'正在计算同年弱降雨参考包络…':'对比高亮已关闭。');
+        for(const id of ['siteHudContrastNewArea','siteHudContrastNetArea',
+          'siteHudContrastMaxDepth','siteHudContrastNewBuildings'])setSiteHud(id,'—');
+        setSiteHud('siteHudContrastAdditional','');
+      }
+    }
     if(siteHud('siteHudOfficialAgreement')){
       if(v?.officialDepthAvailable){
         const ha=x=>(Number(x||0)/10000).toFixed(2)+' ha';
@@ -2241,6 +2270,10 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 显示</div>',
       '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉隐藏，不影响水文计算）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
+      '<label class="site-hydro-check"><input id="siteHudShowShallow" type="checkbox"> 显示浅湿润（1–20 mm；默认隐藏）</label>',
+      '<label class="site-hydro-check"><input id="siteHudShowContrast" type="checkbox" checked> 高亮与较弱降雨相比的新增淹没范围</label>',
+      '<label class="site-hydro-row">降雨情景对比 <select id="siteHudComparePair" style="flex:1;min-width:140px"><option value="moderate-average" selected>中等 − 平均</option><option value="extreme-moderate">特大暴雨 − 中等</option></select></label>',
+      '<div class="site-hydro-mini">蓝色：共有积水 · 亮青：新增淹没 ≥2 cm · 紫色：两档均淹没但加深 ≥10 cm。仅基于同一地块及配置的四历时设计包络，非EA实时洪水。独立单场分钟级模式自动关闭增量高亮。</div>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
       '<div class="site-hydro-mini">3D 水体厚度按真实计算水深视觉放大 2 倍（最大显示 4 m）；实际水深统计、碰撞阈值均保持原值。水花和波纹属于表现效果。</div>',
@@ -2254,15 +2287,23 @@ export function createLocalFloodUI({
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
       '<div class="site-hydro-section" style="margin-top:4px;padding-top:7px;border-top:0">',
       '<div class="site-hydro-section-title">动态积水水深分级 · SIMULATED DEPTH</div>',
-      '<div class="site-hydro-mini">以下是随模拟时间变化的水深，并非 EA 洪涝风险概率。</div>',
+      '<div class="site-hydro-mini">默认仅绘制实际积水 ≥0.02 m；1–20 mm 浅湿润可单独打开。以下是模拟水深，不是 EA 洪涝概率。</div>',
       '<div class="site-hydro-depth-legend">',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:#218ae1"></i><span>0.001–0.05m <strong id="siteDepthArea0">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:#218ae1"></i><span>0.001–0.05m（含浅湿润）<strong id="siteDepthArea0">0.00 ha</strong></span></div>',
       '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:#0f77d9"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
       '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:#0b5cce"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
       '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:#0f49b8"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
       '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:#163999"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
       '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:#142770"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
       '</div><div class="site-hydro-depth-note" id="siteHudFloodPhase">尚未运行 · 无动态积水</div></div>',
+      '<div class="site-hydro-section" id="siteHudScenarioContrastSection"><div class="site-hydro-section-title">SCENARIO DIFFERENCE · 降雨情景差异</div>',
+      '<div id="siteHudContrastStatus" class="site-hydro-mini">四历时真实网格差异等待求解。切换情景对比以查看新增淹没。</div>',
+      '<div class="site-hydro-metric"><small>新增淹没面积（较弱情景未淹没）</small><b id="siteHudContrastNewArea">— ha</b></div>',
+      '<div class="site-hydro-metric"><small>积水面积净变化</small><b id="siteHudContrastNetArea">— ha</b></div>',
+      '<div class="site-hydro-metric"><small>最大水深差（两个场景各自最大值之差）</small><b id="siteHudContrastMaxDepth">— m</b></div>',
+      '<div class="site-hydro-metric"><small>新增受影响建筑（ID差集）</small><b id="siteHudContrastNewBuildings">— 栋</b></div>',
+      '<div id="siteHudContrastAdditional" class="site-hydro-mini"></div>',
+      '</div>',
       '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.000 m</b></div>',
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
       '<div class="site-hydro-metric"><small>IMPACTED BUILDINGS · 受影响建筑</small><b id="siteHudImpacted">0 栋</b></div>',
