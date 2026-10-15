@@ -817,6 +817,7 @@ export function createLocalFloodUI({
   let awaitingInitialReset=false;
   // The standalone 2026–2100 timeline now uses one coherent annual
   // accumulation scenario; its removed checkbox is no longer required.
+  let lastRequestedScenarioToken=0;
   const yearFrames=new Map();
   let applyingYearFrame=false;
   let pendingBaselineFrame=false;
@@ -874,7 +875,7 @@ export function createLocalFloodUI({
   };
   const requestYear=year=>{
     if(!resolveFloodModeForPlayback())return false;
-    ensureSimulator().seekYear(scenarioRequest(year));
+    ensureSimulator().seekYear({...scenarioRequest(year),scenarioToken:++lastRequestedScenarioToken});
     return true;
   };
   const seekYear=value=>{
@@ -3732,9 +3733,12 @@ export function createLocalFloodUI({
     if(longTermMode&&!applyingYearFrame){
       if(['rainfall-risk-scenario','storm-event'].includes(data?.annualAreaStage?.kind)&&
          Number.isInteger(data.scenarioYear)){
-        if(data.annualAreaStage.kind==='rainfall-risk-scenario')yearFrames.set(data.scenarioYear,data);
-        // Ignore stale Worker results received after a rapid slider movement.
-        if(data.scenarioYear!==futureYear)return;
+        // Both date and request token must match. A prior rainfall scenario
+        // can finish with the SAME year after the user selects a new preset.
+        if(data.scenarioYear!==futureYear||
+           data.scenarioToken!==lastRequestedScenarioToken)return;
+        if(data.annualAreaStage.kind==='rainfall-risk-scenario')
+          yearFrames.set(data.scenarioYear,data);
       }else{
         // Annual interpolation must NEVER render an unrelated event/setup/
         // paused-state worker frame (previously this leaked a full flood
