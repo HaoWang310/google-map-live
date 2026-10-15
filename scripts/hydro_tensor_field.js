@@ -446,13 +446,19 @@ export function createHydroTensorRenderer(args){
   }
   function drawLines(fraction=1){
     const f=clamp(fraction,0,1);
-    const reveal=items=>f>=1?items:items.map(feature=>{
-      const coords=feature.geometry.coordinates;
-      const length=Math.floor(1+(coords.length-1)*f);
-      if(length<2)return null;
-      return {...feature,geometry:{type:'LineString',
-        coordinates:coords.slice(0,length)}};
-    }).filter(Boolean);
+    // Year-based spatial growth: show more seeded tensor trajectories AND
+    // longer portions of each path as the accepted scenario year advances.
+    // Geometry itself is still derived from the current year DEM + water.
+    const reveal=items=>{
+      if(f>=1)return items;
+      const count=Math.max(1,Math.ceil(items.length*f));
+      return items.slice(0,count).map(feature=>{
+        const coords=feature.geometry.coordinates;
+        const length=Math.max(2,Math.floor(1+(coords.length-1)*f));
+        return {...feature,geometry:{type:'LineString',
+          coordinates:coords.slice(0,length)}};
+      }).filter(feature=>feature.geometry.coordinates.length>=2);
+    };
     src()?.setData({type:'FeatureCollection',
       features:settings.showFilaments?reveal(features):[]});
     ribbonSource()?.setData({type:'FeatureCollection',
