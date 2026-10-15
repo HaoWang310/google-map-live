@@ -26,6 +26,7 @@ export function createHydroTensorRenderer(args){
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[],geometryDiagnostics=null;
   let geometryTimer=0,controlsGeometryTimer=0,lastViewKey='';
   let geometryWorker=null,geometryBusy=false,geometryDesired=0,geometryPending=null,geometrySnapshot=null;
+  let geometryActiveId=0,geometryStartedAt=0,provisionalLineCount=0;
   const scenarioSnapshots=new Map();
   let lastAnimationDraw=0,renderedFraction=0,reported='';
   // The year controls an explicit *visual line reveal*, not invented hydraulic data.
@@ -65,6 +66,8 @@ export function createHydroTensorRenderer(args){
         result={...data,fields,context:submitted.context,depth:submitted.depth,parameters:submitted.parameters};
         if([2026,2100].includes(data.scenario?.year))scenarioSnapshots.set(data.scenario.year,result);
         lastSubmitted=performance.now();
+        // Show real eigenvectors immediately while expensive integral curves run.
+        if(!features.length)installDirectionalPreview(result);
         queueGeometry();
       };
       return true;
@@ -75,7 +78,8 @@ export function createHydroTensorRenderer(args){
   }
   function queueSolve(immediate=false){
     requestId++; // Invalidate an in-flight result as soon as inputs change.
-    geometryDesired++;geometryPending=null;
+    // Never invalidate an already-running useful geometry merely because
+    // the next hydrological tensor is being calculated. Keep it on screen.
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     if(!enabled||!flow||!context||disposed)return;
     status(scenario.year+' 年 · 正在计算方向场'+(geometrySnapshot?
@@ -132,6 +136,59 @@ export function createHydroTensorRenderer(args){
       }
     }catch{/* An unloaded viewport uses the complete known source grid. */}
     return {metersPerPixel,viewRect};
+  }
+  function installDirectionalPreview(computed){
+    if(!computed?.fields||features.length||!enabled)return false;
+    const f=computed.fields,g=computed.grid,w=computed.cols,h=computed.rows;
+    const stride=Math.max(3,Math.ceil(Math.sqrt(w*h/370)));
+    const candidates=[];
+    const validAt=(x,y)=>{
+      const xx=Math.floor(x),yy=Math.floor(y),i=yy*w+xx;
+      return xx>=0&&xx<w&&yy>=0&&yy<h&&f.validMask[i]&&
+        f.confidence[i]>=.075&&f.anisotropy[i]>.02&&
+        Math.hypot(f.primaryX[i],f.primaryY[i])>.5;
+    };
+    const toCoordinate=p=>fromMerc(
+      g.left+p.x*g.cellProjectedM,g.top-p.y*g.cellProjectedM);
+    const trace=(x,y,branch,sign)=>{
+      let px=x,py=y,previous=null;
+      const points=[{x,y}];
+      for(let k=0;k<7;k++){
+        if(!validAt(px,py))break;
+        const idx=Math.floor(py)*w+Math.floor(px);
+        const ux=f.primaryX[idx],uy=f.primaryY[idx];
+        let vx=branch==='primary'?ux:-uy,vy=branch==='primary'?uy:ux;
+        if(previous&&vx*previous[0]+vy*previous[1]<0){vx=-vx;vy=-vy}
+        if(!previous&&sign<0){vx=-vx;vy=-vy}
+        const nx=px+vx*.68,ny=py+vy*.68;
+        if(!validAt(nx,ny))break;
+        // No diagonal corner-cutting beyond the actual supported field.
+        if(Math.floor(nx)!==Math.floor(px)&&Math.floor(ny)!==Math.floor(py)&&
+           (!validAt(nx,py)||!validAt(px,ny)))break;
+        points.push({x:nx,y:ny});px=nx;py=ny;previous=[vx,vy];
+      }
+      return points;
+    };
+    for(let y=stride*.5;y<h;y+=stride)for(let x=stride*.5;x<w;x+=stride){
+      if(!validAt(x,y))continue;
+      for(const branch of ['primary','secondary']){
+        const back=trace(x,y,branch,-1),forward=trace(x,y,branch,1);
+        const path=back.slice(1).reverse().concat(forward);
+        if(path.length<4)continue;
+        candidates.push({type:'Feature',properties:{
+          color:branch==='primary'?'#68cce3':'#8c91be',
+          analysisColor:branch==='primary'?'#68cce3':'#8c91be',
+          width:branch==='primary'?1.05:.75,opacity:branch==='primary'?.85:.60,
+          glowFactor:0,family:'base',branch,preview:true
+        },geometry:{type:'LineString',coordinates:path.map(toCoordinate)}});
+      }
+    }
+    if(!candidates.length)return false;
+    features=candidates;provisionalLineCount=candidates.length;
+    drawLines(growthTo);renderedFraction=growthTo;
+    status((computed.scenario?.year??timelineYear)+' 年 · 已显示真实张量方向预览 '+candidates.length+
+      ' 条；长流线正在后台积分，预览并非最终曲线');
+    return true;
   }
   function geometryStatus(){
     if(!geometryDiagnostics)return;
@@ -193,29 +250,43 @@ export function createHydroTensorRenderer(args){
     if(!geometryWorker){
       try{
         geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.22.50-tensor-site-fix',import.meta.url),{type:'module'});
-        geometryWorker.onmessage=({data})=>{
-          if(disposed)return;
-          geometryBusy=false;
-          if(data.type==='geometry-error'&&data.id===geometryDesired)status('静态流线计算失败：'+data.message);
-          else if(data.type==='geometry-result'&&data.id===geometryDesired&&enabled){
+        const active=geometryWorker;
+        active.onmessage=({data})=>{
+          if(disposed||geometryWorker!==active)return;
+          geometryBusy=false;geometryActiveId=0;
+          if(data.type==='geometry-error'&&data.id===geometryDesired){
+            status('当前方向积分失败，继续保留已显示的有效流线：'+data.message);
+          }else if(data.type==='geometry-result'&&data.id===geometryDesired&&enabled){
             const packet=data.packet,unpacked=unpackTensorGeometryPacket(packet);
-            geometrySnapshot={grid:packet.grid,scenario:packet.scenario,parameters:packet.parameters};
-            buildLines(packet,unpacked);buildRibbons(packet,unpacked);
-            lastRenderedYear=packet.scenario?.year??2026;
-            // Never reset slider progress to 100% after asynchronous geometry finishes.
-            yearGrowth=growthTo;growthFrom=growthTo;
-            restart();geometryStatus();
+            // A Worker may legitimately fail to integrate long lines from
+            // some local tensor evidence: never erase all usable curves.
+            if(unpacked.lines?.length||unpacked.ribbons?.length){
+              geometrySnapshot={grid:packet.grid,scenario:packet.scenario,
+                parameters:packet.parameters};
+              buildLines(packet,unpacked);buildRibbons(packet,unpacked);
+              provisionalLineCount=0;
+              lastRenderedYear=packet.scenario?.year??2026;
+              // Preserve selected-year reveal even if geometry finishes late.
+              yearGrowth=growthTo;growthFrom=growthTo;
+              restart();geometryStatus();
+            }else{
+              geometryDiagnostics=packet.diagnostics;
+              status('长流线积分结果为空；保留方向预览，检查置信度及积分终止原因');
+            }
           }
           pumpGeometry();
         };
-        geometryWorker.onerror=event=>{
-          geometryBusy=false;geometryWorker?.terminate();geometryWorker=null;
-          status('静态流线 Worker 失败：'+(event.message||'请检查数据'));
+        active.onerror=event=>{
+          if(disposed||geometryWorker!==active)return;
+          geometryBusy=false;geometryActiveId=0;
+          active.terminate();geometryWorker=null;
+          status('流线 Worker 失败，保留可见方向预览：'+(event.message||'请检查数据'));
           pumpGeometry();
         };
-      }catch(error){status('静态流线 Worker 未启动：'+error.message);return}
+      }catch(error){status('流线 Worker 未启动：'+error.message);return}
     }
     const job=geometryPending;geometryPending=null;geometryBusy=true;
+    geometryActiveId=job.id;geometryStartedAt=performance.now();
     geometryWorker.postMessage(job);
   }
   function queueGeometry(){
@@ -224,10 +295,15 @@ export function createHydroTensorRenderer(args){
     geometryPending={type:'build-geometry',id:++geometryDesired,
       result:{cols,rows,cellX,cellY,grid,scenario,fields,demNativeResolutionM,
         siteMask:result.context?.inside,obstacleMask:result.context?.obstacle},
-      // Both families share one computed snapshot. Direction buttons only
-      // filter its GeoJSON; they cannot start another seconds-long job.
       options:{...settings,direction:'dual',...viewOptions()}};
-    status((scenario?.year??2026)+' 年 · 正在生成静态双方向流线…');
+    // Supersede a slow obsolete geometry job; keep its *displayed* data.
+    // Latest accepted tensor should not wait behind dozens of stale jobs.
+    if(geometryBusy&&geometryWorker&&geometryActiveId!==geometryDesired&&
+       performance.now()-geometryStartedAt>120){
+      geometryWorker.terminate();geometryWorker=null;geometryBusy=false;
+      geometryActiveId=0;
+    }
+    status((scenario?.year??2026)+' 年 · 更新真实双方向流线，保留当前画面…');
     pumpGeometry();
   }
   const onViewportChanged=()=>{
