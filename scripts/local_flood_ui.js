@@ -1,5 +1,5 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.45-hydro-tensor-dynamic';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.45-hydro-tensor-dynamic';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.46-tensor-base-wet';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.46-tensor-base-wet';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2310,7 +2310,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.45-hydro-tensor-dynamic</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.46-tensor-base-wet</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2388,7 +2388,7 @@ export function createLocalFloodUI({
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · 水文张量场</div>',
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用张量场</label>',
-      '<div class="site-hydro-mini site-tensor-caption">真实地形 · 汇水面积 · 动态积水</div>',
+      '<div class="site-hydro-mini site-tensor-caption">基础地形方向常显 · 积水影响逐年增强</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode" data-vector-mode="analysis" aria-pressed="false">分析模式</button><button type="button" class="site-vector-mode active" data-vector-mode="presentation" aria-pressed="true">演示模式</button></div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
