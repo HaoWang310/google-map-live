@@ -1206,6 +1206,8 @@ onmessage=async({data})=>{
         kind:displayMode==='event'?'storm-event':'rainfall-risk-scenario',
         year,fraction:progress,designStageFactor:stagingFactor,
         floodMode:forecast.mode,
+        rainfallCase:data.rainfallCase||null,
+        designRainTotalMm:forecast.critical.depth,
         durationMin:forecast.critical.duration,
         eventTimeMin:selectedTimeMin,
         baseRainMmH:displayMode==='event'?forecast.critical.rate:0,
