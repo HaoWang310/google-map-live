@@ -1320,8 +1320,9 @@ export function createLocalFloodUI({
   function focusContextSettings(){
     const ctx=getFocusAnalysisSettings?.()||{};
     return {
-      ea:ctx.ea!==false,
-      drainage:ctx.drainage!==false,
+      // Reference overlays are opt-in; unconfigured/unchecked is OFF.
+      ea:ctx.ea===true,
+      drainage:ctx.drainage===true,
       threshold:clamp(Number(ctx.threshold)||0,0,50).toFixed(3)
     };
   }
@@ -1334,17 +1335,24 @@ export function createLocalFloodUI({
     const viewer=isolateViewer;
     if(!viewer||!viewer.getLayer(FOCUS_EA_LAYER))return;
     const ctx=focusContextSettings();
-    // Independent EA ordinal probability overlay. Not a flood depth layer.
+    // Both references follow their own checkboxes, in either display mode.
+    // EA is a long-term probability reference, never a depth/solver input.
     for(const [id,on] of [
-      [FOCUS_EA_LAYER,false],
-      [FOCUS_DRAINAGE_LAYER,ctx.drainage||hydroDisplay.flow]]){
-      if(viewer.getLayoutProperty(id,'visibility')!==(on?'visible':'none')){
-        viewer.setLayoutProperty(id,'visibility',on?'visible':'none');
-      }
+      [FOCUS_EA_LAYER,ctx.ea],
+      [FOCUS_DRAINAGE_LAYER,ctx.drainage]]){
+      if(!viewer.getLayer(id))continue;
+      const visibility=on?'visible':'none';
+      if(viewer.getLayoutProperty(id,'visibility')!==visibility)
+        viewer.setLayoutProperty(id,'visibility',visibility);
     }
-    if(viewer.getLayer(FOCUS_EA_LAYER))
-      viewer.setPaintProperty(FOCUS_EA_LAYER,'raster-opacity',
-        forceEaRiskOverlay?.70:.26);
+    viewer.setPaintProperty(FOCUS_EA_LAYER,'raster-opacity',.78);
+    if(viewer.getLayer(FOCUS_DRAINAGE_LAYER))
+      viewer.setPaintProperty(FOCUS_DRAINAGE_LAYER,'raster-opacity',.85);
+    setSiteHud('siteHudReferenceStatus',
+      ctx.ea&&ctx.drainage?'已开启 EA 长期风险和 DEM 排水网络参考图层':
+      ctx.ea?'已开启 EA 长期风险参考图层（不是水深）':
+      ctx.drainage?'已开启 DEM 地形排水网络参考图层':
+      '参考图层已隐藏');
     if(ctx.threshold!==focusAppliedThreshold){
       focusAppliedThreshold=ctx.threshold;
       viewer.getSource(FOCUS_DRAINAGE_SOURCE)?.setTiles([
@@ -1843,14 +1851,9 @@ export function createLocalFloodUI({
         hydroDisplay.flow?'#8b929d':
           hydroDisplay.collision?buildingColourExpression():'#ff9f1a');
     }
-    // Drainage is independent reference context; its existing toggle remains
-    // authoritative outside vector view.
-    if(viewer.getLayer(FOCUS_DRAINAGE_LAYER)){
-      const on=!hydroDisplay.flow&&focusContextSettings().drainage;
-      viewer.setLayoutProperty(FOCUS_DRAINAGE_LAYER,'visibility',on?'visible':'none');
-      viewer.setPaintProperty(FOCUS_DRAINAGE_LAYER,'raster-opacity',
-        hydroDisplay.flow?.30:.52);
-    }
+    // Reference overlays are independent of flood/tensor presentation mode.
+    // Re-apply their checkbox state, never hide a requested drainage layer.
+    updateFocusAnalysisLayers();
     // Mode switching must never modify the hydraulic solver or request undated water.
   }
 
@@ -1904,12 +1907,6 @@ export function createLocalFloodUI({
           paint:{'fill-color':'#bfd9b1','fill-opacity':0.95}},
         {id:'focus-water-ground',type:'fill',source:FOCUS_WATER,
           paint:{'fill-color':'#a8d5ec','fill-opacity':0.95}},
-        {id:FOCUS_EA_LAYER,type:'raster',source:FOCUS_EA_SOURCE,
-          layout:{visibility:'none'},
-          paint:{'raster-opacity':0.26,'raster-resampling':'nearest','raster-fade-duration':0}},
-        {id:FOCUS_DRAINAGE_LAYER,type:'raster',source:FOCUS_DRAINAGE_SOURCE,
-          layout:{visibility:'none'},
-          paint:{'raster-opacity':0.52,'raster-resampling':'linear','raster-fade-duration':0}},
         {id:'focus-road-casing',type:'fill',source:FOCUS_ROADS,
           filter:['==',['get','part'],'casing'],
           paint:{
@@ -1931,6 +1928,15 @@ export function createLocalFloodUI({
           id:FOCUS_RAIN_LAYER,type:'raster',source:FOCUS_RAIN_SOURCE,
           paint:{'raster-opacity':1,'raster-resampling':'linear','raster-fade-duration':0}
         }]:[]),
+        // These opt-in references must be ABOVE the opaque flood canvas
+        // and road/ground fills, otherwise toggles change but nothing appears.
+        // Keep them BELOW the red site outline and the building geometry.
+        {id:FOCUS_EA_LAYER,type:'raster',source:FOCUS_EA_SOURCE,
+          layout:{visibility:'none'},
+          paint:{'raster-opacity':.78,'raster-resampling':'nearest','raster-fade-duration':0}},
+        {id:FOCUS_DRAINAGE_LAYER,type:'raster',source:FOCUS_DRAINAGE_SOURCE,
+          layout:{visibility:'none'},
+          paint:{'raster-opacity':.85,'raster-resampling':'linear','raster-fade-duration':0}},
         // Display hydrological flow ABOVE the water colour raster, and below
         // the architectural 3D buildings so walls still occlude the field.
         {id:FOCUS_FLOW_GLOW,type:'line',source:FOCUS_FLOW_SOURCE,
@@ -2463,6 +2469,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section"><div class="site-hydro-section-title">基础数据 · 三因素联合分析</div>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudEA"> EA 官方长期风险图（静态参考，默认隐藏）</label>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudDrainage"> DEM 推导排水网络（可选参考）</label>',
+      '<div class="site-hydro-mini" id="siteHudReferenceStatus" style="color:#91cedc">参考图层已隐藏</div>',
       '<div class="site-hydro-mini">使用真实 DEM 和建筑障碍计算四种暴雨历时。年份是规划包络的展示尺度；单次暴雨另有独立分钟级时间轴，EA 概率不等于水深。</div>',
       '<label class="site-hydro-check"><input type="checkbox" id="siteHudGuide" checked> 汇水路径引导下坡流动</label>',
       '<div class="site-hydro-row">汇水阈值 <input id="siteHudThreshold" type="number" min="0" max="50" step="0.001" style="width:85px"> km²</div></div>',
@@ -2840,7 +2847,16 @@ export function createLocalFloodUI({
     for(const [hudId,actual] of [
       ['siteHudEA','localFloodFocusEA'],['siteHudDrainage','localFloodFocusDrainage'],
       ['siteHudGuide','localFloodDrainageGuide']
-    ])siteHud(hudId).onchange=e=>copyHudControl(actual,e.target.checked,'change');
+    ])siteHud(hudId).onchange=e=>{
+      copyHudControl(actual,e.target.checked,'change');
+      if(hudId==='siteHudEA'||hudId==='siteHudDrainage'){
+        // Update directly and do not rely solely on the city-panel listener.
+        updateFocusAnalysisLayers();
+        if(e.target.checked)setSiteHud(
+          hudId==='siteHudEA'?'siteHudEAStatus':'siteHudDrainStatus',
+          '已勾选，等待地图加载参考瓦片…');
+      }
+    };
     siteHud('siteHudThreshold').onchange=e=>{
       const n=Number(e.target.value);
       copyHudControl('networkThresholdInput',Math.max(0,Math.min(50,Number.isFinite(n)?n:1)).toFixed(3),'change');
