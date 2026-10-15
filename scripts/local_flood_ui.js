@@ -2281,7 +2281,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini">蓝色：共有积水 · 亮青：新增淹没 ≥2 cm · 紫色：两档均淹没但加深 ≥10 cm。仅基于同一地块及配置的四历时设计包络，非EA实时洪水。独立单场分钟级模式自动关闭增量高亮。</div>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
-      '<div class="site-hydro-mini">3D 水体厚度按真实计算水深视觉放大 2 倍（最大显示 4 m）；实际水深统计、碰撞阈值均保持原值。水花和波纹属于表现效果。</div>',
+      '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
       '</div></section>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">04 · 独立向量场</div>',
       '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox"> 单独查看水文向量场</label>',
@@ -2446,6 +2446,7 @@ export function createLocalFloodUI({
       if(lastHydroFrame){
         // Discard an old contrast mask immediately while new stats compute.
         lastHydroFrame={...lastHydroFrame,comparisonMask:null,comparisonStats:null};
+        redrawDisplayOnly();
       }
       if(prepared&&longTermMode&&isolatedSelection){
         requestYear(futureYear);
@@ -2606,6 +2607,7 @@ export function createLocalFloodUI({
       copyHudControl('localFloodDuration',120,'input');
       syncSiteControls();
       syncFuture();
+      if(prepared&&isolatedSelection&&longTermMode)requestYear(futureYear);
       status('已选择 '+RAIN_PRESETS[rainPreset].label+'：四历时按同一总量 '+
         RAIN_PRESETS[rainPreset].total+' mm 比较（非同一 FEH 重现期），2100 为设计包络峰值。');
     };
