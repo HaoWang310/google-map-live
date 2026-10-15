@@ -16,29 +16,46 @@ export function createTensorGeometry(result,options={}){
   const smoothing=clamp(Number(options.curvatureSmoothing??65)/100,0,1);
   const mpp=Math.max(.01,Number(options.metersPerPixel)||w*dx/1200);
   const rect=options.viewRect||[0,0,w,h];
-  const roi=[clamp(rect[0],0,w),clamp(rect[1],0,h),clamp(rect[2],0,w),clamp(rect[3],0,h)];
+  const viewport=[clamp(rect[0],0,w),clamp(rect[1],0,h),clamp(rect[2],0,w),clamp(rect[3],0,h)];
+  // Static analysis is a complete parcel, not a cache of its last viewport.
+  const roi=options.mode==='presentation'?viewport:[0,0,w,h];
   const diag=hypot((roi[2]-roi[0])*dx,(roi[3]-roi[1])*dy)||cell;
   const spacing=Math.max(cell*.75,mpp*(8.2-5.2*density));
   const nominalStep=clamp(mpp*1.3,cell*.32,cell*.8);
   const targetLength=Math.max(cell*12,diag*(.40+.80*lengthSetting));
   const minLength=Math.max(cell*2.5,Math.min(40,diag*.018));
   const fieldMask=new Uint8Array(n);
-  let valid=0,supported=0,visibleSupported=0;
+  let valid=0,supported=0,visibleSupported=0,parcel=0,obstacles=0;
+  const evidenceRejections={confidence:0,anisotropy:0,missingAxis:0};
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
     const i=y*w+x;if(f.validMask[i])valid++;
+    if(result.siteMask?.[i])parcel++;
+    if(result.siteMask?.[i]&&result.obstacleMask?.[i])obstacles++;
     if(f.validMask[i]&&f.confidence[i]>=.075&&f.anisotropy[i]>.02&&hypot(f.primaryX[i],f.primaryY[i])>.5){
       fieldMask[i]=1;supported++;
-      if(x+.5>=roi[0]&&x+.5<=roi[2]&&y+.5>=roi[1]&&y+.5<=roi[3])visibleSupported++;
+      if(x+.5>=viewport[0]&&x+.5<=viewport[2]&&y+.5>=viewport[1]&&y+.5<=viewport[3])visibleSupported++;
+    }else if(f.validMask[i]){
+      if(!(f.confidence[i]>=.075))evidenceRejections.confidence++;
+      else if(!(f.anisotropy[i]>.02))evidenceRejections.anisotropy++;
+      else evidenceRejections.missingAxis++;
     }
   }
   const diagnostics={gridCells:n,validCells:valid,supportedDirectionCells:supported,
     visibleSupportedDirectionCells:visibleSupported,validAreaM2:valid*dx*dy,
-    supportedAreaM2:supported*dx*dy,viewRect:roi,metersPerPixel:mpp,
+    supportedAreaM2:supported*dx*dy,viewRect:roi,viewportRect:viewport,metersPerPixel:mpp,
+    parcelCells:result.siteMask?parcel:null,obstacleCells:result.siteMask?obstacles:null,
+    directionEvidenceRatio:valid?supported/valid:0,evidenceRejections,
+    coverageDefinition:'supported cells within 1.5 family spacings; whole-valid and parcel ratios use their complete denominators, never viewport-only',
     primarySpacingM:spacing,secondarySpacingM:spacing*1.35,
     targetLengthM:targetLength,minLengthM:minLength,nominalStepM:nominalStep,
     nativeDemResolutionM:result.demNativeResolutionM||50,
-    subcellGeometryIsInterpolation:true,field:{},ribbons:{},stopReasons:{}};
-  const stop=reason=>{diagnostics.stopReasons[reason]=(diagnostics.stopReasons[reason]||0)+1};
+    subcellGeometryIsInterpolation:true,field:{},ribbons:{},stopReasons:{},probeStopReasons:{}};
+  const stop=(reason,branch,probe)=>{
+    const bucket=probe?diagnostics.probeStopReasons:diagnostics.stopReasons;
+    bucket[reason]=(bucket[reason]||0)+1;
+    const stats=diagnostics.field[branch];
+    if(stats&&!probe){stats.stopReasons[reason]=(stats.stopReasons[reason]||0)+1}
+  };
   const index=(x,y)=>{
     const xx=Math.floor(x),yy=Math.floor(y);
     return xx>=0&&yy>=0&&xx<w&&yy<h?yy*w+xx:-1;
@@ -62,8 +79,16 @@ export function createTensorGeometry(result,options={}){
     return true;
   }
   let networkMask=null,networkC=null,networkS=null,networkSupport=null,skeletonPaths=[];
+  let sampleFailure='no_direction_support',rkFailure='no_direction_support';
   function sample(x,y,branch='primary',previous=null,kind='field'){
-    if(!validAt(x,y,kind))return null;
+    if(!validAt(x,y,kind)){
+      const i=index(x,y);
+      sampleFailure=i<0?'outside_grid':!f.validMask[i]?
+        result.obstacleMask?.[i]?'building_obstacle':result.siteMask&&!result.siteMask[i]?'parcel_boundary':'boundary_obstacle_or_nodata':
+        kind==='network'?'outside_network_mask':f.confidence[i]<.075?'low_confidence':
+        f.anisotropy[i]<=.02?'isotropic':'missing_axis';
+      return null;
+    }
     const x0=Math.floor(x-.5),y0=Math.floor(y-.5),tx=x-.5-x0,ty=y-.5-y0;
     let c=0,s=0,total=0,conf=0,rank=0,water=0;
     for(let oy=0;oy<2;oy++)for(let ox=0;ox<2;ox++){
@@ -82,7 +107,7 @@ export function createTensorGeometry(result,options={}){
       water+=(f.rainfallInfluence[i]||0)*weight;
     }
     const mag=hypot(c,s);
-    if(total<.12||mag/total<.06)return null;
+    if(total<.12||mag/total<.06){sampleFailure=total<.12?'insufficient_interpolation_support':'axis_cancellation';return null}
     let theta=.5*Math.atan2(s,c)+(branch==='secondary'?Math.PI/2:0);
     let ux=Math.cos(theta),uy=Math.sin(theta);
     if(previous&&ux*previous.x+uy*previous.y<0){ux=-ux;uy=-uy}
@@ -113,42 +138,51 @@ export function createTensorGeometry(result,options={}){
   }
   const lengthOf=path=>{let sum=0;for(let i=1;i<path.length;i++)sum+=hypot((path[i].x-path[i-1].x)*dx,(path[i].y-path[i-1].y)*dy);return sum};
   function rk4(p,step,branch,sign,previous,kind){
-    const a=sample(p.x,p.y,branch,previous,kind);if(!a)return null;
-    const at=(v,t,ref)=>sample(p.x+sign*v.x*step*t/dx,p.y+sign*v.y*step*t/dy,branch,ref,kind);
+    const read=(x,y,ref)=>{const v=sample(x,y,branch,ref,kind);if(!v)rkFailure=sampleFailure;return v};
+    const a=read(p.x,p.y,previous);if(!a)return null;
+    const at=(v,t,ref)=>read(p.x+sign*v.x*step*t/dx,p.y+sign*v.y*step*t/dy,ref);
     const b=at(a,.5,a);if(!b)return null;
     const c=at(b,.5,b);if(!c)return null;
     const d=at(c,1,c);if(!d)return null;
     const x=p.x+sign*step*(a.x+2*b.x+2*c.x+d.x)/(6*dx);
     const y=p.y+sign*step*(a.y+2*b.y+2*c.y+d.y)/(6*dy);
     const out={x,y,rank:a.rank,water:a.water,confidence:a.confidence};
-    return segmentClear(p,out,kind)?{point:out,axis:d,turn:Math.acos(clamp(a.x*d.x+a.y*d.y,-1,1))}:null;
+    if(!segmentClear(p,out,kind)){rkFailure='segment_mask';return null}
+    return {point:out,axis:d,turn:Math.acos(clamp(a.x*d.x+a.y*d.y,-1,1))};
   }
-  function integrate(sx,sy,branch='primary',sign=1,maxLength=targetLength,kind='field',occupied=null,gap=spacing){
+  function integrate(sx,sy,branch='primary',sign=1,maxLength=targetLength,kind='field',occupied=null,gap=spacing,probe=false){
+    const traceStats=diagnostics.field[branch];
+    if(traceStats){const key=probe?'probeTraceCalls':'traceCalls';traceStats[key]=(traceStats[key]||0)+1}
     let p={x:sx,y:sy},axis=null,arc=0,step=nominalStep;const points=[p],visits=new Map();
-    const maxSteps=Math.ceil(maxLength/(nominalStep*.2))+8;
+    const minimumStep=Math.max(cell*.025,Math.min(nominalStep*.08,mpp*.35));
+    const maxSteps=Math.ceil(maxLength/minimumStep)+8;
     for(let k=0;k<maxSteps&&arc<maxLength;k++){
-      let attempt=null,hstep=Math.min(step,maxLength-arc);
-      for(let retry=0;retry<5;retry++){
+      let attempt=null,hstep=Math.min(step,maxLength-arc),failure='integration_error';
+      if(hstep<minimumStep){stop('length_target',branch,probe);break}
+      for(let retry=0;retry<9;retry++){
         const full=rk4(p,hstep,branch,sign,axis,kind);
         if(full){
           const half=rk4(p,hstep*.5,branch,sign,axis,kind);
           const end=half&&rk4(half.point,hstep*.5,branch,sign,half.axis,kind);
           const error=end?hypot((end.point.x-full.point.x)*dx,(end.point.y-full.point.y)*dy):Infinity;
           if(end&&error<cell*.055&&full.turn<.40){attempt=end;break}
-        }
-        hstep*=.5;if(hstep<nominalStep*.18)break;
+          failure=!end?rkFailure:full.turn>=.40?'curvature':'integration_error';
+        }else failure=rkFailure;
+        if(traceStats&&!probe){traceStats.adaptiveRetries[failure]=(traceStats.adaptiveRetries[failure]||0)+1}
+        hstep*=.5;if(hstep<minimumStep)break;
       }
-      if(!attempt){stop('boundary_confidence_or_curvature');break}
+      if(!attempt){stop(failure,branch,probe);break}
       const next=attempt.point,moved=hypot((next.x-p.x)*dx,(next.y-p.y)*dy);
-      if(moved<cell*.015){stop('stagnation');break}
+      if(moved<minimumStep*.5){stop('stagnation',branch,probe);break}
       const localGap=gap*(1-.18*clamp(next.rank||0,0,1));
-      if(occupied&&occupied.distance(next.x,next.y)<localGap*.82){stop('spacing');break}
+      if(occupied&&occupied.distance(next.x,next.y)<localGap*.82){stop('spacing',branch,probe);break}
       const key=Math.floor(next.x*dx/(gap*.45))+','+Math.floor(next.y*dy/(gap*.45));
       const seen=visits.get(key);
-      if(seen!==undefined&&arc-seen>Math.max(4*gap,cell*5)){stop('loop');break}
+      if(seen!==undefined&&arc-seen>Math.max(4*gap,cell*5)){stop('loop',branch,probe);break}
       if(seen===undefined)visits.set(key,arc);
       points.push(next);arc+=moved;p=next;axis=attempt.axis;
       step=Math.min(nominalStep,hstep*(attempt.turn<.1?1.3:1));
+      if(k===maxSteps-1)stop('step_budget',branch,probe);
     }
     return points;
   }
@@ -185,7 +219,7 @@ export function createTensorGeometry(result,options={}){
     for(const branch of families){
       const gap=spacing*(branch==='primary'?1:1.35),occupied=new SpacingIndex(gap);
       const stats={candidateSeeds:0,integrationAttempts:0,integrationSucceeded:0,lengthRejected:0,
-        spacingRejected:0,seedSpacingRejected:0,pathSpacingRejected:0,finalLines:0,totalLengthM:0,coverage:0,budgetReached:false};
+        spacingRejected:0,seedSpacingRejected:0,pathSpacingRejected:0,finalLines:0,totalLengthM:0,coverage:0,budgetReached:false,stopReasons:{},adaptiveRetries:{}};
       diagnostics.field[branch]=stats;
       const queue=[],front=[],scheduled=new Set();let propagating=false;
       const enqueue=(x,y)=>{
@@ -218,18 +252,23 @@ export function createTensorGeometry(result,options={}){
       // into short fragments even when a long integral curve is available.
       for(const seed of queue){
         const probe=Math.min(targetLength*.5,cell*28);
-        seed.potential=lengthOf(integrate(seed.x,seed.y,branch,-1,probe))+lengthOf(integrate(seed.x,seed.y,branch,1,probe));
+        seed.potential=lengthOf(integrate(seed.x,seed.y,branch,-1,probe,'field',null,spacing,true))+lengthOf(integrate(seed.x,seed.y,branch,1,probe,'field',null,spacing,true));
       }
       stats.probedSeeds=queue.length;queue.sort((a,b)=>b.potential-a.potential||a.y-b.y||a.x-b.x);
       let vertices=0;
-      const vertexBudget=Math.min(650000,Math.max(12000,Math.ceil(visibleSupported*cell/gap*22)));
+      const vertexBudget=Math.min(650000,Math.max(12000,Math.ceil(supported*cell/gap*22)));
       const take=seed=>{
         const i=index(seed.x,seed.y),variation=localVariation(i),localGap=gap*(1-.15*variation-.12*(f.drainageRank[i]||0));
         if(occupied.distance(seed.x,seed.y)<localGap){stats.spacingRejected++;stats.seedSpacingRejected++;return}
         stats.integrationAttempts++;
         const limit=targetLength*(branch==='primary'?1:.78);
-        let path=join(integrate(seed.x,seed.y,branch,-1,limit*.5,'field',occupied,localGap),
-          integrate(seed.x,seed.y,branch,1,limit*.5,'field',occupied,localGap));
+        let back=integrate(seed.x,seed.y,branch,-1,limit*.5,'field',occupied,localGap);
+        const forward=integrate(seed.x,seed.y,branch,1,limit-lengthOf(back),'field',occupied,localGap);
+        // Give the unblocked direction the remaining physical arc budget.
+        // A boundary close to the seed must not waste half a long trajectory.
+        if(lengthOf(back)>limit*.5-nominalStep*2&&lengthOf(forward)<limit*.45)
+          back=integrate(seed.x,seed.y,branch,-1,limit-lengthOf(forward),'field',occupied,localGap);
+        let path=join(back,forward);
         if(path.length>2)stats.integrationSucceeded++;
         path=smoothPath(path);const length=lengthOf(path);
         if(length<Math.max(minLength*(branch==='primary'?2.25:1.5),localGap*2.3)){stats.lengthRejected++;return}
@@ -252,8 +291,10 @@ export function createTensorGeometry(result,options={}){
         }
       };
       propagating=true;
-      for(let head=0;(head<queue.length||front.length)&&vertices<vertexBudget;){
-        take(front.length?front.pop():queue[head++]);
+      for(let head=0,frontHead=0,turn=0;(head<queue.length||frontHead<front.length)&&vertices<vertexBudget;turn++){
+        // Breadth-first neighbours plus regularly interleaved anchors avoid
+        // a depth-first cluster exhausting the budget before other regions.
+        take(frontHead<front.length&&(head>=queue.length||turn%9!==0)?front[frontHead++]:queue[head++]);
       }
       propagating=false;
       // Coverage repair visits only cells with supported directions. It uses
@@ -266,12 +307,30 @@ export function createTensorGeometry(result,options={}){
             stats.candidateSeeds++;take({x:x+.5,y:y+.5});
           }
       }
-      let covered=0,total=0;
+      let covered=0,total=0,viewportCovered=0,viewportTotal=0;
       for(let y=0;y<h;y++)for(let x=0;x<w;x++){
         if(x<roi[0]||y<roi[1]||x>=roi[2]||y>=roi[3]||!fieldMask[y*w+x])continue;
-        total++;if(occupied.distance(x+.5,y+.5,gap*1.5)<gap*1.5)covered++;
+        total++;const hit=occupied.distance(x+.5,y+.5,gap*1.5)<gap*1.5;
+        if(hit)covered++;
+        if(x+.5>=viewport[0]&&x+.5<=viewport[2]&&y+.5>=viewport[1]&&y+.5<=viewport[3]){
+          viewportTotal++;if(hit)viewportCovered++;
+        }
       }
-      stats.coverage=total?covered/total:0;stats.budgetReached=vertices>=vertexBudget;
+      stats.coverage=total?covered/total:0; // legacy name, explicitly evidence-only
+      stats.supportedCoverage=stats.coverage;stats.coveredSupportedCells=covered;
+      stats.supportedCoverageDenominator=total;stats.wholeValidCoverageDenominator=valid;
+      stats.wholeValidCoverage=valid?covered/valid:0;
+      stats.parcelCoverage=parcel?covered/parcel:null;
+      stats.viewportSupportedCoverage=viewportTotal?viewportCovered/viewportTotal:0;
+      const lengths=output.filter(line=>line.branch===branch).map(line=>line.lengthM).sort((a,b)=>a-b),mid=lengths.length>>1;
+      stats.meanLengthM=lengths.length?stats.totalLengthM/lengths.length:0;
+      stats.medianLengthM=lengths.length?(lengths.length%2?lengths[mid]:(lengths[mid-1]+lengths[mid])/2):0;
+      stats.p90LengthM=lengths[Math.floor((lengths.length-1)*.9)]||0;
+      stats.under50m=lengths.filter(v=>v<50).length;stats.under100m=lengths.filter(v=>v<100).length;
+      stats.curvatureStops=stats.stopReasons.curvature||0;
+      stats.confidenceStops=(stats.stopReasons.low_confidence||0)+(stats.stopReasons.insufficient_interpolation_support||0)+(stats.stopReasons.axis_cancellation||0);
+      stats.spacingStops=stats.stopReasons.spacing||0;
+      stats.budgetReached=vertices>=vertexBudget;
       stats.vertices=vertices;stats.vertexBudget=vertexBudget;
     }return output;
   }
@@ -284,6 +343,7 @@ export function createTensorGeometry(result,options={}){
       validSkeletonCells:0,skeletonChains:0,skeletonBrokenEdges:0,skeletonRoutedCorners:0,
       representedSkeletonCells:0,shortSkeletonChains:0,seedCount:0,integrationAttempts:0,
       integrationSucceeded:0,integratedPieces:0,lengthRejected:0,spacingRejected:0,finalBundles:0,
+      junctionContinuations:0,junctionAmbiguities:0,
       reason:null,topology:'threshold-mask medial graph; not recovered D8 downstream links'};
     if(!maskCells){stats.reason='no_network_above_threshold';return []}
     if(maskCells>valid*.85){stats.reason='network_mask_covers_site';return []}
@@ -328,8 +388,26 @@ export function createTensorGeometry(result,options={}){
       visited.add(key(previous,current));
       for(let k=0;k<n;k++){
         ids.push(current);const near=graph.get(current)||[];
-        if(near.length!==2||current===start)break;
-        const j=near.find(i=>i!==previous);if(j===undefined||visited.has(key(current,j)))break;
+        if(current===start)break;
+        const candidates=near.filter(i=>i!==previous&&!visited.has(key(current,i)));
+        if(!candidates.length)break;
+        let j=candidates[0];
+        if(near.length>2){
+          // Preserve only unambiguous, nearly tangent continuations through
+          // actual graph junctions. This joins real edges, never absent gaps
+          // and does not infer an unobserved downstream hydrological order.
+          const before=ids[Math.max(0,ids.length-4)],ax=((current%w)-(before%w))*dx,
+            ay=(Math.floor(current/w)-Math.floor(before/w))*dy,am=hypot(ax,ay);
+          const ranked=candidates.map(id=>{
+            const bx=((id%w)-(current%w))*dx,by=(Math.floor(id/w)-Math.floor(current/w))*dy;
+            const alignment=am?(ax*bx+ay*by)/(am*hypot(bx,by)):-1;
+            return {id,alignment,score:alignment*.85+(f.drainageRank[id]||0)*.15};
+          }).sort((a,b)=>b.score-a.score||a.id-b.id);
+          if(ranked[0].alignment<.25||ranked[1]&&ranked[0].score-ranked[1].score<.08){
+            stats.junctionAmbiguities++;break;
+          }
+          j=ranked[0].id;stats.junctionContinuations++;
+        }
         visited.add(key(current,j));previous=current;current=j;
       }
       const point=i=>({x:i%w+.5,y:Math.floor(i/w)+.5,rank:f.drainageRank[i]||0,confidence:1});
@@ -349,10 +427,14 @@ export function createTensorGeometry(result,options={}){
       }
       flush();
     };
-    for(const i of nodes)if(graph.get(i).length!==2)for(const j of graph.get(i))if(!visited.has(key(i,j)))trace(i,j);
+    const starts=nodes.filter(i=>graph.get(i).length!==2).sort((a,b)=>
+      (graph.get(a).length===1?0:1)-(graph.get(b).length===1?0:1)||
+      (f.drainageRank[b]||0)-(f.drainageRank[a]||0)||a-b);
+    for(const i of starts)for(const j of graph.get(i))if(!visited.has(key(i,j)))trace(i,j);
     for(const i of nodes)for(const j of graph.get(i))if(!visited.has(key(i,j)))trace(i,j);
     stats.skeletonChains=paths.length;stats.thinningPasses=passes;
     stats.representedSkeletonCells=new Set(paths.flatMap(chain=>chain.path.map(p=>index(p.x,p.y))).filter(i=>skeleton[i])).size;
+    stats.unrepresentedSkeletonCells=stats.validSkeletonCells-stats.representedSkeletonCells;
     // Orient the mask from its own skeleton chain tangents. This is an
     // explicit geometry-derived network direction, separate from tensor PCA.
     networkC=new Float32Array(n);networkS=new Float32Array(n);networkSupport=new Float32Array(n);
@@ -468,6 +550,10 @@ export function createTensorGeometry(result,options={}){
     stats.trunkBundles=output.filter(line=>line.hierarchy==='trunk').length;
     stats.tributaryBundles=output.length-stats.trunkBundles;
     stats.finalBundles=output.length;stats.minimumLengthM=minimum;
+    const lengths=output.map(line=>line.lengthM).sort((a,b)=>a-b),mid=lengths.length>>1;
+    stats.meanLengthM=lengths.length?lengths.reduce((a,b)=>a+b,0)/lengths.length:0;
+    stats.medianLengthM=lengths.length?(lengths.length%2?lengths[mid]:(lengths[mid-1]+lengths[mid])/2):0;
+    stats.under50m=lengths.filter(v=>v<50).length;
     stats.integrationMethod='mask-constrained skeleton arc-length integration; lanes adapt to observed corridor width';
     stats.reason=output.length?null:!stats.validSkeletonCells?'no_supported_skeleton':!stats.seedCount&&stats.lengthRejected?'all_below_physical_length':!stats.seedCount?'no_supported_seeds':
       stats.integrationSucceeded===0?'integration_blocked_or_ambiguous':stats.lengthRejected?'all_below_physical_length':'spacing_or_length_rejection';

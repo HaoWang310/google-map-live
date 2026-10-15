@@ -1,6 +1,6 @@
-import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.49-tensor-streamlines';
+import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.50-tensor-site-fix';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-/* v3.22.49-tensor-streamlines · One computed eigenfield in dry and wet states.
+/* v3.22.50-tensor-site-fix · One computed eigenfield in dry and wet states.
    All-year geometry samples the same symmetric tensor eigenaxes. Source
    DEM and flood transport are unchanged; existing line/particle styles are
    retained and are not evidence of measured water velocity. */
@@ -26,6 +26,7 @@ export function createHydroTensorRenderer(args){
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[],geometryDiagnostics=null;
   let geometryTimer=0,lastViewKey='';
   let geometryWorker=null,geometryBusy=false,geometryDesired=0,geometryPending=null,geometrySnapshot=null;
+  const scenarioSnapshots=new Map();
   let lastAnimationDraw=0,renderedFraction=0,reported='';
   let yearGrowth=0.22,growthFrom=0.22,growthTo=0.22,growthChangeAt=0;
   let lastRenderedYear=2026;
@@ -36,6 +37,7 @@ export function createHydroTensorRenderer(args){
   const ribbonSource=()=>ribbonSourceId?map.getSource(ribbonSourceId):null;
   const status=t=>{if(t!==reported){reported=t;onStatus?.(t)}};
   const isNumericArray=(v,n)=>v?.length===n;
+  const sameArray=(a,b)=>a===b||Boolean(a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i])));
   function workerStart(){
     if(worker)return true;
     try{
@@ -58,6 +60,7 @@ export function createHydroTensorRenderer(args){
         }
         if(!submitted||!sameHydroGrid(data.grid,submitted.context.grid))return;
         result={...data,fields,context:submitted.context,depth:submitted.depth,parameters:submitted.parameters};
+        if([2026,2100].includes(data.scenario?.year))scenarioSnapshots.set(data.scenario.year,result);
         lastSubmitted=performance.now();
         queueGeometry();
       };
@@ -72,6 +75,8 @@ export function createHydroTensorRenderer(args){
     geometryDesired++;geometryPending=null;
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     if(!enabled||!flow||!context||disposed)return;
+    status(scenario.year+' 年 · 正在计算方向场'+(geometrySnapshot?
+      '（暂留 '+geometrySnapshot.scenario.year+' 年几何；尚未更新）':'，尚无线场结果'));
     requestTimer=setTimeout(()=>{
       requestTimer=0;if(!enabled||!flow||!context||disposed||!workerStart())return;
       const n=flow.cols*flow.rows;
@@ -133,8 +138,22 @@ export function createHydroTensorRenderer(args){
       no_supported_skeleton:'没有可连续提取的骨架',no_supported_seeds:'骨架种子缺少方向支持',
       integration_blocked_or_ambiguous:'积分受边界、障碍或方向歧义阻断',
       all_below_physical_length:'积分均未达到物理长度要求',spacing_or_length_rejection:'间距或长度筛选淘汰'};
-    status((geometrySnapshot?.scenario?.year??2026)+' 年 · 主线 '+(d.field.primary?.finalLines??0)+
-      ' / 次线 '+(d.field.secondary?.finalLines??0)+' · 骨架 '+r.validSkeletonCells+
+    const a=d.field.primary,b=d.field.secondary,pct=v=>(100*(v||0)).toFixed(1)+'%';
+    status((geometrySnapshot?.scenario?.year??2026)+' 年 · 方向证据 '+d.supportedDirectionCells+'/'+d.validCells+' 格（'+pct(d.directionEvidenceRatio)+'）'+
+      '\n主/次线 '+(a?.finalLines??0)+' / '+(b?.finalLines??0)+
+      ' · 全场覆盖 '+pct(a?.wholeValidCoverage)+' / '+pct(b?.wholeValidCoverage)+
+      ' · 证据区覆盖 '+pct(a?.supportedCoverage)+' / '+pct(b?.supportedCoverage)+
+      '\n长度均值 '+(a?.meanLengthM??0).toFixed(1)+' / '+(b?.meanLengthM??0).toFixed(1)+'m'+
+      ' · 中位 '+(a?.medianLengthM??0).toFixed(1)+' / '+(b?.medianLengthM??0).toFixed(1)+'m'+
+      ' · <50m '+(a?.under50m??0)+' / '+(b?.under50m??0)+
+      '\n种子 '+(a?.candidateSeeds??0)+' / '+(b?.candidateSeeds??0)+
+      ' · 积分成功 '+(a?.integrationSucceeded??0)+' / '+(b?.integrationSucceeded??0)+
+      ' · 长度淘汰 '+(a?.lengthRejected??0)+' / '+(b?.lengthRejected??0)+
+      '\n曲率停止 '+(a?.curvatureStops??0)+' / '+(b?.curvatureStops??0)+
+      ' · 置信/插值停止 '+(a?.confidenceStops??0)+' / '+(b?.confidenceStops??0)+
+      ' · 间距停止 '+(a?.spacingStops??0)+' / '+(b?.spacingStops??0)+
+      ' · 种子间距淘汰 '+(a?.seedSpacingRejected??0)+' / '+(b?.seedSpacingRejected??0)+
+      '\n骨架 '+r.validSkeletonCells+
       ' 格 → 种子 '+r.seedCount+' → 积分成功 '+r.integrationSucceeded+'（'+r.integratedPieces+' 段）'+
       ' → 长度淘汰 '+r.lengthRejected+' → 最终线束 '+r.finalBundles+
       (r.reason?' · '+(reasons[r.reason]||r.reason):'')+' · DEM 50m（曲线为插值显示）');
@@ -149,8 +168,8 @@ export function createHydroTensorRenderer(args){
     wetLines=lines.filter(line=>line.wetSupport>.035).map((line,index)=>({...line,index}));
     features=lines.map(line=>({type:'Feature',properties:{
       color:line.color,analysisColor:line.color,
-      width:Math.max(.38,settings.width*(line.branch==='primary'?.48:.31)),
-      opacity:line.branch==='primary'?.80:.48,glowFactor:0,
+      width:Math.max(line.branch==='primary'?.85:.65,settings.width*(line.branch==='primary'?.7:.5)),
+      opacity:line.branch==='primary'?.90:.65,glowFactor:0,
       family:'base',branch:line.branch,relativeGuidance:line.rank,lengthM:line.lengthM
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
   }
@@ -170,11 +189,11 @@ export function createHydroTensorRenderer(args){
     if(geometryBusy||!geometryPending||disposed||!enabled)return;
     if(!geometryWorker){
       try{
-        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.22.49-tensor-streamlines',import.meta.url),{type:'module'});
+        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.22.50-tensor-site-fix',import.meta.url),{type:'module'});
         geometryWorker.onmessage=({data})=>{
           if(disposed)return;
           geometryBusy=false;
-          if(data.type==='geometry-error')status('静态流线计算失败：'+data.message);
+          if(data.type==='geometry-error'&&data.id===geometryDesired)status('静态流线计算失败：'+data.message);
           else if(data.type==='geometry-result'&&data.id===geometryDesired&&enabled){
             const packet=data.packet,unpacked=unpackTensorGeometryPacket(packet);
             geometrySnapshot={grid:packet.grid,scenario:packet.scenario,parameters:packet.parameters};
@@ -196,11 +215,14 @@ export function createHydroTensorRenderer(args){
     geometryWorker.postMessage(job);
   }
   function queueGeometry(){
-    if(!result||!enabled||disposed)return;
+    if(!result||result.requestId!==requestId||!enabled||disposed)return;
     const {cols,rows,cellX,cellY,grid,scenario,fields,demNativeResolutionM}=result;
     geometryPending={type:'build-geometry',id:++geometryDesired,
-      result:{cols,rows,cellX,cellY,grid,scenario,fields,demNativeResolutionM},
-      options:{...settings,...viewOptions()}};
+      result:{cols,rows,cellX,cellY,grid,scenario,fields,demNativeResolutionM,
+        siteMask:result.context?.inside,obstacleMask:result.context?.obstacle},
+      // Both families share one computed snapshot. Direction buttons only
+      // filter its GeoJSON; they cannot start another seconds-long job.
+      options:{...settings,direction:'dual',...viewOptions()}};
     status((scenario?.year??2026)+' 年 · 正在生成静态双方向流线…');
     pumpGeometry();
   }
@@ -227,7 +249,7 @@ export function createHydroTensorRenderer(args){
         present?['get','color']:['get','analysisColor']);
       map.setPaintProperty(lineLayerId,'line-width',['get','width']);
       map.setPaintProperty(lineLayerId,'line-opacity',
-        ['*',settings.opacity*(present?.9:.73),['get','opacity']]);
+        ['*',settings.opacity*(present?.9:1),['get','opacity']]);
     }
     if(map.getLayer(glowLayerId)){
       map.setPaintProperty(glowLayerId,'line-color',['get','color']);
@@ -263,7 +285,7 @@ export function createHydroTensorRenderer(args){
     }
   }
   function drawLines(fraction=1){
-    const f=clamp(fraction,0,1);
+    const f=settings.mode==='analysis'?1:clamp(fraction,0,1);
     // Static analysis always receives fraction=1. Geometry follows the
     // accepted scenario tensor; year is not a density or length multiplier.
     const reveal=items=>{
@@ -276,8 +298,9 @@ export function createHydroTensorRenderer(args){
           coordinates:coords.slice(0,length)}};
       }).filter(feature=>feature.geometry.coordinates.length>=2);
     };
-    const background=features.filter(feature=>feature.properties.family==='base');
-    const modeled=features.filter(feature=>feature.properties.family==='wet');
+    const accepts=feature=>settings.direction==='dual'||feature.properties.branch===settings.direction;
+    const background=features.filter(feature=>feature.properties.family==='base'&&accepts(feature));
+    const modeled=features.filter(feature=>feature.properties.family==='wet'&&accepts(feature));
     src()?.setData({type:'FeatureCollection',
       features:settings.showFilaments?
         background.concat(reveal(modeled)):[]});
@@ -363,14 +386,15 @@ export function createHydroTensorRenderer(args){
       next.direction:'dual';
     const solverChanged=['terrainWeight','drainageWeight','avoidance',
       'smoothness','crossStrength'].some(k=>settings[k]!==next[k]);
-    const geometryChanged=['density','length','direction','width',
+    const geometryChanged=['density','length','width',
       'ribbonConcentration','ribbonWidth','trunkEmphasis','curvatureSmoothing',
-      'showRibbon','showFilaments'].some(k=>settings[k]!==next[k]);
+      ].some(k=>settings[k]!==next[k]);
+    const visibilityChanged=['direction','showRibbon','showFilaments'].some(k=>settings[k]!==next[k]);
     const modeChanged=next.mode!==settings.mode;
     settings=next;
     if(solverChanged)queueSolve();
     else if(geometryChanged&&result)queueGeometry();
-    else if(modeChanged)restart();
+    else if(modeChanged||visibilityChanged)restart();
     else applyStyle();
   }
   function setField(data,spatialContext,meta={}){
@@ -378,6 +402,7 @@ export function createHydroTensorRenderer(args){
     const n=data.cols*data.rows;
     if(n<=0||n>70000)return;
     const grid=meta.grid||spatialContext?.grid;
+    const oldContext=context,oldDepth=depth,oldScenario=scenario,oldGrid=context?.grid,oldThreshold=drainageThresholdKm2;
     if(!validHydroGrid(grid,data.cols,data.rows)){
       status('缺少原始洪水网格；不混用估算网格');return;
     }
@@ -409,6 +434,12 @@ export function createHydroTensorRenderer(args){
     }else depth=null;
     drainageThresholdKm2=Number(meta.drainageThresholdKm2??1);
     scenario={year:Number(meta.year)||2026,kind:meta.kind||'design-envelope',token:meta.token??null};
+    // Repeated visibility refreshes publish identical native frames. They
+    // must not continually invalidate the slower geometry worker.
+    const sameContext=oldContext&&context&&sameHydroGrid(oldGrid,grid)&&
+      ['terrain','accumulation','inside','obstacle'].every(k=>sameArray(oldContext[k],context[k]));
+    if(sameContext&&sameArray(oldDepth,depth)&&oldThreshold===drainageThresholdKm2&&
+      oldScenario.year===scenario.year&&oldScenario.kind===scenario.kind&&oldScenario.token===scenario.token)return;
     if(enabled)queueSolve(meta.force===true);
   }
   function setEnabled(on){
@@ -436,6 +467,7 @@ export function createHydroTensorRenderer(args){
   function clear(){
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     requestId++;result=null;flow=null;context=null;depth=null;geometryDiagnostics=null;geometrySnapshot=null;
+    scenarioSnapshots.clear();
     geometryDesired++;geometryPending=null;
     lines=[];baseLines=[];wetLines=[];features=[];
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
@@ -480,7 +512,9 @@ export function createHydroTensorRenderer(args){
     out.hydrologyRibbonVisualOnly=true;
     out.hydrologyRibbonCount=ribbons.length;
     out.geometryDiagnostics=geometryDiagnostics?{...structuredClone(geometryDiagnostics),
-      sourceYear:geometrySnapshot?.scenario?.year,pending:geometryBusy||Boolean(geometryPending)}:null;
+      sourceYear:geometrySnapshot?.scenario?.year,
+      pending:geometryBusy||Boolean(geometryPending)||Boolean(requestTimer)||result.requestId!==requestId}:null;
+    out.requestedScenario={...scenario};out.tensorPending=Boolean(requestTimer)||result.requestId!==requestId;
     out.nextStages=['Wool Algorithm','Road Network','Urban Parcel Subdivision'];
     return out;
   }
@@ -494,10 +528,47 @@ export function createHydroTensorRenderer(args){
     src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());
   }
+  function exportSiteSnapshot(){
+    if(!result)return null;
+    const keys=['primaryX','primaryY','confidence','anisotropy','validMask','drainageMask','trunkMask',
+      'drainageRank','drainageAreaKm2','drainageConfidence','rainfallInfluence'];
+    const encode=a=>a?{type:a.constructor.name,values:Array.from(a,v=>Number.isFinite(v)?v:null)}:null;
+    const save=r=>({grid:{...r.grid},scenario:{...r.scenario},cols:r.cols,rows:r.rows,
+      cellX:r.cellX,cellY:r.cellY,demNativeResolutionM:r.demNativeResolutionM,parameters:r.parameters,
+      fields:Object.fromEntries(keys.filter(k=>r.fields[k]).map(k=>[k,encode(r.fields[k])])),
+      input:Object.fromEntries(['terrain','accumulation','inside','obstacle'].map(k=>[k,encode(r.context?.[k])])),
+      depthMm:encode(r.depth)});
+    const camera={};
+    for(const [key,method] of [['center','getCenter'],['zoom','getZoom'],['bearing','getBearing'],['pitch','getPitch']]){
+      const value=map[method]?.();camera[key]=value?.toArray?.()??value??null;
+    }
+    const canvas=map.getCanvas?.();camera.viewport=canvas?{width:canvas.clientWidth,height:canvas.clientHeight}:null;
+    const layerState=id=>{
+      if(!id||!map.getLayer?.(id))return {id,exists:false};
+      const layer=map.getLayer(id);
+      return {id,exists:true,minzoom:layer.minzoom,maxzoom:layer.maxzoom,
+        visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
+        width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
+    };
+    return {schema:'london-tensor-site-v1',version:'3.22.50-tensor-site-fix',
+      savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
+      current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
+      requestedScenario:{...scenario},
+      renderState:{layers:[lineLayerId,ribbonLayerId].map(layerState),
+        generatedLines:features.length,displayedLines:settings.showFilaments?
+          features.filter(f=>settings.direction==='dual'||f.properties.branch===settings.direction).length:0,
+        generatedRibbons:ribbonFeatures.length,displayedRibbons:settings.showRibbon?ribbonFeatures.length:0,
+        staticFraction:settings.mode==='analysis'?1:renderedFraction},
+      geometry:geometrySnapshot?{scenario:geometrySnapshot.scenario,parameters:geometrySnapshot.parameters,
+        diagnostics:geometryDiagnostics,field:features,ribbons:ribbonFeatures}:null,
+      pending:{tensor:Boolean(requestTimer)||result.requestId!==requestId,geometry:geometryBusy||Boolean(geometryPending)},
+      acceptance:'NOT verified in the user-selected parcel; source data export, not a visual acceptance report'};
+  }
   return {configure,setField,setEnabled,clear,dispose,exportStructuredData,
+    exportSiteSnapshot,
     exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
     exportGeometry:()=>geometrySnapshot?{grid:{...geometrySnapshot.grid},scenario:{...geometrySnapshot.scenario},
-      parameters:{...geometrySnapshot.parameters},pending:geometryBusy||Boolean(geometryPending),
+      parameters:{...geometrySnapshot.parameters},pending:geometryBusy||Boolean(geometryPending)||Boolean(requestTimer)||result?.requestId!==requestId,
       diagnostics:structuredClone(geometryDiagnostics),
       field:{type:'FeatureCollection',features:structuredClone(features)},
       ribbons:{type:'FeatureCollection',features:structuredClone(ribbonFeatures)},

@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.49-tensor-streamlines';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.49-tensor-streamlines';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.50-tensor-site-fix';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -1737,6 +1737,7 @@ export function createLocalFloodUI({
     for(const [id,property,color] of [
       ['focus-parcel-ground','fill-color',ground],
       ['focus-green-ground','fill-color',green],
+      ['focus-water-ground','fill-color',hydroDisplay.flow?'#000000':'#a8d5ec'],
       ['focus-road-casing','fill-color',road],
       ['focus-road-surface','fill-color',hydroDisplay.flow?'#000000':['match',['get','kind'],'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff']]
     ])if(viewer.getLayer(id))viewer.setPaintProperty(id,property,color);
@@ -1913,6 +1914,7 @@ export function createLocalFloodUI({
   function setFocusPitchMode(){
     const viewer=isolateViewer;
     if(!viewer)return;
+    if(hydroDisplay.flow&&viewer.getPitch()>.01){viewer.jumpTo({pitch:0});return}
     const is3D=viewer.getPitch()>.5;
     const show=!hydroDisplay.flow||tensorShowBuildings;
     for(const [id,v] of [
@@ -1954,6 +1956,7 @@ export function createLocalFloodUI({
     delete window.getLondonHydroTensorFieldData;
     delete window.getLondonHydroTensorDiagnostics;
     delete window.getLondonHydroTensorGeometryData;
+    delete window.getLondonHydroTensorSiteSnapshot;
     isolateViewer=null;
     volumetricWater=null;
     if(viewer){
@@ -2314,7 +2317,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.49-tensor-streamlines</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.50-tensor-site-fix</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2409,7 +2412,9 @@ export function createLocalFloodUI({
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>弱</span><div aria-hidden="true"></div><span>强</span></div>',
-      '<div class="site-hydro-mini" id="siteHudVectorStatus">启用后读取当前年份的地形与积水方向场</div>',
+      '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
+      '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
+      '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
       '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 模拟水深 · 建筑障碍<br>2026—2100 随年份更新。张量线及粒子不表示真实水流速度。</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
@@ -2800,6 +2805,19 @@ export function createLocalFloodUI({
       };
     }
     const showTensorBuildings=siteHud('siteHudTensorBuildings');
+    siteHud('siteHudTensorExport').onclick=()=>{
+      const snapshot=window.getLondonHydroTensorSiteSnapshot?.();
+      const hint=siteHud('siteHudTensorExportStatus');
+      if(!snapshot){hint.textContent='请先启用张量场，等待方向场计算完成后导出。';return}
+      const blob=new Blob([JSON.stringify(snapshot)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='LondonMap_Tensor_Site_'+snapshot.current.scenario.year+'.json';
+      a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      const years=snapshot.scenarios.map(s=>s.scenario.year);
+      hint.textContent='已导出当前场地，已计算年份：'+(years.join('、')||snapshot.current.scenario.year)+
+        '。'+([2026,2100].every(y=>years.includes(y))?'':'请分别停留在2026和2100并等待计算，再导出以包含两种情景。')+
+        (snapshot.pending.tensor||snapshot.pending.geometry?' 当前仍在计算，包内已标注待完成状态。':'');
+    };
     if(showTensorBuildings){
       showTensorBuildings.checked=tensorShowBuildings;
       showTensorBuildings.onchange=e=>{
@@ -2925,6 +2943,15 @@ export function createLocalFloodUI({
     window.getLondonHydroTensorFieldData=()=>hydroVector?.exportStructuredData()||null;
     window.getLondonHydroTensorDiagnostics=(stride=4)=>hydroVector?.exportDiagnostics(stride)||null;
     window.getLondonHydroTensorGeometryData=()=>hydroVector?.exportGeometry()||null;
+    window.getLondonHydroTensorSiteSnapshot=()=>{
+      const snapshot=hydroVector?.exportSiteSnapshot();if(!snapshot)return null;
+      return {...snapshot,selection:{type:'Polygon',coordinates:structuredClone(polygon)},
+        buildings:{type:'FeatureCollection',features:structuredClone([...sceneFeatures.values()])},
+        floodSettings:{futureYear,displayMode,floodMode,climateScenario,rainPreset,
+          externalStageM,stormProfile,criticalDurationMin,rainfallMode,manualFourHourMm},
+        display:{...hydroDisplay,tensorShowBuildings},
+        visualAcceptance:{status:'pending',reason:'This export captures source arrays and camera; it does not certify screenshots or whole-site visual acceptance.'}};
+    };
     window.getLondonHydroVectorFieldData=window.getLondonHydroTensorFieldData;
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
@@ -2956,7 +2983,7 @@ export function createLocalFloodUI({
       viewer.easeTo({
         center:viewer.getCenter(),
         zoom:Math.max(15.2,Math.min(18,fittedZoom-0.3)),
-        pitch:42,bearing:isolateCamera?.bearing||0,duration:550
+        pitch:hydroDisplay.flow?0:42,bearing:isolateCamera?.bearing||0,duration:550
       });
     });
   }

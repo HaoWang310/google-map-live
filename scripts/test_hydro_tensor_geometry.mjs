@@ -113,4 +113,30 @@ test('geometry is deterministic and leaves every source array unchanged',()=>{
  }finally{Math.random=saved}
  assert.equal(digest(fork),before);
 });
+test('whole-valid coverage never substitutes the supported-only denominator',()=>{
+ const r=fixture(41,31);for(let i=0;i<r.fields.confidence.length;i++)if(i%41>=20)r.fields.confidence[i]=0;
+ r.siteMask=new Uint8Array(41*31).fill(1);r.obstacleMask=new Uint8Array(41*31);
+ const engine=createTensorGeometry(r,options);engine.buildLines();const d=engine.diagnostics,p=d.field.primary;
+ assert.equal(d.validCells,1271);assert.equal(d.supportedDirectionCells,620);
+ assert.equal(p.wholeValidCoverageDenominator,1271);assert.equal(p.supportedCoverageDenominator,620);
+ assert.equal(p.wholeValidCoverage,p.coveredSupportedCells/1271);
+ assert.ok(p.wholeValidCoverage<.5&&p.supportedCoverage>.8);
+ assert.ok(p.confidenceStops>0);assert.ok(d.probeStopReasons.low_confidence>0);
+});
+test('static analysis seeds the full parcel even when only one corner is visible',()=>{
+ const r=fixture(61,41),engine=createTensorGeometry(r,{...options,mode:'analysis',viewRect:[0,0,10,10]});
+ const out=engine.buildLines();assert.deepEqual(engine.diagnostics.viewRect,[0,0,61,41]);
+ assert.equal(engine.diagnostics.visibleSupportedDirectionCells,100);
+ assert.ok(out.some(line=>line.path.some(p=>p.x>55&&p.y>30)));
+ assert.ok(engine.diagnostics.field.primary.wholeValidCoverage>.9);
+});
+test('unambiguous real skeleton junctions retain a continuous main strand',()=>{
+ const r=fixture();
+ for(let x=5;x<76;x++){r.fields.drainageMask[30*r.cols+x]=1;r.fields.drainageRank[30*r.cols+x]=.9}
+ for(let y=10;y<=30;y++){r.fields.drainageMask[y*r.cols+40]=1;r.fields.drainageRank[y*r.cols+40]=.5}
+ const engine=createTensorGeometry(r,options),out=engine.buildRibbons();
+ assert.ok(engine.diagnostics.ribbons.junctionContinuations>0);
+ assert.ok(out.some(line=>line.centralSkeleton&&line.lengthM>600));
+ for(const line of out)for(let k=1;k<line.path.length;k++)assert.ok(engine.segmentClear(line.path[k-1],line.path[k],'network'));
+});
 console.log(`${count} geometry regression groups passed`);
