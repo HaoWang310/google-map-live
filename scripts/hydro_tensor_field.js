@@ -1,4 +1,5 @@
-/* v3.22.46-tensor-base-wet · Separate always-visible topographic tensor from annual wet enhancements.
+import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.47-tensor-logic';
+/* v3.22.47-tensor-logic · Separate always-visible topographic tensor from annual wet enhancements.
    The original DEM and flood solver remain unchanged. Visualization is
    gradually revealed over the 2026–2100 design-scenario timeline;
    particles illustrate eigenfield axes and do not represent measured speed. */
@@ -17,7 +18,8 @@ export function createHydroTensorRenderer(args){
   };
   let settings={...presets},enabled=false,disposed=false;
   let context=null,flow=null,scenario={year:2026,kind:'design-envelope'};
-  let depth=null,result=null,worker=null;
+  let depth=null,result=null,worker=null,submitted=null;
+  let drainageThresholdKm2=1;
   let workerGeneration=0,requestId=0,requestTimer=0,lastSubmitted=0;
   let pendingFrame=null,lines=[],baseLines=[],wetLines=[],features=[],animation=0,animationOrigin=0;
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[];
@@ -34,7 +36,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.46-tensor-base-wet',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.47-tensor-logic',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -47,14 +49,15 @@ export function createHydroTensorRenderer(args){
         const n=data.cols*data.rows;
         const fields={};
         for(const [key,buffer] of Object.entries(data.fields)){
-          const Type=key==='validMask'||key==='trunkMask'?Uint8Array:Float32Array;
+          const Type=['validMask','trunkMask','drainageMask','terrainDirectionValid'].includes(key)?Uint8Array:Float32Array;
           fields[key]=new Type(buffer);
           if(fields[key].length!==n)return;
         }
-        result={...data,fields};
+        if(!submitted||!sameHydroGrid(data.grid,submitted.context.grid))return;
+        result={...data,fields,context:submitted.context,depth:submitted.depth,parameters:submitted.parameters};
         lastSubmitted=performance.now();
         buildLines();buildRibbons();applyStyle();
-        const newTarget=clamp(.20+.80*(scenario.year-2026)/74,.20,1);
+        const newTarget=clamp(.20+.80*(data.scenario.year-2026)/74,.20,1);
         const now=performance.now();
         if(!animation||settings.mode!=='presentation'){
           yearGrowth=newTarget;
@@ -65,7 +68,7 @@ export function createHydroTensorRenderer(args){
         }
         growthTo=newTarget;
         growthChangeAt=now;
-        lastRenderedYear=scenario.year;
+        lastRenderedYear=data.scenario.year;
         if(settings.mode==='presentation'){
           if(!animation)restart();
           else drawLines(yearGrowth);
@@ -73,7 +76,7 @@ export function createHydroTensorRenderer(args){
           drawLines(newTarget);
           dots()?.setData(empty());
         }
-        status(scenario.year+' 年 · 基础地形 '+baseLines.length+
+        status(data.scenario.year+' 年 · 基础地形 '+baseLines.length+
           ' 条（常显） · 积水影响 '+wetLines.length+
           ' 条（逐年变化） · 汇水线束 '+ribbons.length+
           ' 条 · DEM '+data.demNativeResolutionM+' m · 非实测水速');
@@ -85,19 +88,23 @@ export function createHydroTensorRenderer(args){
     }
   }
   function queueSolve(immediate=false){
+    requestId++; // Invalidate an in-flight result as soon as inputs change.
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     if(!enabled||!flow||!context||disposed)return;
     requestTimer=setTimeout(()=>{
       requestTimer=0;if(!enabled||!flow||!context||disposed||!workerStart())return;
       const n=flow.cols*flow.rows;
       if(!n||n>70000)return;
-      const ll=getBounds();
-      if(!ll){status('尚未获得场地真实地理范围');return}
-      const nw=toMerc(ll[0]),ne=toMerc(ll[1]),sw=toMerc(ll[3]);
+      const grid=context.grid;
+      if(!validHydroGrid(grid,flow.cols,flow.rows)||!sameHydroGrid(grid,flow.grid)){
+        status('张量输入缺少匹配的原始洪水网格');return;
+      }
+      submitted={context,depth,scenario:{...scenario},parameters:{...settings}};
       const request={
         type:'solve',requestId:++requestId,cols:flow.cols,rows:flow.rows,
-        cellX:Math.abs((ne[0]-nw[0])/flow.cols),
-        cellY:Math.abs((nw[1]-sw[1])/flow.rows),
+        grid,scenario:{...scenario},depthAvailable:Boolean(depth),drainageThresholdKm2,
+        cellX:grid.cellProjectedM*grid.groundScale,
+        cellY:grid.cellProjectedM*grid.groundScale,
         terrain:context.terrain,accumulation:context.accumulation,
         inside:context.inside,obstacle:context.obstacle,
         depthMm:depth||new Uint16Array(n),
@@ -129,7 +136,7 @@ export function createHydroTensorRenderer(args){
     const {cols,rows,fields:f}=result;
     const cx=x-.5,cy=y-.5,x0=Math.floor(cx),y0=Math.floor(cy);
     const tx=cx-x0,ty=cy-y0;
-    let sumX=0,sumY=0,count=0,strength=0,acc=0,suit=0;
+    let sumX=0,sumY=0,count=0,strength=0,acc=0,suit=0,reference=previous;
     for(let oy=0;oy<=1;oy++)for(let ox=0;ox<=1;ox++){
       const u=x0+ox,v=y0+oy;
       if(u<0||v<0||u>=cols||v>=rows)continue;
@@ -143,7 +150,8 @@ export function createHydroTensorRenderer(args){
       let ax=family==='base'?f.basePrimaryX[k]:f.primaryX[k];
       let ay=family==='base'?f.basePrimaryY[k]:f.primaryY[k];
       if(branch==='secondary'){const a=ax;ax=-ay;ay=a}
-      if(previous&&ax*previous.x+ay*previous.y<0){ax=-ax;ay=-ay}
+      if(!reference)reference={x:ax,y:ay};
+      if(ax*reference.x+ay*reference.y<0){ax=-ax;ay=-ay}
       const intensity=family==='base'?f.baseIntensity[k]:f.hydroIntensity[k];
       sumX+=ax*weight;sumY+=ay*weight;count+=weight;
       strength+=intensity*weight;acc+=f.drainageRank[k]*weight;
@@ -191,11 +199,7 @@ export function createHydroTensorRenderer(args){
   };
   function buildLines(){
     if(!result)return;
-    const bounds=getBounds();
-    if(!bounds)return;
-    const nw=toMerc(bounds[0]),ne=toMerc(bounds[1]),sw=toMerc(bounds[3]);
-    renderGeo={nw,dx:(ne[0]-nw[0])/result.cols,
-      dy:(nw[1]-sw[1])/result.rows};
+    renderGeo=gridRenderGeometry(result.grid);
     const {cols,rows,fields:f}=result;
     const branches=settings.direction==='dual'?
       ['primary','secondary']:[settings.direction];
@@ -312,7 +316,7 @@ export function createHydroTensorRenderer(args){
     // Bilinear interpolation in the original solver grid (display only).
     const ox=x-.5,oy=y-.5,x0=Math.floor(ox),y0=Math.floor(oy);
     const tx=ox-x0,ty=oy-y0;
-    let ax=0,ay=0,rank=0,sum=0;
+    let ax=0,ay=0,rank=0,sum=0,reference=previous;
     for(let dy=0;dy<=1;dy++)for(let dx=0;dx<=1;dx++){
       const xx=x0+dx,yy=y0+dy;
       if(xx<0||yy<0||xx>=cols||yy>=rows)continue;
@@ -322,7 +326,8 @@ export function createHydroTensorRenderer(args){
       const weight=(dx?tx:1-tx)*(dy?ty:1-ty);
       if(weight<=0)continue;
       let vx=f.corridorAxisX[id],vy=f.corridorAxisY[id];
-      if(previous&&vx*previous.x+vy*previous.y<0){vx=-vx;vy=-vy}
+      if(!reference&&Math.hypot(vx,vy)>.5)reference={x:vx,y:vy};
+      if(reference&&vx*reference.x+vy*reference.y<0){vx=-vx;vy=-vy}
       ax+=vx*weight;ay+=vy*weight;
       rank+=f.corridorRank[id]*weight;sum+=weight;
     }
@@ -600,12 +605,19 @@ export function createHydroTensorRenderer(args){
     if(disposed||!data)return;
     const n=data.cols*data.rows;
     if(n<=0||n>70000)return;
+    const grid=meta.grid||spatialContext?.grid;
+    if(!validHydroGrid(grid,data.cols,data.rows)){
+      status('缺少原始洪水网格；不混用估算网格');return;
+    }
     const flowCandidate={
-      cols:data.cols,rows:data.rows,
+      cols:data.cols,rows:data.rows,grid,
       vx:new Int8Array(data.vx),vy:new Int8Array(data.vy),
       intensity:new Uint8Array(data.intensity)
     };
     if([flowCandidate.vx,flowCandidate.vy,flowCandidate.intensity].some(a=>!isNumericArray(a,n)))return;
+    if(context&&!sameHydroGrid(context.grid,grid)){
+      context=null;result=null;depth=null;
+    }
     flow=flowCandidate;
     if(spatialContext?.cols===data.cols&&spatialContext?.rows===data.rows){
       const next={
@@ -614,13 +626,16 @@ export function createHydroTensorRenderer(args){
         inside:new Uint8Array(spatialContext.inside),
         obstacle:new Uint8Array(spatialContext.obstacle)
       };
-      if(Object.values(next).every(a=>a.length===n))context=next;
+      if(Object.values(next).every(a=>a.length===n)&&sameHydroGrid(spatialContext.grid,grid))
+        context={...next,grid:{...grid},drainageAvailable:spatialContext.drainageAvailable};
     }
     if(meta.depthMm){
       const d=new Uint16Array(meta.depthMm);
-      depth=d.length===n?d:null;
+      if(d.length!==n){status('水深与原始洪水网格不匹配');return;}
+      depth=d;
     }else depth=null;
-    scenario={year:Number(meta.year)||2026,kind:meta.kind||'design-envelope'};
+    drainageThresholdKm2=Number(meta.drainageThresholdKm2??1);
+    scenario={year:Number(meta.year)||2026,kind:meta.kind||'design-envelope',token:meta.token??null};
     if(enabled)queueSolve(meta.force===true);
   }
   function setEnabled(on){
@@ -641,7 +656,7 @@ export function createHydroTensorRenderer(args){
       return;
     }
     if(result){buildLines();buildRibbons();restart()}
-    else if(flow&&context)queueSolve(true);
+    if(flow&&context)queueSolve(true);
     applyStyle();
   }
   function clear(){
@@ -656,23 +671,32 @@ export function createHydroTensorRenderer(args){
   }
   function exportStructuredData(){
     if(!result)return null;
-    const f=result.fields,c=context;
+    const f=result.fields,c=result.context;
     const out={
       source:'OS Terrain 50 DEM, DEM-derived contributing area, modeled 2026–2100 depth/hydraulic-head direction and building barriers',
       tensorSemantics:'hydrological orientation axes (principal/orthogonal), NOT future road lines or true m/s velocity',
       scenarioYear:lastRenderedYear,
-      stage:{...scenario},crs:'EPSG:4326',localBasis:'native flood-solver grid',
-      boundsLngLat:getBounds(),cols:result.cols,rows:result.rows,
+      stage:{...result.scenario},crs:'EPSG:4326',localBasis:'east/south in local ground metres',
+      grid:{...result.grid},diagnostics:result.diagnostics,
+      drainageDirectionMethod:result.drainageDirectionMethod,
+      drainageThresholdKm2:result.drainageThresholdKm2,
+      boundsLngLat:[
+        fromMerc(result.grid.left,result.grid.top),
+        fromMerc(result.grid.left+result.cols*result.grid.cellProjectedM,result.grid.top),
+        fromMerc(result.grid.left+result.cols*result.grid.cellProjectedM,result.grid.top-result.rows*result.grid.cellProjectedM),
+        fromMerc(result.grid.left,result.grid.top-result.rows*result.grid.cellProjectedM)
+      ],cols:result.cols,rows:result.rows,
       cellX:result.cellX,cellY:result.cellY,
       demNativeResolutionM:result.demNativeResolutionM,
       terrainGradientSupportM:result.terrainGradientSupportM,
       terrainSamplingNote:'Simulation cells finer than 50m do not imply independent higher-resolution DEM data',
       designNotMeasuredVelocity:true,
-      parameters:{...settings}
+      parameters:{...result.parameters}
     };
     for(const [name,array] of Object.entries(f))out[name]=new array.constructor(array);
-    if(c)for(const [name,array] of Object.entries(c))out[name]=new array.constructor(array);
-    if(depth)out.depthMm=new Uint16Array(depth);
+    if(c)for(const name of ['terrain','accumulation','inside','obstacle'])
+      out[name]=new c[name].constructor(c[name]);
+    if(result.depth)out.depthMm=new Uint16Array(result.depth);
     // Do not return road polylines as validated street designs.
     out.terrainBaseIsYearInvariant=true;
     out.annualWetDirectionDataIsDynamic=true;
@@ -689,5 +713,6 @@ export function createHydroTensorRenderer(args){
     dots()?.setData(empty());
   }
   return {configure,setField,setEnabled,clear,dispose,exportStructuredData,
+    exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
     getConfig:()=>({...settings})};
 }

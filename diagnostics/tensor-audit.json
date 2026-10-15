@@ -1,0 +1,62 @@
+{
+  "baselineFloodDepthBitIdentical": true,
+  "baselineFloodVolumeIdentical": true,
+  "modelEvent": {
+    "rainMmH": 25,
+    "durationMin": 120,
+    "infiltrationMmH": 0.5,
+    "buildingInput": "none; building collisions tested separately with synthetic fixtures",
+    "EAReference": "not loaded in offline diagnostic; no EA data used to drive floodwater"
+  },
+  "drainageTerrainComparisonCells": 2215,
+  "medianDrainageTerrainAxisDifferenceDeg": 77.5339391497633,
+  "wetDryComparisonCells": 39906,
+  "medianWetDryAxisChangeDeg": 0.014653920947947022,
+  "cellsWetDryAxisChangeOver5Deg": 8474,
+  "maxEigenResidual": 5.865341212983183e-08,
+  "peakDepthM": 1.0937172174453735,
+  "dry": {
+    "counts": {
+      "valid": 39917,
+      "terrain": 39917,
+      "drainage": 2215,
+      "hydraulic": 0,
+      "tensor": 39911
+    },
+    "drainageD8Available": false,
+    "groundMetreBasis": true,
+    "hydraulicDepthAvailable": true
+  },
+  "wet": {
+    "counts": {
+      "valid": 39917,
+      "terrain": 39917,
+      "drainage": 2215,
+      "hydraulic": 10091,
+      "tensor": 39910
+    },
+    "drainageD8Available": false,
+    "groundMetreBasis": true,
+    "hydraulicDepthAvailable": true
+  },
+  "grid": {
+    "id": 1,
+    "crs": "EPSG:3857",
+    "cols": 223,
+    "rows": 179,
+    "left": -34509.042145914806,
+    "top": 6708431.056500631,
+    "cellProjectedM": 15,
+    "groundScale": 0.6227536332341963,
+    "axisX": "east",
+    "axisY": "south",
+    "groundMetric": "local Mercator scale at site centre"
+  },
+  "bboxLngLat": [
+    -0.31,
+    51.475,
+    -0.28,
+    51.49
+  ],
+  "sourceHashesVerified": true
+}

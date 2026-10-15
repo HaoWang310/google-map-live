@@ -4,6 +4,7 @@ let demConfig=null;
 let demPromise=null;
 let drainagePromise=null;
 let sim=null;
+let gridGeneration=0;
 let running=false;
 const annualStateCache=new Map();
 let annualCacheKey='';
@@ -284,6 +285,13 @@ async function setup(data){
     spongeCellCount:0,spongeFacilityCount:0
   };
 
+  // Metadata only: preserve the existing solver's projected cell and ceil
+  // padding exactly. Tensor derivatives use local ground metres at site centre.
+  const centreLat=lngLat((box.left+box.right)/2,(box.top+box.bottom)/2)[1];
+  sim.grid={id:++gridGeneration,crs:'EPSG:3857',cols,rows,
+    left:box.left,top:box.top,cellProjectedM:cell,
+    groundScale:Math.cos(centreLat*Math.PI/180),
+    axisX:'east',axisY:'south',groundMetric:'local Mercator scale at site centre'};
   for(const building of sim.buildings)rasterizeBuilding(sim,building);
   applySpongeInterventions();
 
@@ -320,7 +328,7 @@ async function setup(data){
   postMessage({
     type:'setup-complete',
     requestId:data.requestId,
-    cols,rows,cellSizeM:cell,
+    cols,rows,cellSizeM:cell,grid:sim.grid,
     widthM:width,heightM:height,
     insideCells:insideCount,buildingCells,
     buildingCount:sim.buildings.length,
@@ -333,9 +341,9 @@ async function setup(data){
     riskMappedCells:sim.riskMappedCount||0,
     boundsLngLat:[
       lngLat(box.left,box.top),
-      lngLat(box.right,box.top),
-      lngLat(box.right,box.bottom),
-      lngLat(box.left,box.bottom)
+      lngLat(box.left+cols*cell,box.top),
+      lngLat(box.left+cols*cell,box.top-rows*cell),
+      lngLat(box.left,box.top-rows*cell)
     ]
   });
   sendFrame();
@@ -902,7 +910,7 @@ function sendFrame(){
   if(flowField)buffers.push(flowField.vx.buffer,
     flowField.vy.buffer,flowField.intensity.buffer);
   postMessage({
-    type:'frame',scenarioYear:annualFrameYear,scenarioToken:annualFrameToken,
+    type:'frame',grid:sim.grid,scenarioYear:annualFrameYear,scenarioToken:annualFrameToken,
     annualAreaStage,
     width:cols,height:rows,pixels:pixels.buffer,
     depthMm:depthMm.buffer,contactMask:contactMask.buffer,
@@ -1019,8 +1027,10 @@ onmessage=async({data})=>{
       // statistics are untouched; the user may switch the independent layer
       // on without running a fresh flood simulation.
       const field=buildHydroFlowField(true);
+      const depthMm=sim?Uint16Array.from(sim.water,(value,i)=>
+        Math.round(clamp(Math.max(0,value-sim.svCapacity[i])*1000,0,65535))):null;
       const spatialContext=sim?{
-        cols:sim.cols,rows:sim.rows,
+        cols:sim.cols,rows:sim.rows,grid:sim.grid,
         terrain:new Float32Array(sim.terrain).buffer,
         accumulation:new Uint16Array(sim.accumulation).buffer,
         inside:new Uint8Array(sim.inside).buffer,
@@ -1030,11 +1040,13 @@ onmessage=async({data})=>{
       }:null;
       const buffers=field?
         [field.vx.buffer,field.vy.buffer,field.intensity.buffer]:[];
+      if(depthMm)buffers.push(depthMm.buffer);
       if(spatialContext)buffers.push(spatialContext.terrain,
         spatialContext.accumulation,spatialContext.inside,spatialContext.obstacle);
       postMessage({
-        type:'flow-field',
-        spatialContext,
+        type:'flow-field',grid:sim?.grid,
+        scenarioYear:annualFrameYear,scenarioToken:annualFrameToken,annualAreaStage,
+        spatialContext,depthMm:depthMm?.buffer,
         flowField:field?{
           cols:field.cols,rows:field.rows,units:'relative',
           vx:field.vx.buffer,vy:field.vy.buffer,

@@ -1,5 +1,6 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.46-tensor-base-wet';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.46-tensor-base-wet';
+import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.47-tensor-logic';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.47-tensor-logic';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.47-tensor-logic';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -1950,6 +1951,7 @@ export function createLocalFloodUI({
     hydroVector=null;
     delete window.getLondonHydroVectorFieldData;
     delete window.getLondonHydroTensorFieldData;
+    delete window.getLondonHydroTensorDiagnostics;
     isolateViewer=null;
     volumetricWater=null;
     if(viewer){
@@ -2310,7 +2312,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.46-tensor-base-wet</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.47-tensor-logic</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2919,6 +2921,7 @@ export function createLocalFloodUI({
     });
     // Typed native-grid design tensor contract for future Wool and roads.
     window.getLondonHydroTensorFieldData=()=>hydroVector?.exportStructuredData()||null;
+    window.getLondonHydroTensorDiagnostics=(stride=4)=>hydroVector?.exportDiagnostics(stride)||null;
     window.getLondonHydroVectorFieldData=window.getLondonHydroTensorFieldData;
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
@@ -3478,15 +3481,20 @@ export function createLocalFloodUI({
         // arrays. Reuse the accepted year frame's hydraulic state instead of
         // flashing a different year or overwritten worker snapshot.
         const current=lastHydroFrame;
-        const matching=Boolean(current?.flowField&&data?.flowField&&
-          current.flowField.cols===data.flowField.cols&&
-          current.flowField.rows===data.flowField.rows);
+        const matching=Boolean(current?.depthMm&&data?.flowField&&
+          sameHydroGrid(current.grid,data.grid)&&
+          current.scenarioYear===futureYear&&
+          (!longTermMode||current.scenarioToken===lastRequestedScenarioToken));
+        const snapshotMatches=data.scenarioYear===futureYear&&
+          (!longTermMode||data.scenarioToken===lastRequestedScenarioToken);
         updateFocusFlowVectors({
           ...data,
-          flowField:matching?current.flowField:data.flowField,
-          depthMm:matching?current.depthMm:null,
+          flowField:matching?(current.flowField||data.flowField):data.flowField,
+          grid:matching?current.grid:data.grid,
+          depthMm:matching?current.depthMm:snapshotMatches?data.depthMm:null,
           scenarioYear:matching?current.scenarioYear:futureYear,
-          annualAreaStage:matching?current.annualAreaStage:null,
+          scenarioToken:matching?current.scenarioToken:snapshotMatches?data.scenarioToken:null,
+          annualAreaStage:matching?current.annualAreaStage:snapshotMatches?data.annualAreaStage:null,
           forceVectorRefresh:true
         });
       },
@@ -3720,7 +3728,9 @@ export function createLocalFloodUI({
     setSiteHud('siteHudTensorYear',String(year));
     hydroVector.setField(data.flowField,data.spatialContext||null,{
       year,kind:data.annualAreaStage?.kind||'rainfall-simulation',
-      depthMm:data.depthMm||null
+      depthMm:data.depthMm||null,grid:data.grid,token:data.scenarioToken,
+      drainageThresholdKm2:Number($('networkThreshold')?.value)||0,
+      force:data.forceVectorRefresh===true
     });
   }
 

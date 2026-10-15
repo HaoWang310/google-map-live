@@ -1,4 +1,4 @@
-/* London Map · v3.22.46-tensor-base-wet.
+/* London Map · v3.22.47-tensor-logic.
    Hydro tensor only: OS Terrain 50 DEM, contributing-area drainage,
    modeled 2026-2100 depth/head-gradient and real OSM building barriers.
    The symmetric 2x2 tensor is hydrological ORIENTATION, not measured velocity,
@@ -7,7 +7,7 @@ const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const EPS=1e-9;
 function solve(data){
   const {cols:w,rows:h}=data,n=w*h;
-  if(!Number.isInteger(n)||n<=0||n>70000)throw Error('Invalid tensor grid');
+  if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||n>70000)throw Error('Invalid tensor grid');
   const terrain=new Float32Array(data.terrain);
   const accumulation=new Uint16Array(data.accumulation);
   const inside=new Uint8Array(data.inside);
@@ -24,8 +24,8 @@ function solve(data){
   // Keep avoidance key as a backward-compatible read-only configuration field.
   const wa=clamp(Number(cfg.wetnessWeight??cfg.avoidance??70)/100,0,1);
   const smooth=clamp(Number(cfg.smoothness??60)/100,0,1);
-  const cross=clamp(Number(cfg.crossStrength??60)/100,0,1);
-  const dx=Math.max(1,Number(data.cellX)||10),dy=Math.max(1,Number(data.cellY)||10);
+  const dx=Number(data.cellX),dy=Number(data.cellY);
+  if(!(Number.isFinite(dx)&&Number.isFinite(dy)&&dx>0&&dy>0))throw Error('Missing ground-metre grid spacing');
   // OS Terrain 50 contributes no new independent elevations at 10m grid
   // spacing. Estimate DEM gradients at >=50m neighbour SUPPORT, while retaining
   // the original solver grid only for obstacles, water and drawing placement.
@@ -49,7 +49,16 @@ function solve(data){
   const corridorRank=new Float32Array(n),corridorAxisX=new Float32Array(n),
     corridorAxisY=new Float32Array(n),corridorDistance=new Float32Array(n);
   const trunkMask=new Uint8Array(n);
-  const cos2=new Float32Array(n),sin2=new Float32Array(n);
+  const cos2=new Float32Array(n),sin2=new Float32Array(n),evidence=new Float32Array(n);
+  const eigenvalueMajor=new Float32Array(n),eigenvalueMinor=new Float32Array(n);
+  const drainageX=new Float32Array(n),drainageY=new Float32Array(n),
+    drainageConfidence=new Float32Array(n),drainageAreaKm2=new Float32Array(n);
+  const drainageMask=new Uint8Array(n),terrainDirectionValid=new Uint8Array(n);
+  const hydraulicConfidence=new Float32Array(n),slopeMagnitude=new Float32Array(n);
+  const aspectRadians=new Float32Array(n);aspectRadians.fill(NaN);
+  const threshold=clamp(Number(data.drainageThresholdKm2??1),.0025,20000);
+  // Match drainage_worker.js's encoded threshold exactly, including rounding.
+  const thresholdCode=1+Math.round(Math.log(threshold/.0025)/Math.log(20000/.0025)*65534);
   const slopeX=new Float32Array(n),slopeY=new Float32Array(n);
   const waterActive=new Float32Array(n),hydX=new Float32Array(n),hydY=new Float32Array(n);
   const valid=i=>i>=0&&i<n&&inside[i]!==0&&!barrier[i]&&Number.isFinite(terrain[i]);
@@ -59,79 +68,100 @@ function solve(data){
     if(!valid(i))continue;
     validMask[i]=1;
     drainageRank[i]=accumulation[i]>0?(accumulation[i]-1)/65534:0;
-    waterActive[i]=Math.max(
-      clamp((depth[i]/1000)/.14,0,1),
-      clamp(flowPower[i]/255,0,1)
-    );
-    const f=Math.hypot(flowX[i],flowY[i]);
-    if(f>2){hydX[i]=flowX[i]/f;hydY[i]=flowY[i]/f}
+    waterActive[i]=clamp(depth[i]/140,0,1);
+    if(accumulation[i]){
+      drainageAreaKm2[i]=.0025*Math.exp(drainageRank[i]*Math.log(20000/.0025));
+      drainageMask[i]=accumulation[i]>=thresholdCode?1:0;
+    }
   }
-  // First, compute local terrain gradient without crossing barriers.
+  // Physical topography exists under buildings; barriers mask water routing,
+  // not the underlying DEM derivative. Do not cross parcel/NoData gaps.
+  const terrainValid=i=>i>=0&&i<n&&inside[i]!==0&&Number.isFinite(terrain[i]);
+  function derivative(x,y,ox,oy,radius,spacing){
+    const i=y*w+x;let lo=0,hi=0;
+    for(let k=1;k<=radius;k++){
+      const xx=x-ox*k,yy=y-oy*k;
+      if(xx<0||yy<0||xx>=w||yy>=h||!terrainValid(yy*w+xx))break;
+      lo=k;
+    }
+    for(let k=1;k<=radius;k++){
+      const xx=x+ox*k,yy=y+oy*k;
+      if(xx<0||yy<0||xx>=w||yy>=h||!terrainValid(yy*w+xx))break;
+      hi=k;
+    }
+    if(!lo&&!hi||(lo+hi)*spacing<50)return null;
+    return (terrain[i+hi*(oy*w+ox)]-terrain[i-lo*(oy*w+ox)])/((lo+hi)*spacing);
+  }
+  function connected(x,y,xx,yy){
+    const steps=Math.max(Math.abs(xx-x),Math.abs(yy-y));let px=x,py=y;
+    for(let k=1;k<=steps;k++){
+      const nx=Math.round(x+(xx-x)*k/steps),ny=Math.round(y+(yy-y)*k/steps);
+      if(!valid(ny*w+nx))return false;
+      if(nx!==px&&ny!==py&&(!valid(py*w+nx)||!valid(ny*w+px)))return false;
+      px=nx;py=ny;
+    }
+    return true;
+  }
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const i=y*w+x;
-    if(!valid(i))continue;
-    const left=x>0?y*w+Math.max(0,x-demRadiusX):i;
-    const right=x+1<w?y*w+Math.min(w-1,x+demRadiusX):i;
-    const top=y>0?Math.max(0,y-demRadiusY)*w+x:i;
-    const bottom=y+1<h?Math.min(h-1,y+demRadiusY)*w+x:i;
-    if(left!==right&&valid(left)&&valid(right))
-      slopeX[i]=(terrain[right]-terrain[left])/((right-left)*dx);
-    if(top!==bottom&&valid(top)&&valid(bottom))
-      slopeY[i]=(terrain[bottom]-terrain[top])/((bottom-top)/w*dy);
+    const i=y*w+x;if(!valid(i))continue;
+    const gx=derivative(x,y,1,0,demRadiusX,dx),gy=derivative(x,y,0,1,demRadiusY,dy);
+    if(gx!==null&&gy!==null){slopeX[i]=gx;slopeY[i]=gy;terrainDirectionValid[i]=1}
+    // Recompute from the accepted depth snapshot, including risk envelopes.
+    // A cached event vector can otherwise silently belong to a different year.
+    if(depth[i]<8)continue;
+    const head=terrain[i]+depth[i]/1000;let ax=0,ay=0,total=0;
+    for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]){
+      const xx=x+ox,yy=y+oy;
+      if(xx<0||yy<0||xx>=w||yy>=h||!connected(x,y,xx,yy))continue;
+      const j=yy*w+xx,distance=Math.hypot(ox*dx,oy*dy);
+      const drop=head-terrain[j]-depth[j]/1000;if(drop<=1e-7)continue;
+      const weight=Math.sqrt(drop/distance);
+      ax+=ox*dx/distance*weight;ay+=oy*dy/distance*weight;total+=weight;
+    }
+    const magnitude=Math.hypot(ax,ay);
+    if(magnitude>EPS){hydX[i]=ax/magnitude;hydY[i]=ay/magnitude;hydraulicConfidence[i]=magnitude/total}
+  }
+  // The published area raster has no D8 codes. Infer an UNDIRECTED network
+  // ridge tangent from independent area geometry, never from DEM downhill.
+  // >=50m sample spacing avoids counting repeated fine-grid values as new data.
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x;if(!validMask[i]||!drainageMask[i])continue;
+    const samples=[];let maximum=0,minimum=Infinity;
+    for(let oy=-2;oy<=2;oy++)for(let ox=-2;ox<=2;ox++){
+      const xx=x+ox*demRadiusX,yy=y+oy*demRadiusY;
+      if(xx<0||yy<0||xx>=w||yy>=h||!connected(x,y,xx,yy))continue;
+      const area=drainageAreaKm2[yy*w+xx];if(!(area>0))continue;
+      samples.push({x:(xx-x)*dx,y:(yy-y)*dy,area});
+      maximum=Math.max(maximum,area);minimum=Math.min(minimum,area);
+    }
+    const cut=Math.max(threshold,maximum*.12),selected=samples.filter(p=>p.area>=cut);
+    if(selected.length<3||samples.length<5||maximum<minimum*1.5)continue;
+    let weight=0,mx=0,my=0;
+    for(const p of selected){p.weight=1+Math.log(p.area/cut);weight+=p.weight;mx+=p.x*p.weight;my+=p.y*p.weight}
+    mx/=weight;my/=weight;
+    let xx=0,xy=0,yy=0;
+    for(const p of selected){const a=p.x-mx,b=p.y-my;xx+=p.weight*a*a;xy+=p.weight*a*b;yy+=p.weight*b*b}
+    const trace=xx+yy,gap=Math.hypot(xx-yy,2*xy),coherence=trace>EPS?gap/trace:0;
+    if(coherence<.20||trace/weight<500)continue;
+    const theta=.5*Math.atan2(2*xy,xx-yy);
+    drainageX[i]=Math.cos(theta);drainageY[i]=Math.sin(theta);
+    drainageConfidence[i]=coherence*clamp(Math.log(maximum/minimum)/Math.log(10),0,1);
   }
   // Valid topographic gradient evidence underpins an always-visible BASE
   // tensor layer. Accumulation ranks strengthen coherence but never invent
   // an absolute direction where no downhill information exists.
   for(let i=0;i<n;i++)if(validMask[i]){
     const gx=slopeX[i],gy=slopeY[i],steep=Math.hypot(gx,gy);
-    if(steep>1e-6){
+    slopeMagnitude[i]=steep;
+    if(terrainDirectionValid[i]&&steep>1e-6){
+      aspectRadians[i]=Math.atan2(-gy,-gx);
       basePrimaryX[i]=-gx/steep;basePrimaryY[i]=-gy/steep;
       baseConfidence[i]=clamp(.26+.74*steep/(steep+.012),0,1);
       baseIntensity[i]=clamp(.30+.44*Math.sqrt(drainageRank[i])+
         .26*baseConfidence[i],0,1);
     }
   }
-  // Propagate an observed local DEM orientation only across adjacent valid
-  // cells and no more than 50m. This bridges building-edge derivative gaps
-  // without treating interpolated guidance as independent high-res DEM data.
-  const baseRadius=Math.max(0,Math.min(4,Math.floor(50/Math.max(dx,dy))));
-  if(baseRadius>0){
-    const nextX=new Float32Array(n),nextY=new Float32Array(n),
-      nextC=new Float32Array(n);
-    for(let pass=0;pass<baseRadius;pass++){
-      nextX.set(basePrimaryX);nextY.set(basePrimaryY);
-      nextC.set(baseConfidence);
-      let updated=0;
-      for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-        const i=y*w+x;
-        if(!validMask[i]||baseConfidence[i]>.0001)continue;
-        let ax=0,ay=0,weight=0;
-        const neighbors=[x>0?i-1:-1,x+1<w?i+1:-1,
-          y>0?i-w:-1,y+1<h?i+w:-1];
-        for(const j of neighbors){
-          if(j<0||!validMask[j]||baseConfidence[j]<=.05)continue;
-          const strength=baseConfidence[j];
-          ax+=basePrimaryX[j]*strength;
-          ay+=basePrimaryY[j]*strength;
-          weight+=strength;
-        }
-        const magnitude=Math.hypot(ax,ay);
-        if(weight>.15&&magnitude/weight>.40){
-          nextX[i]=ax/magnitude;nextY[i]=ay/magnitude;
-          nextC[i]=Math.min(.6,weight/4)*Math.pow(.72,pass+1);
-          updated++;
-        }
-      }
-      if(!updated)break;
-      basePrimaryX.set(nextX);basePrimaryY.set(nextY);
-      baseConfidence.set(nextC);
-    }
-    for(let i=0;i<n;i++)if(validMask[i]&&baseConfidence[i]>.02&&
-      baseIntensity[i]===0){
-      baseIntensity[i]=clamp(.21+.42*Math.sqrt(drainageRank[i])+
-        .20*baseConfidence[i],0,1);
-    }
-  }
+  // No directional evidence is invented for flat or unsupported DEM cells.
   // Precompute flood avoidance PROXIMITY by a bounded, masked diffusion
   // in native cells, not by creating spurious high-resolution sample points.
   const danger=new Float32Array(n),buffer=new Float32Array(n);
@@ -182,30 +212,18 @@ function solve(data){
     if(slope>1e-6){
       const downhillAngle=Math.atan2(downhillY,downhillX);
       addAxis(downhillAngle,wt*(.15+.85*clamp(slope/.08,0,1)),sum);
-      // Contributing area is a strength of topographically derived water
-      // pathways: it is not a separate fake measured velocity vector.
-      addAxis(downhillAngle,wd*(.18+.82*trunk),sum);
+
+    }
+    if(drainageConfidence[i]>.02){
+      addAxis(Math.atan2(drainageY[i],drainageX[i]),
+        wd*(.18+.82*trunk)*drainageConfidence[i],sum);
     }
     if(water>.008&&Math.hypot(hydX[i],hydY[i])>.5){
       addAxis(Math.atan2(hydY[i],hydX[i]),
-        wa*water*(.32+.68*trunk),sum);
+        wa*water*(.32+.68*trunk)*hydraulicConfidence[i],sum);
     }
-    // The actual modeled inundation gradient bends hydrography along
-    // the interface between water and dry terrain, but must not replace
-    // the downhill/drainage evidence with a proposed avoidance road.
-    const left=x>0?i-1:i,right=x+1<w?i+1:i;
-    const top=y>0?i-w:i,bottom=y+1<h?i+w:i;
-    const wx=validMask[left]&&validMask[right]?
-      (floodProximity[right]-floodProximity[left])/
-        Math.max(1,(right-left)*dx):0;
-    const wy=validMask[top]&&validMask[bottom]?
-      (floodProximity[bottom]-floodProximity[top])/
-        Math.max(1,(bottom-top)/w*dy):0;
-    const edgeMag=Math.hypot(wx,wy);
-    if(edgeMag>1e-7&&water>.005){
-      addAxis(Math.atan2(wy,wx),
-        wa*water*.25*clamp(edgeMag*Math.max(dx,dy)*8,0,1),sum);
-    }
+    // Depth-edge gradients are exported as scalar constraints, not an extra
+    // hydraulic axis: a flood outline normal is not a measured flow vector.
     // Previously "suitability" removed inundated cells as poor ROAD land.
     // It now means hydrological sample reliability. Water is allowed and
     // highlighted; building / outside-site cells remain exactly invalid.
@@ -215,116 +233,75 @@ function solve(data){
       clamp(Math.hypot(sum[0],sum[1])/sum[2],0,1):0;
     const directionalEvidence=clamp(sum[2]/(sum[2]+.12),0,1);
     confidence[i]=clamp(coherence*directionalEvidence,0,1);
-    const angle=sum[2]>EPS?.5*Math.atan2(sum[1],sum[0]):0;
-    cos2[i]=Math.cos(2*angle);
-    sin2[i]=Math.sin(2*angle);
+    // Store the anisotropic components and trace of SUM(weight * u u^T).
+    cos2[i]=sum[0];sin2[i]=sum[1];evidence[i]=sum[2];
   }
-  // Native cell orientation smoothing across valid open terrain only.
-  // No smoothing through any building or outside the selected parcel.
-  const tmpC=new Float32Array(n),tmpS=new Float32Array(n);
+  // Smooth the actual symmetric tensor components, retaining cue magnitude
+  // and cancellation. Never normalize an unsupported angle to east.
+  const tmpC=new Float32Array(n),tmpS=new Float32Array(n),tmpE=new Float32Array(n);
   for(let pass=0;pass<Math.round(smooth*4);pass++){
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-      const i=y*w+x;if(!validMask[i])continue;
-      let c=cos2[i]*4*confidence[i],s=sin2[i]*4*confidence[i],weight=4*confidence[i];
-      const neighbors=[x>0?i-1:-1,x+1<w?i+1:-1,y>0?i-w:-1,y+1<h?i+w:-1];
-      for(const j of neighbors){
-        if(j<0||!validMask[j]||confidence[j]<.02)continue;
-        const wj=.25+.75*confidence[j];
-        c+=cos2[j]*wj;s+=sin2[j]*wj;weight+=wj;
+      const i=y*w+x;if(!validMask[i]||evidence[i]<=EPS)continue;
+      let c=cos2[i]*4,s=sin2[i]*4,e=evidence[i]*4,weight=4;
+      for(const j of [x>0?i-1:-1,x+1<w?i+1:-1,y>0?i-w:-1,y+1<h?i+w:-1]){
+        if(j<0||!validMask[j]||evidence[j]<=EPS)continue;
+        c+=cos2[j];s+=sin2[j];e+=evidence[j];weight++;
       }
-      if(weight>EPS){tmpC[i]=c/weight;tmpS[i]=s/weight}
-      else{tmpC[i]=cos2[i];tmpS[i]=sin2[i]}
+      tmpC[i]=c/weight;tmpS[i]=s/weight;tmpE[i]=e/weight;
     }
-    for(let i=0;i<n;i++)if(validMask[i]){
-      const length=Math.hypot(tmpC[i],tmpS[i]);
-      if(length>1e-5){cos2[i]=tmpC[i]/length;sin2[i]=tmpS[i]/length}
-    }
+    cos2.set(tmpC);sin2.set(tmpS);evidence.set(tmpE);
   }
   for(let i=0;i<n;i++){
     if(!validMask[i])continue;
-    const theta=.5*Math.atan2(sin2[i],cos2[i]);
-    const ux=Math.cos(theta),uy=Math.sin(theta);
-    primaryX[i]=ux;primaryY[i]=uy;
-    secondaryX[i]=-uy;secondaryY[i]=ux;
-    // Secondary direction is an orthogonal eigendirection of the same
-    // hydrological tensor, not a road crossfield imposed on urban blocks.
+    const trace=evidence[i],gap=Math.min(trace,Math.hypot(cos2[i],sin2[i]));
+    eigenvalueMajor[i]=(trace+gap)/2;eigenvalueMinor[i]=Math.max(0,(trace-gap)/2);
+    tensorXX[i]=(trace+cos2[i])/2;tensorXY[i]=sin2[i]/2;tensorYY[i]=(trace-cos2[i])/2;
+    confidence[i]=trace>EPS?clamp(gap/trace*trace/(trace+.12),0,1):0;
     crossSuitability[i]=confidence[i];
-    const major=.08+.72*confidence[i]+.20*rainfallInfluence[i];
-    const minor=.06+.12*(1-confidence[i]);
-    tensorXX[i]=minor+(major-minor)*ux*ux;
-    tensorXY[i]=(major-minor)*ux*uy;
-    tensorYY[i]=minor+(major-minor)*uy*uy;
-    crossCos4[i]=Math.cos(4*theta);
-    crossSin4[i]=Math.sin(4*theta);
+    // An isotropic tensor has no unique principal direction.
+    if(gap<=1e-6||gap/Math.max(EPS,trace)<=.02)continue;
+    const theta=.5*Math.atan2(sin2[i],cos2[i]),ux=Math.cos(theta),uy=Math.sin(theta);
+    primaryX[i]=ux;primaryY[i]=uy;secondaryX[i]=-uy;secondaryY[i]=ux;
+    crossCos4[i]=Math.cos(4*theta);crossSin4[i]=Math.sin(4*theta);
   }
-  // Identify the site's dominant contiguous drainage contribution zone.
-  // Site-specific percentiles avoid a fixed guessed rainfall threshold.
-  // The core always derives from actual accumulated drainage, never noise.
-  const ranks=[];
-  for(let i=0;i<n;i++)if(validMask[i]&&drainageRank[i]>0)ranks.push(drainageRank[i]);
-  ranks.sort((a,b)=>a-b);
-  const q=p=>ranks[Math.min(ranks.length-1,Math.floor(p*(ranks.length-1)))]||0;
-  const q25=q(.25),q82=q(.82),q95=q(.95);
-  const hasDrainageContrast=ranks.length>24&&q95-q25>.08;
-  const qCore=hasDrainageContrast?Math.max(q82,q25+.15):Infinity;
+  // Network corridors use only the independent accumulation ridge tangent.
+  // No DEM fallback and no guessed site-percentile "network" threshold.
   let coreCount=0;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const i=y*w+x;if(!validMask[i])continue;
-    const rank=drainageRank[i];
-    // Use DEM-derived downhill axis as the default and the computed
-    // hydraulic vector only as supplementary evidence where water exists.
-    let ax=-slopeX[i],ay=-slopeY[i];
-    if(waterActive[i]>.12&&Math.hypot(hydX[i],hydY[i])>.5){
-      const weight=Math.min(.55,waterActive[i]*.42);
-      const len=Math.hypot(ax,ay)||1;
-      ax=ax/len*(1-weight)+hydX[i]*weight;
-      ay=ay/len*(1-weight)+hydY[i]*weight;
-    }
-    const len=Math.hypot(ax,ay);
-    if(len>1e-8){corridorAxisX[i]=ax/len;corridorAxisY[i]=ay/len}
-    corridorRank[i]=clamp(
-      .82*Math.sqrt(rank)+.18*waterActive[i],0,1);
-    if(rank>=qCore&&len>1e-8){
-      // An isolated high-accumulation pixel is not a corridor. Require
-      // downstream/upstream continuity with at least one valid neighbour.
-      let adjacent=0;
-      for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]){
-        const nx=x+ox,ny=y+oy;
-        if(nx<0||ny<0||nx>=w||ny>=h)continue;
-        const j=ny*w+nx;
-        if(validMask[j]&&drainageRank[j]>=qCore*.92)adjacent++;
-      }
-      if(adjacent){trunkMask[i]=1;coreCount++}
-    }
+  for(let i=0;i<n;i++)if(validMask[i]){
+    corridorAxisX[i]=drainageX[i];corridorAxisY[i]=drainageY[i];
+    corridorRank[i]=clamp(.82*Math.sqrt(drainageRank[i])+.18*waterActive[i],0,1);
+    if(drainageMask[i]&&drainageConfidence[i]>.20){trunkMask[i]=1;coreCount++}
   }
-  // Distance transform remains on source cells, never pretending to add
-  // higher-resolution observations. Obstacles and parcel borders are hard.
+  // Bounded graph distances use the correct rectangular ground-metre grid.
   corridorDistance.fill(-1);
-  if(coreCount){
-    const queue=new Int32Array(n);let head=0,tail=0;
-    for(let i=0;i<n;i++)if(trunkMask[i]){
-      queue[tail++]=i;corridorDistance[i]=0;
-    }
-    const maxSteps=14;
-    while(head<tail){
-      const i=queue[head++],steps=corridorDistance[i];
-      if(steps>=maxSteps)continue;
-      const x=i%w,y=(i/w)|0;
+  for(let i=0;i<n;i++)if(trunkMask[i])corridorDistance[i]=0;
+  for(let pass=0;coreCount&&pass<14;pass++){
+    const next=new Float32Array(corridorDistance);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      const i=y*w+x;if(!validMask[i])continue;
       for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]){
-        const nx=x+ox,ny=y+oy;if(nx<0||ny<0||nx>=w||ny>=h)continue;
-        const j=ny*w+nx;
-        if(!validMask[j]||corridorDistance[j]>=0)continue;
-        corridorDistance[j]=steps+1;
-        queue[tail++]=j;
+        const xx=x+ox,yy=y+oy;if(xx<0||yy<0||xx>=w||yy>=h)continue;
+        const j=yy*w+xx;if(corridorDistance[j]<0)continue;
+        const distance=corridorDistance[j]+(ox?dx:dy);
+        if(next[i]<0||distance<next[i])next[i]=distance;
       }
     }
-    for(let i=0;i<n;i++)if(corridorDistance[i]>=0){
-      // metres of approximate native-grid graph distance for UI only.
-      corridorDistance[i]*=Math.min(dx,dy);
-    }
+    corridorDistance.set(next);
+  }
+  const counts={valid:0,terrain:0,drainage:0,hydraulic:0,tensor:0};
+  for(let i=0;i<n;i++)if(validMask[i]){
+    counts.valid++;
+    if(Math.hypot(basePrimaryX[i],basePrimaryY[i])>.5)counts.terrain++;
+    if(drainageConfidence[i]>.02)counts.drainage++;
+    if(hydraulicConfidence[i]>.02)counts.hydraulic++;
+    if(Math.hypot(primaryX[i],primaryY[i])>.5)counts.tensor++;
   }
   const out={type:'result',requestId:data.requestId,cols:w,rows:h,
-    cellX:dx,cellY:dy,
+    cellX:dx,cellY:dy,grid:data.grid,scenario:data.scenario,
+    drainageThresholdKm2:threshold,
+    drainageDirectionMethod:'local accumulation-ridge PCA; undirected; not D8 connectivity',
+    diagnostics:{counts,drainageD8Available:false,groundMetreBasis:true,
+      hydraulicDepthAvailable:data.depthAvailable!==false},
     demNativeResolutionM:demSupportMeters,
     terrainGradientSupportM:[demRadiusX*dx,demRadiusY*dy],
     dataSource:'OS Terrain 50 DEM (>=50m gradient support), contributing area, dynamic modeled rainfall/depth and building mask',
@@ -332,7 +309,10 @@ function solve(data){
     fields:{tensorXX,tensorXY,tensorYY,primaryX,primaryY,
       crossCos4,crossSin4,confidence,suitability,
       drainageRank,avoidMask,floodProximity,crossSuitability,validMask,
-      slopeX,slopeY,corridorRank,corridorAxisX,corridorAxisY,
+      slopeX,slopeY,slopeMagnitude,aspectRadians,terrainDirectionValid,
+      drainageX,drainageY,drainageConfidence,drainageAreaKm2,drainageMask,
+      eigenvalueMajor,eigenvalueMinor,hydraulicX:hydX,hydraulicY:hydY,hydraulicConfidence,
+      corridorRank,corridorAxisX,corridorAxisY,
       corridorDistance,trunkMask,secondaryX,secondaryY,
       rainfallInfluence,hydroIntensity,floodConstraint,
       basePrimaryX,basePrimaryY,baseConfidence,baseIntensity}};
