@@ -11,7 +11,7 @@ export function createLocalFloodSimulator(config){
 
   function ensureWorker(){
     if(worker)return;
-    worker=new Worker(new URL('./local_flood_worker.js?v=3.22.45-hydro-tensor-dynamic',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./local_flood_worker.js?v=3.22.46-tensor-base-wet',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>{
       if(data.type==='setup-complete'){
         const request=pending.get(data.requestId);
