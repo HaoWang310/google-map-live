@@ -6,7 +6,7 @@ import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON}
    retained and are not evidence of measured water velocity. */
 export function createHydroTensorRenderer(args){
   const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
-    ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus,onProgress}=args;
+    ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus,onProgress,onGeometryReady}=args;
   const empty=()=>({type:'FeatureCollection',features:[]});
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const presets={
@@ -300,6 +300,13 @@ export function createHydroTensorRenderer(args){
               // Preserve selected-year reveal even if geometry finishes late.
               yearGrowth=growthTo;growthFrom=growthTo;
               restart();geometryStatus();
+              // A full, matching geometry packet is the ONLY trigger that
+              // advances automatic hydrology-to-tensor year staging.
+              onGeometryReady?.({year:packet.scenario?.year,
+                token:packet.scenario?.token??null,
+                rainfallCase:packet.scenario?.rainfallCase??null,
+                lineCount:unpacked.lines.length,
+                ribbonCount:unpacked.ribbons.length});
             }else{
               geometryDiagnostics=packet.diagnostics;
               status('长流线积分结果为空；保留方向预览，检查置信度及积分终止原因');
@@ -611,6 +618,14 @@ export function createHydroTensorRenderer(args){
       if(map.getLayer(id))map.setLayoutProperty(id,'visibility',state);
     }
     if(!enabled){
+      // Strict OFF: no Worker may publish tensor geometry over the flood view.
+      requestId++;geometryDesired++;geometryPending=null;
+      if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
+      if(controlsGeometryTimer){clearTimeout(controlsGeometryTimer);controlsGeometryTimer=0}
+      if(geometryTimer){clearTimeout(geometryTimer);geometryTimer=0}
+      if(geometryAbortTimer){clearTimeout(geometryAbortTimer);geometryAbortTimer=0}
+      worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
+      geometryWorker?.terminate();geometryWorker=null;geometryBusy=false;geometryActiveId=0;
       stop();src()?.setData(empty());ribbonSource()?.setData(empty());
       dots()?.setData(empty());
       return;
@@ -715,7 +730,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.54-rainfall-responsive-tensor',
+    return {schema:'london-tensor-site-v1',version:'3.22.55-hydro-tensor-sequence',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
