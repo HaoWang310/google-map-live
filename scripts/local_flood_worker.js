@@ -636,16 +636,11 @@ function simulationStep(dt=5){
         const distanceFactor=dx&&dy?Math.SQRT1_2:1;
         const preferCorridor=useDrainage&&accumulation[j]>=threshold&&
           accumulation[j]>accumulation[i];
-        const riskClass=params.floodMode==='rain-risk'&&sim.riskAvailable
-          ?sim.riskRank?.[j]||0:0;
-        // Official risk is only a modest path preference; never rainfall input.
-        const riskBias=riskClass===4?1.20:riskClass===3?1.12:
-          riskClass===2?1.06:1;
-        // An official footprint softly guides EXTREME storms on existing
-        // downhill paths; it never supplies water or forbids outside flooding.
-        const depthBias=Number(params.rainfall)>=40&&sim.eaDepthAvailable&&
-          sim.eaDepthClasses[j]>=1 ? 1.42 : 1;
-        const weight=drop*distanceFactor*(preferCorridor?1.35:1)*riskBias*depthBias;
+        // v3.22.29: all rainfall scenarios use the SAME geometry-driven
+        // transport weights. EA RoFSW and future depth are independently
+        // sampled references for validation ONLY, never solver attraction.
+        // No hidden rain-intensity threshold switches the path model.
+        const weight=drop*distanceFactor*(preferCorridor?1.35:1);
         neighbours.push([j,weight]);
         sumWeight+=weight;
         maxDrop=Math.max(maxDrop,drop);
@@ -1058,8 +1053,8 @@ onmessage=async({data})=>{
       const externalStage=data.externalStageM==null?null:Number(data.externalStageM);
       if((mode==='external'||mode==='coupled')&&!Number.isFinite(externalStage))
         throw Error('外部洪水需要可信的绝对边界水位。');
-      if(mode==='rain-risk'&&!sim.riskAvailable)
-        throw Error('EA 官方地表水风险等级不可用；不能用其他风险数据代替。');
+      // Rainfall runoff must remain computable even without EA reference
+      // coverage. Missing EA data disables validation only, not physics.
       const interventions=Array.isArray(data.interventions)?data.interventions:[];
       const key=JSON.stringify([depths,infiltration,assumedUrbanDrainage,drainage,
         mode,externalStage,data.externalRiseMin,data.externalFallMin,data.externalInlet,
@@ -1192,7 +1187,9 @@ onmessage=async({data})=>{
         criticalRainTotalMm:forecast.critical.depth,
         criticalPeakAreaM2:forecast.critical.areaM2,
         envelopeWetAreaM2:forecast.finalWetCount*sim.cell*sim.cell,
-        riskReference:'EA RoFSW 0.1% AEP 2070s Upper End depths independently checked',
+        solverPathModel:'dem-building-drainage-identical-all-rain-scenarios-v3.22.29',
+        eaReferenceOnly:true,
+        riskReference:'EA present-day RoFSW risk + 2070s Upper End 0.1% AEP future depth: independent post-simulation comparison; never a hydrodynamic input',
         methodologicalNote:displayMode==='event'
           ?'Single critical-duration event: physically solved 30-second runoff steps. FEH DDF only if entered by user.'
           :'2026–2100 shows a MONOTONIC DESIGN STAGING of the MULTI-EVENT MAXIMUM depth envelope, not a single storm or a year-by-year flood forecast. FEH DDF is user-provided only; fallback equal-total durations are sensitivity tests.'
