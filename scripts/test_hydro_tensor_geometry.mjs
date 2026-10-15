@@ -50,7 +50,7 @@ function touchesRectangle(a,b,box){
   if(lo>hi)return false;
  }return true;
 }
-test('bidirectional integration and smoothing never cross a building or parcel hole',()=>{
+test('bidirectional integration and smoothing never cross a parcel or NoData hole',()=>{
  const r=fixture(),box=[30,20,42,42];
  for(let y=20;y<42;y++)for(let x=30;x<42;x++)r.fields.validMask[y*r.cols+x]=0;
  for(let y=0;y<r.rows;y++)r.fields.validMask[y*r.cols+60]=0;
