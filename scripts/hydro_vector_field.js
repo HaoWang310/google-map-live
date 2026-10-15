@@ -9,6 +9,8 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
   const preset={density:55,length:65,width:1.4,opacity:.85,glow:.5,speed:1,growth:1,mode:'analysis'};
   let config={...preset},enabled=false,field=null,context=null,bounds=null;
+  let terrainGuide=null,stage={year:2026,kind:'design-envelope'};
+  let modeledDepthMm=null;
   let traces=[],segments=[],lastDraw=0,lastGeometry=0,raf=0,start=0,lastMessage='';
   let progress=1,wasAnimating=false,epoch=0;
   const R=6378137;
@@ -41,28 +43,112 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
   }
   function validAt(x,y){
     const i=cellIndex(x,y);
-    return i>=0&&field.strength[i]>=6&&(!context?.obstacle||!context.obstacle[i])
-      &&(!context?.inside||context.inside[i]!==0);
+    if(i<0||context?.obstacle?.[i]||context?.inside?.[i]===0)return false;
+    // Terrain potential is valid even at zero simulated rainfall. It is NOT
+    // interpreted as a physically moving flow until the solver reports water.
+    return terrainGuide?terrainGuide.mask[i]!==0:field.strength[i]>=6;
   }
-  // Bilinear directional integration, rejecting masked cells and diagonal
-  // shortcuts through obstructions. Coordinates are in native solver cells.
+  function encodedCatchment(i){
+    // The drainage area file uses LOGARITHMIC encoding of upstream km²,
+    // not linear runoff volume. Use its normalized log rank only.
+    const code=context?.accumulation?.[i]||0;
+    return code>0?(code-1)/65534:0;
+  }
+  function makeTerrainGuide(){
+    if(!field||!context?.terrain)return null;
+    const {cols,rows}=field,n=cols*rows;
+    const dirX=new Float32Array(n),dirY=new Float32Array(n);
+    const slope=new Float32Array(n),catchment=new Float32Array(n),mask=new Uint8Array(n);
+    const geo=geoContext();
+    const cellX=Math.abs(geo?.dx||1),cellY=Math.abs(geo?.dy||1);
+    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+      const i=y*cols+x,z=context.terrain[i];
+      if(context.inside[i]===0||context.obstacle[i]||
+        !Number.isFinite(z))continue;
+      catchment[i]=encodedCatchment(i);
+      let dx=0,dy=0,total=0,downhill=0;
+      for(let oy=-1;oy<=1;oy++)for(let ox=-1;ox<=1;ox++){
+        if(!ox&&!oy)continue;
+        const nx=x+ox,ny=y+oy;
+        if(nx<0||ny<0||nx>=cols||ny>=rows)continue;
+        const j=ny*cols+nx;
+        if(context.inside[j]===0||context.obstacle[j]||
+          !Number.isFinite(context.terrain[j]))continue;
+        // No cutting diagonally across a blocked building corner.
+        if(ox&&oy){
+          const a=y*cols+nx,b=ny*cols+x;
+          if(!context.inside[a]||!context.inside[b]||
+            context.obstacle[a]||context.obstacle[b])continue;
+        }
+        const distance=Math.hypot(ox*cellX,oy*cellY);
+        const localSlope=Math.max(0,(z-context.terrain[j])/Math.max(1,distance));
+        if(localSlope<=1e-8)continue;
+        // Upstream accumulation encourages convergence within downhill
+        // paths, but it can NEVER reverse drainage uphill.
+        const corridor=0.65+0.35*Math.sqrt(encodedCatchment(j));
+        const weight=Math.sqrt(localSlope)*corridor;
+        dx+=ox*cellX/distance*weight;
+        dy+=oy*cellY/distance*weight;
+        downhill+=localSlope*weight;
+        total+=weight;
+      }
+      const length=Math.hypot(dx,dy);
+      if(total<=0||length<1e-8)continue;
+      dirX[i]=dx/length;dirY[i]=dy/length;
+      slope[i]=downhill/total;mask[i]=1;
+    }
+    return {dirX,dirY,slope,catchment,mask};
+  }
+  const hydraulicActivity=i=>{
+    const water=modeledDepthMm?.[i]||0;
+    const depth=Math.min(1,water/80); // 80 mm is only a visual normalization
+    const solved=field.strength[i]/255;
+    return Math.min(1,Math.max(depth,solved));
+  };
+  // Continuous integration of DEM downhill directions, selectively blended
+  // with the current modeled hydraulic-head flow where real water is present.
+  // Waterless 2026 paths remain a subdued drainage POTENTIAL only.
   function sample(x,y){
     if(!validAt(x,y))return null;
     const ix=Math.floor(x-.5),iy=Math.floor(y-.5),fx=x-.5-ix,fy=y-.5-iy;
-    let dx=0,dy=0,level=0,sum=0,acc=0;
+    let dx=0,dy=0,power=0,acc=0,wet=0,slope=0,total=0;
     for(let oy=0;oy<=1;oy++)for(let ox=0;ox<=1;ox++){
       const cx=ix+ox,cy=iy+oy;
       const weight=(ox?fx:1-fx)*(oy?fy:1-fy);
       if(weight<=0||!validAt(cx+.5,cy+.5))continue;
       const j=cy*field.cols+cx;
-      dx+=field.vx[j]/127*weight;dy+=field.vy[j]/127*weight;
-      level+=field.strength[j]/255*weight;
-      if(context?.accumulation)acc+=context.accumulation[j]/65535*weight;
-      sum+=weight;
+      const topoX=terrainGuide?.dirX[j]||0,topoY=terrainGuide?.dirY[j]||0;
+      const w=hydraulicActivity(j);
+      const hydX=field.vx[j]/127,hydY=field.vy[j]/127;
+      const simulatedFlow=w>0.015&&Math.hypot(hydX,hydY)>.1;
+      // Predominantly the solver direction where modeled surface flow exists.
+      const bias=simulatedFlow?Math.min(.94,.72+.22*w):0;
+      dx+=(topoX*(1-bias)+hydX*bias)*weight;
+      dy+=(topoY*(1-bias)+hydY*bias)*weight;
+      const catchment=terrainGuide?.catchment[j]??encodedCatchment(j);
+      const relief=terrainGuide?.slope[j]||0;
+      acc+=catchment*weight;
+      slope+=relief*weight;
+      wet+=w*weight;
+      // Main stream channels require catchment area AND modeled runoff.
+      const wetStrength=(field.strength[j]/255*.58+
+        Math.min(1,(modeledDepthMm?.[j]||0)/100)*.42);
+      const coverage=.30+.70*Math.sqrt(catchment);
+      power+=wetStrength*coverage*weight;
+      total+=weight;
     }
-    const mag=Math.hypot(dx,dy);
-    if(mag<.12||sum<.12)return null;
-    return {x:dx/mag,y:dy/mag,power:clamp(level/sum,0,1),catchment:clamp(acc/sum,0,1)};
+    const len=Math.hypot(dx,dy);
+    if(total<.15||len<.14)return null;
+    const water=wet/total;
+    return {
+      x:dx/len,y:dy/len,
+      power:Math.min(1,power/total),
+      catchment:Math.min(1,acc/total),
+      wet:water,
+      slope:slope/total,
+      // Never label dry DEM potential as observed runoff.
+      potential:water<.02
+    };
   }
   function trace(sx,sy,dir,steps){
     let x=sx,y=sy,last=null,turnLimit=0;
@@ -110,8 +196,10 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
       for(let dy=0;dy<=extent;dy++)for(let dx=0;dx<=extent;dx++){
         const px=Math.min(cols-2,x+dx),py=Math.min(rows-2,y+dy),idx=py*cols+px;
         if(strength[idx]<6||!validAt(px+.5,py+.5))continue;
-        const catchment=context?.accumulation?context.accumulation[idx]/65535:0;
-        const rank=strength[idx]/255*.72+Math.sqrt(catchment)*.28;
+        const catchment=terrainGuide?.catchment[idx]??encodedCatchment(idx);
+        const wet=Math.max(strength[idx]/255,(modeledDepthMm?.[idx]||0)/80);
+        const slope=Math.min(1,(terrainGuide?.slope[idx]||0)*28);
+        const rank=.48*Math.sqrt(catchment)+.32*Math.min(1,wet)+.20*slope;
         if(rank>score){score=rank;best=idx}
       }
       if(best>=0)candidates.push({x:best%cols+.5,y:Math.floor(best/cols)+.5,score,best});
@@ -136,17 +224,21 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
         if(ix>=0&&occupancy[ix])overlaps++;
       }
       if(overlaps>Math.max(2,points.length/12))continue;
-      let avg=0,acc=0;
-      for(const p of points){avg+=p.power;acc+=p.catchment}
-      avg/=points.length;acc/=points.length;
-      const rank=clamp(avg*.70+Math.sqrt(acc)*.30,0,1);
+      let avg=0,acc=0,wet=0;
+      for(const p of points){avg+=p.power;acc+=p.catchment;wet+=p.wet}
+      avg/=points.length;acc/=points.length;wet/=points.length;
+      // A high-catchment channel becomes prominent only with active rainfall;
+      // dry channels retain a low-contrast geomorphological guidance layer.
+      const rank=clamp(avg*.40+Math.sqrt(acc)*.42+wet*.18,0,1);
       const coords=points.map(pointGeo);
       let total=0;const lengths=[0];
       for(let i=1;i<points.length;i++){
         total+=Math.hypot(points[i].x-points[i-1].x,points[i].y-points[i-1].y);
         lengths.push(total);
       }
-      const line={points,coords,lengths,total,power:avg,rank,color:color(rank),id:lines.length};
+      const line={points,coords,lengths,total,power:avg,rank,wet,
+        alpha:wet<.025?.19:Math.min(1,.30+.70*Math.sqrt(wet)),
+        color:color(rank),id:lines.length};
       lines.push(line);
       for(let i=0;i<points.length;i+=2){
         const ix=cellIndex(points[i].x,points[i].y);
@@ -165,12 +257,33 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
           type:'Feature',
           properties:{color:color(gradient),analysisColor:'#9aa9b9',
             width:(.65+1.85*line.rank)*config.width,
-            relativeIntensity:gradient,order:line.id},
+            alpha:line.alpha,
+            relativeIntensity:gradient,catchmentRank:line.rank,
+            flowKind:line.wet<.025?'terrain-potential':'modeled-runoff',
+            order:line.id},
           geometry:{type:'LineString',coordinates:points}
         });
       }
+      // A small geometrically aligned chevron at each downstream line tip.
+      // Its direction comes from the integrated path tangent; never random.
+      const tip=line.points.at(-1),tail=line.points.at(-3);
+      if(tip&&tail){
+        const vx=tip.x-tail.x,vy=tip.y-tail.y,len=Math.hypot(vx,vy);
+        if(len>.01){
+          const ux=vx/len,uy=vy/len,base=.45,wing=.22;
+          const left={x:tip.x-ux*base-uy*wing,y:tip.y-uy*base+ux*wing};
+          const right={x:tip.x-ux*base+uy*wing,y:tip.y-uy*base-ux*wing};
+          segments.push({type:'Feature',
+            properties:{color:line.color,analysisColor:'#9aa9b9',
+              width:(1+1.55*line.rank)*config.width,alpha:line.alpha,
+              flowKind:line.wet<.025?'terrain-potential':'modeled-runoff',
+              relativeIntensity:line.power,arrowhead:true,order:line.id},
+            geometry:{type:'LineString',
+              coordinates:[pointGeo(left),pointGeo(tip),pointGeo(right)]}});
+        }
+      }
     }
-    setStatus(traces.length?traces.length+' 条 DEM/积水坡降流线 · 相对强度，非 m/s':
+    setStatus(traces.length?traces.length+' 条地形汇流／雨水流线 · 2026–2100 设计情景 · 相对强度，非 m/s':
       '当前情景没有达到流场显示阈值的有效水流，请选择较晚年份并运行');
   }
   function applyStyle(){
@@ -178,10 +291,13 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     const present=config.mode==='presentation';
     map.setPaintProperty(lineLayerId,'line-color',present?['get','color']:['get','analysisColor']);
     map.setPaintProperty(lineLayerId,'line-width',['*',['get','width'],present?1:.83]);
-    map.setPaintProperty(lineLayerId,'line-opacity',config.opacity*(present?1:.77));
+    map.setPaintProperty(lineLayerId,'line-opacity',
+      ['*',config.opacity*(present?1:.82),['coalesce',['get','alpha'],1]]);
     if(map.getLayer(glowLayerId)){
       map.setPaintProperty(glowLayerId,'line-width',['*',['get','width'],2.0+config.glow*3]);
-      map.setPaintProperty(glowLayerId,'line-opacity',present?config.opacity*config.glow*.42:0);
+      map.setPaintProperty(glowLayerId,'line-opacity',
+        ['*',present?config.opacity*config.glow*.42:0,
+          ['coalesce',['get','alpha'],1]]);
       map.setPaintProperty(glowLayerId,'line-blur',1+config.glow*3);
     }
     if(map.getLayer(particleLayerId)){
@@ -263,10 +379,15 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     applyStyle();
     if(regenerate||switchMode)restart();
   }
-  function setField(incoming,spatialContext){
+  function setField(incoming,spatialContext,meta={}){
     const next=fieldCopy(incoming);
     if(!next)return;
     field=next;
+    stage={year:Number(meta.year)||2026,kind:meta.kind||'design-envelope'};
+    if(meta.depthMm){
+      const depth=new Uint16Array(meta.depthMm);
+      modeledDepthMm=depth.length===next.cols*next.rows?depth:null;
+    }else modeledDepthMm=null;
     if(spatialContext&&spatialContext.cols===next.cols&&spatialContext.rows===next.rows){
       const n=next.cols*next.rows;
       const arrays={
@@ -275,7 +396,10 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
         inside:new Uint8Array(spatialContext.inside),
         obstacle:new Uint8Array(spatialContext.obstacle)
       };
-      if(Object.values(arrays).every(a=>a.length===n))context=arrays;
+      if(Object.values(arrays).every(a=>a.length===n)){
+        context=arrays;
+        terrainGuide=makeTerrainGuide();
+      }
     }
     if(!enabled)return;
     build();
@@ -296,7 +420,8 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     build();restart();
   }
   function clear(){
-    stop();field=null;context=null;traces=[];segments=[];
+    stop();field=null;context=null;terrainGuide=null;
+    modeledDepthMm=null;traces=[];segments=[];
     lineSource()?.setData(empty());dotSource()?.setData(empty());
     setStatus('等待水文流场数据 · 先运行降雨模拟');
   }
@@ -322,10 +447,32 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
   function exportStructuredData(){
     if(!field)return null;
     const slope=context?.terrain?demSlopes():null;
+    const n=field.cols*field.rows;
+    const tensorXX=new Float32Array(n),tensorXY=new Float32Array(n),
+      tensorYY=new Float32Array(n),guideIntensity=new Float32Array(n);
+    const guideMask=new Uint8Array(n);
+    // Symmetric positive semidefinite 2x2 tensor with principal axis
+    // along rainwater convergence / DEM gradient direction.
+    for(let i=0;i<n;i++){
+      if(!terrainGuide?.mask[i])continue;
+      const u=terrainGuide.dirX[i],v=terrainGuide.dirY[i];
+      const catchment=terrainGuide.catchment[i],wet=hydraulicActivity(i);
+      const primary=.25+.55*Math.sqrt(catchment)+.20*wet;
+      const minor=.06+.12*(1-catchment);
+      tensorXX[i]=minor+(primary-minor)*u*u;
+      tensorXY[i]=(primary-minor)*u*v;
+      tensorYY[i]=minor+(primary-minor)*v*v;
+      guideIntensity[i]=primary;guideMask[i]=1;
+    }
     return {
       source:'OS Terrain 50 DEM + modeled hydraulic gradient + building mask',
       CRS:'EPSG:4326',vectorCRS:'solver-grid',units:'relative (not m/s)',
       cols:field.cols,rows:field.rows,boundsLngLat:getBounds(),
+      scenarioYear:stage.year,scenarioKind:stage.kind,
+      tensorBasis:'DEM downhill + logarithmically encoded upstream catchment; water depth / solver flow for activity',
+      tensorXX,tensorXY,tensorYY,terrainGuidanceStrength:guideIntensity,
+      tensorValidMask:guideMask,
+      modeledDepthMm:modeledDepthMm?new Uint16Array(modeledDepthMm):null,
       vectorX:new Int8Array(field.vx),vectorY:new Int8Array(field.vy),
       relativeIntensity:new Uint8Array(field.strength),
       elevationM:context?.terrain?new Float32Array(context.terrain):null,
@@ -334,9 +481,11 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
       wetFlowConstraintMask:Uint8Array.from(field.strength,p=>p>=6?1:0),
       parcelMask:context?.inside?new Uint8Array(context.inside):null,
       buildingBarrierMask:context?.obstacle?new Uint8Array(context.obstacle):null,
-      semantics:{direction:'DEM and modeled water-head gradient',
-        drainageAccumulation:'encoded terrain-derived accumulation (not pipe-network flow)',
-        constraint:'terrain / water / parcel / building raster',
+      semantics:{direction:'DEM downhill potential blended with modelled hydraulic head when wet',
+        rainfall:'Modeled depth / direction from current design-stage frame; no measured velocity',
+        drainageAccumulation:'Log-encoded upstream contributing area, NOT a direct rainfall volume or drain pipe network',
+        tensor:'2x2 symmetric principal-axis field; relative design guidance, not validated hydrodynamic stress tensor',
+        constraint:'terrain / modeled wetness / parcel / building raster',
         intendedDownstream:['tensor-field','wool-road-growth','parcel-subdivision']}
     };
   }
