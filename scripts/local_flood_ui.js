@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.40-clean-ui';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.41-lean-hydro-ui';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.39-hydro-tensor-dem50';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -886,7 +886,7 @@ export function createLocalFloodUI({
     displayMode,eventTimeMin,
     interventions:siteFacilities.map(({id,type,lng,lat,radiusM})=>({id,type,lng,lat,radiusM})),
     infiltrationMmH:Number($('localFloodInfil')?.value??0.5),
-    assumedUrbanDrainageMmH:Number(siteHud('siteHudAssumedDrainage')?.value??0),
+    assumedUrbanDrainageMmH:0, // Same default after removing this control.
     stormProfile,drainageGuide:$('localFloodDrainageGuide')?.checked!==false,
     drainageThreshold:Number($('networkThreshold')?.value)||0,
     externalStageM,externalRiseMin,externalFallMin,externalInlet
@@ -2245,7 +2245,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.40-clean-ui</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.41-lean-hydro-ui</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2256,9 +2256,6 @@ export function createLocalFloodUI({
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 长期设计包络（2100峰值）</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
-      '<div id="siteHudAreaProgress" class="site-hydro-mini" style="color:#82def3;font-weight:600">2026 为展示基准（非无风险）→ 2100 最大设计包络（非逐年预报）</div>',
-      '<label class="site-hydro-row">时间尺度 <select id="siteHudTimeMode" style="flex:1;min-width:120px"><option value="year" selected>2026–2100 设计包络</option><option value="event">临界单场暴雨 · 分钟级</option></select></label>',
-      '<div id="siteHudEventControls" style="display:none"><div class="site-hydro-row"><input type="range" min="0" max="120" value="0" step="1" id="siteHudEventTime" style="flex:1;min-width:70px"><strong id="siteHudEventTimeText">0 / 120 min</strong></div><div class="site-hydro-mini">单次暴雨实际求解快照：降雨、汇流与可能退水；不再沿年份轴播放。</div></div>',
       '<input type="hidden" id="siteHudFutureMode" value="rain-risk">',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
       '<button type="button" class="site-hydro-btn" id="siteHudTrialStage">采用 DEM 低点 + 1.0 m（仅设计试验）</button>',
@@ -2272,29 +2269,12 @@ export function createLocalFloodUI({
       '</div>',
       '<div id="siteHudStageHint" class="site-hydro-mini" style="margin:3px 0 8px;color:#edc98a">外部洪水模式须输入外部边界绝对水位（m，须与 DEM 同一高程基准）；不提供时只能保留选择，不能产生可信水深。</div>',
       '<label class="site-hydro-row">降雨情景 <select id="siteHudFutureClimate" style="width:140px"><option value="average">平均降雨</option><option value="moderate" selected>中等降雨</option><option value="extreme">特大暴雨</option></select></label>',
-      '<div class="site-hydro-mini" id="siteHudFutureFactor">四历时自动比较：30 / 60 / 120 / 360 分钟；默认等总雨量敏感性测试</div>',
-      '<div class="site-hydro-mini">研究数据：<a href="https://www.metoffice.gov.uk/research/climate/maps-and-data/location-specific-long-term-averages/gcpsveqyg" target="_blank" rel="noopener noreferrer">Met Office 1991–2020 Heathrow</a> · <a href="https://www.london.gov.uk/sites/default/files/flooding_progress_report_final_0.pdf" target="_blank" rel="noopener noreferrer">GLA 2021 洪灾报告</a>。雨强由官方统计/记录换算，非官方三级标准。</div>',
-      '<div class="site-hydro-mini" style="margin-top:8px"><strong>可选：FEH22 DDF 四历时总雨量（mm）</strong></div>',
-      '<div class="site-hydro-row"><label>30min <input type="number" id="siteHudDdf30" min="0.1" max="500" step="0.1" placeholder="mm" style="width:64px"></label><label>60min <input type="number" id="siteHudDdf60" min="0.1" max="500" step="0.1" placeholder="mm" style="width:64px"></label></div>',
-      '<div class="site-hydro-row"><label>120min <input type="number" id="siteHudDdf120" min="0.1" max="500" step="0.1" placeholder="mm" style="width:64px"></label><label>360min <input type="number" id="siteHudDdf360" min="0.1" max="500" step="0.1" placeholder="mm" style="width:64px"></label></div>',
-      '<div class="site-hydro-actions"><button type="button" id="siteHudUseDdf" class="site-hydro-btn">应用四历时数据</button><button type="button" id="siteHudClearDdf" class="site-hydro-btn">清除 / 默认试验</button></div>',
-      '<div id="siteHudDdfSource" class="site-hydro-mini">尚无 FEH 数据：四场暴雨使用同一设计总雨量，仅作历时敏感性比较；不可宣称四个历时具有相同 AEP。<a href="https://fehweb.ceh.ac.uk/Home/" target="_blank" rel="noopener noreferrer">FEH Web Service ↗</a></div>',
       '<div class="site-hydro-actions"><button type="button" class="site-hydro-btn" id="siteHudUseRiskGuide">使用统一降雨模型 + EA 校核</button></div>',
-      '<div id="siteHudRiskFusionNote" class="site-hydro-mini">所有雨量等级采用相同 DEM、建筑及汇水路径规则；EA 风险和官方水深用于独立验证，不修改模拟洪水方向和水量。</div>',
       '<div class="site-hydro-actions"><button type="button" id="siteHudShowEARisk" class="site-hydro-btn">显示 EA 官方风险图</button></div>',
-      '<div class="site-hydro-mini">EA 现状风险图是概率分级，不提供所选年份的洪水深度；可独立叠加查看。</div>',
-      '<div class="site-hydro-mini" style="margin-top:6px"><strong>EA 官方规划水深来源（2026 发布）</strong>：</div>',
-      '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/b0bbfacf-ccf7-4ed9-a94c-be18d91c258d/flood-map-for-planning-surface-water-spatial-planning-depths-present-day" target="_blank" rel="noopener noreferrer">现状 1% / 3.3% / 0.1% AEP 水深分级</a> · ',
-      '<a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化（2070s Upper End）水深分级</a></div>',
-      '<div class="site-hydro-mini">已接入 EA 官方 2070s Upper End 0.1% AEP 七档水深与淹没范围，在同一地图坐标系逐格校核；官方深度区间仅作空间参考，不是单场100mm研究暴雨的相同重现期，也不直接灌入求解器。</div>',
-      '<label class="site-hydro-row">假设地下排水 <input id="siteHudAssumedDrainage" type="number" min="0" max="100" step="0.5" value="0" style="width:75px"> mm/h</label>',
-      '<div class="site-hydro-mini">当前没有核实的场地管网排水能力数据：默认不扣除管网排水（0 mm/h），仅以0.5 mm/h估算硬化地面有效下渗。这是偏保守的积水压力测试，并不表示伦敦实际没有排水系统。可修改假设，计算结果不是 EA 官方洪水水深。</div>',
-      '<div class="site-hydro-mini">设计暴雨采用固定单峰极值过程（峰值位于事件中点，总雨量不额外增加）；EA 实测雨量回放仍按原始实测时序。</div>',
       
       '<label class="site-hydro-row">入流位置 <select id="siteHudExternalInlet" style="width:140px"><option value="low">边界低洼 10%（假设）</option><option value="all">全部边界（试验）</option></select></label>',
       '<label class="site-hydro-row">涨水时间 <input id="siteHudRise" type="number" min="1" max="1440" value="30" style="width:88px"> min</label>',
       '<label class="site-hydro-row">退水结束 <input id="siteHudFall" type="number" min="2" max="2880" value="90" style="width:88px"> min</label>',
-      '<div id="siteHudFutureNote" class="site-hydro-mini">三档研究雨量各比较30/60/120/360分钟，自动选择“峰值积水面积”最大的控制单场。2100显示各历时最大水深包络（非同一场暴雨），年份不是官方逐年预报。</div>',
       '</div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">01 · 位置降雨数据</div>',
       '<div class="site-hydro-mini" id="siteHudRainStation">查找 EA 雨量站中…</div>',
@@ -2517,54 +2497,6 @@ export function createLocalFloodUI({
       updateSiteHydroDashboard();
       redrawDisplayOnly();
     };
-    siteHud('siteHudTimeMode').onchange=e=>{
-      stopAnnual();
-      displayMode=e.target.value==='event'?'event':'year';
-      clearYearFrames(); // year and event do not share comparison buffers
-      const box=siteHud('siteHudEventControls');
-      if(box)box.style.display=displayMode==='event'?'block':'none';
-      for(const id of ['siteHudYear','siteHudFooterYear']){
-        const control=siteHud(id);
-        if(control)control.disabled=displayMode==='event';
-      }
-      if(displayMode==='event'){
-        eventTimeMin=0;
-        if(siteHud('siteHudEventTime'))siteHud('siteHudEventTime').value='0';
-      }
-      setSiteHud('siteHudEventTimeText',Math.round(eventTimeMin)+' / '+criticalDurationMin+' min');
-      updateSiteHydroDashboard();
-      if(prepared)requestYear(futureYear);
-    };
-    siteHud('siteHudEventTime').oninput=e=>{
-      stopAnnual();
-      eventTimeMin=Math.max(0,Math.min(criticalDurationMin,Number(e.target.value)||0));
-      setSiteHud('siteHudEventTimeText',Math.round(eventTimeMin)+' / '+criticalDurationMin+' min');
-      if(prepared&&displayMode==='event')requestYear(futureYear);
-    };
-    siteHud('siteHudUseDdf').onclick=()=>{
-      const minutes=[30,60,120,360];
-      const entries=minutes.map(m=>(siteHud('siteHudDdf'+m)?.value||'').trim());
-      const values=entries.map(Number);
-      if(entries.some((v,i)=>!v||!Number.isFinite(values[i])||values[i]<=0||values[i]>500)){
-        status('FEH 数据必须填写完整的 30 / 60 / 120 / 360 分钟四项总雨量（每项0.1–500 mm），不能只填一项。',true);
-        return;
-      }
-      fehDurationDepthsMm=values;
-      stopAnnual();clearYearFrames();
-      setSiteHud('siteHudDdfSource','四项 FEH DDF 数值由用户输入；系统没有核验官方授权或 AEP 一致性。');
-      simYearDisplay();
-      if(prepared)requestYear(futureYear);
-      status('已应用四历时雨量：'+values.join(' / ')+' mm；选择的 FEH 数据来源请自行核对。');
-    };
-    siteHud('siteHudClearDdf').onclick=()=>{
-      fehDurationDepthsMm=null;
-      for(const m of [30,60,120,360])if(siteHud('siteHudDdf'+m))siteHud('siteHudDdf'+m).value='';
-      stopAnnual();clearYearFrames();
-      setSiteHud('siteHudDdfSource','相同总雨量敏感性试验：不能声称四个历时具有相同年超越概率。');
-      simYearDisplay();
-      if(prepared)requestYear(futureYear);
-      status('已恢复四历时等总雨量敏感性试验，不再标记为 FEH 官方 DDF。');
-    };
     siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudQueryEaZones').onclick=async()=>{
@@ -2664,7 +2596,6 @@ export function createLocalFloodUI({
     };
     siteHud('siteHudFutureStage').onchange=e=>{externalStageM=e.target.value.trim()===''?null:Number(e.target.value);resetFuture();syncFuture();};
     // v3.22.21: storm profile is fixed to the single-peak design event, no dropdown.
-    siteHud('siteHudAssumedDrainage').onchange=()=>resetFuture();
     siteHud('siteHudExternalInlet').onchange=e=>{externalInlet=e.target.value;resetFuture();};
     siteHud('siteHudRise').onchange=e=>{externalRiseMin=Math.max(1,Number(e.target.value)||30);resetFuture();};
     siteHud('siteHudFall').onchange=e=>{externalFallMin=Math.max(externalRiseMin+1,Number(e.target.value)||90);resetFuture();};
