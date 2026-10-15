@@ -22,6 +22,7 @@ export function createHydroTensorRenderer(args){
   let depth=null,result=null,worker=null,submitted=null;
   let drainageThresholdKm2=1;
   let workerGeneration=0,requestId=0,requestTimer=0,lastSubmitted=0;
+  let tensorBusy=false,tensorActiveRequest=0;
   let pendingFrame=null,lines=[],baseLines=[],wetLines=[],features=[],animation=0,animationOrigin=0;
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[],geometryDiagnostics=null;
   let geometryTimer=0,controlsGeometryTimer=0,geometryAbortTimer=0,lastViewKey='';
@@ -49,10 +50,13 @@ export function createHydroTensorRenderer(args){
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
+        tensorBusy=false;
         status('张量计算 Worker 失败：'+(e.message||'检查浏览器控制台'));
       };
       worker.onmessage=({data})=>{
-        if(disposed||worker!==current||!enabled||!data||data.requestId!==requestId)return;
+        if(disposed||worker!==current||!enabled||!data)return;
+        if(data.requestId===tensorActiveRequest)tensorBusy=false;
+        if(data.requestId!==requestId)return;
         if(data.type==='error'){status('张量场计算失败：'+data.message);return}
         if(data.type!=='result'||!data.fields)return;
         const n=data.cols*data.rows;
@@ -85,7 +89,13 @@ export function createHydroTensorRenderer(args){
     status(scenario.year+' 年 · 正在计算方向场'+(geometrySnapshot?
       '（暂留 '+geometrySnapshot.scenario.year+' 年几何；尚未更新）':'，尚无线场结果'));
     requestTimer=setTimeout(()=>{
-      requestTimer=0;if(!enabled||!flow||!context||disposed||!workerStart())return;
+      requestTimer=0;if(!enabled||!flow||!context||disposed)return;
+      // Drop an obsolete expensive tensor solve rather than queueing it ahead
+      // of the user's most recent slider input on the same Worker.
+      if(worker&&tensorBusy){
+        worker.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
+      }
+      if(!workerStart())return;
       const n=flow.cols*flow.rows;
       if(!n||n>70000)return;
       const grid=context.grid;
@@ -110,8 +120,9 @@ export function createHydroTensorRenderer(args){
           crossStrength:settings.crossStrength
         }
       };
+      tensorBusy=true;tensorActiveRequest=request.requestId;
       worker.postMessage(request);
-    },immediate?0:Math.max(100,310-(performance.now()-lastSubmitted)));
+    },immediate?0:Math.max(75,145-(performance.now()-lastSubmitted)));
   }
   let renderGeo=null;
   function toGeo(p){
@@ -657,7 +668,7 @@ export function createHydroTensorRenderer(args){
     if(geometryTimer)clearTimeout(geometryTimer);
     map.off?.('moveend',onViewportChanged);map.off?.('resize',onViewportChanged);
     geometryWorker?.terminate();geometryWorker=null;geometryPending=null;
-    worker?.terminate();worker=null;
+    worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
     src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());
   }
