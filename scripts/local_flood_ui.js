@@ -2494,7 +2494,7 @@ export function createLocalFloodUI({
         volumetricWater.displayDepth=null;
         volumetricWater.lastScenarioYear=null;
       }
-      isolateViewer?.getSource(FOCUS_FLOW_SOURCE)?.setData(spongeCollection([]));
+      hydroVector?.clear(); // Discard cached tensor, particles and stale runoff directions.
       lastFlowUpdateAt=0;
       let changed=false;
       for(const scene of sceneFeatures.values()){
