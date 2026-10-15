@@ -1,5 +1,5 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.42-water-edge-aa';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.39-hydro-tensor-dem50';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.43-tensor-ribbon';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.43-tensor-ribbon';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -1073,6 +1073,9 @@ export function createLocalFloodUI({
   const FOCUS_FLOW_GLOW='focus-flow-streamlines-glow';
   const FOCUS_FLOW_PARTICLES='focus-flow-particles';
   const FOCUS_FLOW_PARTICLE_LAYER='focus-flow-particle-layer';
+  const FOCUS_TENSOR_RIBBON_SOURCE='focus-tensor-ribbon-source';
+  const FOCUS_TENSOR_RIBBON_LAYER='focus-tensor-ribbon-line';
+  const FOCUS_TENSOR_RIBBON_GLOW='focus-tensor-ribbon-glow';
 
 
   const focusReferenceTileSize=512;
@@ -1737,6 +1740,7 @@ export function createLocalFloodUI({
           siteFacilities.map(siteSpongeFeature).filter(Boolean)
         )},
         [FOCUS_FLOW_SOURCE]:{type:'geojson',lineMetrics:true,data:spongeCollection([])},
+        [FOCUS_TENSOR_RIBBON_SOURCE]:{type:'geojson',lineMetrics:true,data:spongeCollection([])},
         [FOCUS_FLOW_PARTICLES]:{type:'geojson',data:spongeCollection([])},
         [FOCUS_EA_SOURCE]:{
           type:'raster',tiles:[focusContextUrl('ea',analysis.threshold)],
@@ -1808,6 +1812,22 @@ export function createLocalFloodUI({
             'line-color':['get','color'],
             'line-width':['get','width'],
             'line-opacity':0.91
+          }},
+        {id:FOCUS_TENSOR_RIBBON_GLOW,type:'line',source:FOCUS_TENSOR_RIBBON_SOURCE,
+          layout:{visibility:hydroDisplay.flow?'visible':'none',
+            'line-cap':'round','line-join':'round'},
+          paint:{
+            'line-color':['get','color'],
+            'line-width':['*',['get','width'],4.5],
+            'line-blur':2.5,'line-opacity':.22
+          }},
+        {id:FOCUS_TENSOR_RIBBON_LAYER,type:'line',source:FOCUS_TENSOR_RIBBON_SOURCE,
+          layout:{visibility:hydroDisplay.flow?'visible':'none',
+            'line-cap':'round','line-join':'round'},
+          paint:{
+            'line-color':['get','color'],
+            'line-width':['get','width'],
+            'line-opacity':['get','opacity']
           }},
         {id:FOCUS_FLOW_PARTICLE_LAYER,type:'circle',source:FOCUS_FLOW_PARTICLES,
           layout:{visibility:'none'},
@@ -2250,7 +2270,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.42-water-edge-aa</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.43-tensor-ribbon</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2329,13 +2349,21 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · HYDRO TENSOR FIELD</div>',
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用道路方向张量场 · 4-RoSy</label>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">Analysis</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">Presentation</button></div>',
-      '<div class="site-hydro-mini site-tensor-caption">SPATIAL ROAD GUIDANCE · NOT HYDRAULIC VELOCITY</div>',
+      '<div class="site-hydro-mini site-tensor-caption">CATCHMENT RIBBONS + ROAD TENSOR · NOT FLOW VELOCITY</div>',
+      '<div class="site-hydro-section-title site-tensor-subtitle">FIELD LAYERS</div>',
+      '<div class="site-vector-modes site-tensor-directions" role="group" aria-label="Tensor layer view"><button type="button" class="site-vector-mode" data-tensor-layer="water" aria-pressed="false">Hydrology</button><button type="button" class="site-vector-mode" data-tensor-layer="roads" aria-pressed="false">Urban</button><button type="button" class="site-vector-mode active" data-tensor-layer="combined" aria-pressed="true">Combined</button></div>',
       '<div class="site-vector-params">',
       '<label class="site-vector-param"><span>DEM Terrain Weight<output id="siteHudVectorTerrainWeightValue">35</output></span><input id="siteHudVectorTerrainWeight" type="range" min="0" max="100" step="5" value="35"></label>',
       '<label class="site-vector-param"><span>Drainage Network Weight<output id="siteHudVectorDrainageWeightValue">45</output></span><input id="siteHudVectorDrainageWeight" type="range" min="0" max="100" step="5" value="45"></label>',
       '<label class="site-vector-param"><span>Flood Avoidance<output id="siteHudVectorAvoidanceValue">70</output></span><input id="siteHudVectorAvoidance" type="range" min="0" max="100" step="5" value="70"></label>',
       '<label class="site-vector-param"><span>Tensor Smoothness<output id="siteHudVectorSmoothnessValue">60</output></span><input id="siteHudVectorSmoothness" type="range" min="0" max="100" step="5" value="60"></label>',
       '<label class="site-vector-param"><span>Cross Field Strength<output id="siteHudVectorCrossStrengthValue">60</output></span><input id="siteHudVectorCrossStrength" type="range" min="0" max="100" step="5" value="60"></label>',
+      '<div class="site-hydro-section-title site-tensor-subtitle">CATCHMENT RIBBON</div>',
+      '<label class="site-vector-param"><span>Ribbon Concentration<output id="siteHudVectorRibbonConcentrationValue">68</output></span><input id="siteHudVectorRibbonConcentration" type="range" min="0" max="100" step="1" value="68"></label>',
+      '<label class="site-vector-param"><span>Ribbon Width<output id="siteHudVectorRibbonWidthValue">42</output></span><input id="siteHudVectorRibbonWidth" type="range" min="0" max="100" step="1" value="42"></label>',
+      '<label class="site-vector-param"><span>Trunk Emphasis<output id="siteHudVectorTrunkEmphasisValue">75</output></span><input id="siteHudVectorTrunkEmphasis" type="range" min="0" max="100" step="1" value="75"></label>',
+      '<label class="site-vector-param"><span>Curvature Smoothing<output id="siteHudVectorCurvatureSmoothingValue">65</output></span><input id="siteHudVectorCurvatureSmoothing" type="range" min="0" max="100" step="1" value="65"></label>',
+      '<div class="site-hydro-section-title site-tensor-subtitle">TENSOR FILAMENTS</div>',
       '<label class="site-vector-param"><span>Line Density<output id="siteHudVectorDensityValue">55</output></span><input id="siteHudVectorDensity" type="range" min="0" max="100" step="1" value="55"></label>',
       '<label class="site-vector-param"><span>Line Length<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
       '<label class="site-vector-param"><span>Line Width<output id="siteHudVectorWidthValue">1.4</output></span><input id="siteHudVectorWidth" type="range" min="0.5" max="3.5" step="0.1" value="1.4"></label>',
@@ -2349,7 +2377,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑 · 默认隐藏</label>',
       '<div class="site-vector-scale"><span>LOW</span><div aria-hidden="true"></div><span>HIGH</span></div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus">等待 DEM、排水网络与模拟水深数据</div>',
-      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 对数汇水面积 · 模拟雨水 · 建筑遮罩<br>主方向／次方向／4-RoSy · 2026–2100 分期<br>DEM 原始约 50m；坡度按 ≥50m 支持尺度推导 · 非实测水速 · 非逐年洪水预报</div>',
+      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 汇水面积 · 模拟雨水 · 建筑遮罩<br>Hydrology Ribbon 是汇流参考，并非规划道路；Urban Tensor 为道路方向引导<br>DEM 约 50m · 动画粒子不表示真实流速 · 2026–2100 设计情景</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -2704,8 +2732,12 @@ export function createLocalFloodUI({
     const tensorControls=[
       ['TerrainWeight','terrainWeight'],['DrainageWeight','drainageWeight'],
       ['Avoidance','avoidance'],['Smoothness','smoothness'],
-      ['CrossStrength','crossStrength'],['Density','density'],
-      ['Length','length'],['Width','width'],['Opacity','opacity'],
+      ['CrossStrength','crossStrength'],
+      ['RibbonConcentration','ribbonConcentration'],
+      ['RibbonWidth','ribbonWidth'],['TrunkEmphasis','trunkEmphasis'],
+      ['CurvatureSmoothing','curvatureSmoothing'],
+      ['Density','density'],['Length','length'],['Width','width'],
+      ['Opacity','opacity'],
       ['Glow','glow'],['Speed','speed'],['Growth','growth']
     ];
     for(const [name,key] of tensorControls){
@@ -2726,6 +2758,20 @@ export function createLocalFloodUI({
           item.setAttribute('aria-pressed',String(active));
         }
         hydroVector?.configure({mode});
+      };
+    }
+    for(const button of container.querySelectorAll('[data-tensor-layer]')){
+      button.onclick=()=>{
+        const view=button.dataset.tensorLayer;
+        for(const item of container.querySelectorAll('[data-tensor-layer]')){
+          const active=item.dataset.tensorLayer===view;
+          item.classList.toggle('active',active);
+          item.setAttribute('aria-pressed',String(active));
+        }
+        hydroVector?.configure({
+          showRibbon:view!=='roads',
+          showFilaments:view!=='water'
+        });
       };
     }
     for(const button of container.querySelectorAll('[data-tensor-direction]')){
@@ -2854,6 +2900,9 @@ export function createLocalFloodUI({
       map:viewer,sourceId:FOCUS_FLOW_SOURCE,
       particleSourceId:FOCUS_FLOW_PARTICLES,
       glowLayerId:FOCUS_FLOW_GLOW,lineLayerId:FOCUS_FLOW_LAYER,
+      ribbonSourceId:FOCUS_TENSOR_RIBBON_SOURCE,
+      ribbonLayerId:FOCUS_TENSOR_RIBBON_LAYER,
+      ribbonGlowLayerId:FOCUS_TENSOR_RIBBON_GLOW,
       particleLayerId:FOCUS_FLOW_PARTICLE_LAYER,
       getBounds:()=>focusWaterBounds,
       onStatus:message=>setSiteHud('siteHudVectorStatus',message)
