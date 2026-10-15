@@ -24,6 +24,8 @@ export function createTensorGeometry(result,options={}){
   const nominalStep=clamp(mpp*1.3,cell*.32,cell*.8);
   const targetLength=Math.max(cell*12,diag*(.40+.80*lengthSetting));
   const minLength=Math.max(cell*2.5,Math.min(40,diag*.018));
+  // Same physical DEM/catchment for all presets: change placement by actual wetness.
+  const wetAt=i=>clamp(Number(f.rainfallInfluence?.[i]||0),0,1);
   const fieldMask=new Uint8Array(n);
   let valid=0,supported=0,visibleSupported=0,parcel=0,obstacles=0;
   const evidenceRejections={confidence:0,anisotropy:0,missingAxis:0};
@@ -49,7 +51,9 @@ export function createTensorGeometry(result,options={}){
     primarySpacingM:spacing,secondarySpacingM:spacing*1.35,
     targetLengthM:targetLength,minLengthM:minLength,nominalStepM:nominalStep,
     nativeDemResolutionM:result.demNativeResolutionM||50,
-    subcellGeometryIsInterpolation:true,field:{},ribbons:{},stopReasons:{},probeStopReasons:{}};
+    subcellGeometryIsInterpolation:true,wetPlacementIsDesignVisualization:true,
+    wetGeometryMethod:'depth-driven local seed priority, path length and spacing; invariant source directions',
+    field:{},ribbons:{},stopReasons:{},probeStopReasons:{}};
   const stop=(reason,branch,probe)=>{
     const bucket=probe?diagnostics.probeStopReasons:diagnostics.stopReasons;
     bucket[reason]=(bucket[reason]||0)+1;
@@ -219,6 +223,7 @@ export function createTensorGeometry(result,options={}){
     for(const branch of families){
       const gap=spacing*(branch==='primary'?1:1.35),occupied=new SpacingIndex(gap);
       const stats={candidateSeeds:0,integrationAttempts:0,integrationSucceeded:0,lengthRejected:0,
+        wetSensitiveSeeds:0,wetSensitiveLines:0,
         spacingRejected:0,seedSpacingRejected:0,pathSpacingRejected:0,finalLines:0,totalLengthM:0,coverage:0,budgetReached:false,stopReasons:{},adaptiveRetries:{}};
       diagnostics.field[branch]=stats;
       const queue=[],front=[],scheduled=new Set();let propagating=false;
@@ -230,19 +235,22 @@ export function createTensorGeometry(result,options={}){
       // Adaptive stratification; high angular variation subdivides a tile.
       const tileX=Math.max(1,Math.ceil(gap*8/dx)),tileY=Math.max(1,Math.ceil(gap*8/dy));
       function tile(x0,y0,x1,y1,level=0){
-        let best=-1,score=-Infinity,variation=0,count=0;
+        let best=-1,score=-Infinity,variation=0,waterSum=0,count=0;
         for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
           const i=y*w+x;if(!fieldMask[i])continue;
-          const v=localVariation(i);variation+=v;count++;
+          const v=localVariation(i);variation+=v;waterSum+=wetAt(i);count++;
           const centre=hypot((x+.5-(x0+x1)/2)*dx,(y+.5-(y0+y1)/2)*dy);
-          const s=f.confidence[i]*.25-centre/Math.max(cell,gap*8);
+          const s=f.confidence[i]*.25+.18*wetAt(i)-centre/Math.max(cell,gap*8);
           if(s>score){score=s;best=i}
         }
         if(best<0)return;
-        if(level<2&&variation/count>.09&&x1-x0>2&&y1-y0>2){
+        if(level<2&&(variation/count>.09||waterSum/count>.36)&&x1-x0>2&&y1-y0>2){
           const mx=(x0+x1)>>1,my=(y0+y1)>>1;
           for(const [a,b,c,d] of [[x0,y0,mx,my],[mx,y0,x1,my],[x0,my,mx,y1],[mx,my,x1,y1]])tile(a,b,c,d,level+1);
-        }else enqueue(best%w+.5,Math.floor(best/w)+.5);
+        }else {
+          if(wetAt(best)>.18)stats.wetSensitiveSeeds++;
+          enqueue(best%w+.5,Math.floor(best/w)+.5);
+        }
       }
       for(let y=Math.max(0,Math.floor(roi[1]));y<roi[3];y+=tileY)
         for(let x=Math.max(0,Math.floor(roi[0]));x<roi[2];x+=tileX)
@@ -258,10 +266,12 @@ export function createTensorGeometry(result,options={}){
       let vertices=0;
       const vertexBudget=Math.min(650000,Math.max(12000,Math.ceil(supported*cell/gap*22)));
       const take=seed=>{
-        const i=index(seed.x,seed.y),variation=localVariation(i),localGap=gap*(1-.15*variation-.12*(f.drainageRank[i]||0));
+        const i=index(seed.x,seed.y),variation=localVariation(i),wet=wetAt(i);
+        // Wet scenarios alter sample concentration, not tensor eigenaxes.
+        const localGap=Math.max(cell*.50,gap*(1-.15*variation-.12*(f.drainageRank[i]||0)-.34*wet));
         if(occupied.distance(seed.x,seed.y)<localGap){stats.spacingRejected++;stats.seedSpacingRejected++;return}
         stats.integrationAttempts++;
-        const limit=targetLength*(branch==='primary'?1:.78);
+        const limit=targetLength*(branch==='primary'?1:.78)*(1+.22*wet);
         let back=integrate(seed.x,seed.y,branch,-1,limit*.5,'field',occupied,localGap);
         const forward=integrate(seed.x,seed.y,branch,1,limit-lengthOf(back),'field',occupied,localGap);
         // Give the unblocked direction the remaining physical arc budget.
@@ -277,6 +287,7 @@ export function createTensorGeometry(result,options={}){
           stats.spacingRejected++;stats.pathSpacingRejected++;return;
         }
         occupied.add(path);vertices+=path.length;stats.finalLines++;stats.totalLengthM+=length;
+        if(wet>.18)stats.wetSensitiveLines++;
         output.push({branch,kind:'field',path,lengthM:length,
           rank:path.reduce((s,p)=>s+(p.rank||0),0)/path.length,
           wetSupport:path.reduce((s,p)=>s+(p.water||0),0)/path.length});
@@ -303,7 +314,8 @@ export function createTensorGeometry(result,options={}){
         const step=Math.max(1,Math.floor(gap/(cell*1.4)));
         for(let y=Math.max(0,Math.ceil(roi[1]));y<roi[3]&&vertices<vertexBudget;y+=step)
           for(let x=Math.max(0,Math.ceil(roi[0]));x<roi[2]&&vertices<vertexBudget;x+=step){
-            const i=y*w+x;if(!fieldMask[i]||occupied.distance(x+.5,y+.5)<gap*1.14)continue;
+            const i=y*w+x,coverageGap=gap*(1.14-.45*wetAt(i));
+            if(!fieldMask[i]||occupied.distance(x+.5,y+.5)<coverageGap)continue;
             stats.candidateSeeds++;take({x:x+.5,y:y+.5});
           }
       }
