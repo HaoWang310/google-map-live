@@ -2788,10 +2788,22 @@ export function createLocalFloodUI({
       const slider=siteHud('siteHudVector'+name);
       const output=siteHud('siteHudVector'+name+'Value');
       if(!slider)continue;
-      slider.oninput=()=>{
+      const number=document.createElement('input');
+      number.type='number';number.min=slider.min;number.max=slider.max;
+      number.step=slider.step||'1';number.value=slider.value;
+      number.setAttribute('aria-label',key+' 数值');
+      number.style.cssText='width:58px;max-width:58px;padding:4px;background:#181a1d;color:#f5f5f7;border:1px solid #4a4a50;border-radius:5px;font-size:12px;margin-left:6px';
+      if(output){output.style.display='none';output.insertAdjacentElement('afterend',number);}
+      const update=value=>{
+        const v=Math.max(Number(slider.min),Math.min(Number(slider.max),Number(value)));
+        if(!Number.isFinite(v))return;
+        slider.value=String(v);number.value=slider.value;
         if(output)output.textContent=slider.value;
         hydroVector?.configure({[key]:Number(slider.value)});
       };
+      slider.oninput=()=>update(slider.value);
+      number.oninput=()=>{if(number.value!==''&&Number.isFinite(Number(number.value)))update(number.value)};
+      number.onchange=()=>update(number.value===''?slider.value:number.value);
     }
     siteHud('siteHudTensorReplay').onclick=()=>hydroVector?.replayGrowth();
     for(const button of container.querySelectorAll('[data-vector-mode]')){
