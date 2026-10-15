@@ -1,8 +1,8 @@
-import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.47-tensor-logic';
-/* v3.22.47-tensor-logic · Separate always-visible topographic tensor from annual wet enhancements.
-   The original DEM and flood solver remain unchanged. Visualization is
-   gradually revealed over the 2026–2100 design-scenario timeline;
-   particles illustrate eigenfield axes and do not represent measured speed. */
+import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.48-tensor-continuity';
+/* v3.22.48-tensor-continuity · One computed eigenfield in dry and wet states.
+   All-year geometry samples the same symmetric tensor eigenaxes. Source
+   DEM and flood transport are unchanged; existing line/particle styles are
+   retained and are not evidence of measured water velocity. */
 export function createHydroTensorRenderer(args){
   const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
     ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus}=args;
@@ -36,7 +36,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.47-tensor-logic',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.48-tensor-continuity',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -49,7 +49,7 @@ export function createHydroTensorRenderer(args){
         const n=data.cols*data.rows;
         const fields={};
         for(const [key,buffer] of Object.entries(data.fields)){
-          const Type=['validMask','trunkMask','drainageMask','terrainDirectionValid'].includes(key)?Uint8Array:Float32Array;
+          const Type=['validMask','trunkMask','drainageMask','terrainDirectionValid','dominantProcess'].includes(key)?Uint8Array:Float32Array;
           fields[key]=new Type(buffer);
           if(fields[key].length!==n)return;
         }
@@ -57,7 +57,7 @@ export function createHydroTensorRenderer(args){
         result={...data,fields,context:submitted.context,depth:submitted.depth,parameters:submitted.parameters};
         lastSubmitted=performance.now();
         buildLines();buildRibbons();applyStyle();
-        const newTarget=clamp(.20+.80*(data.scenario.year-2026)/74,.20,1);
+        const newTarget=1; // Full computed field in every year, including dry 2026.
         const now=performance.now();
         if(!animation||settings.mode!=='presentation'){
           yearGrowth=newTarget;
@@ -76,9 +76,8 @@ export function createHydroTensorRenderer(args){
           drawLines(newTarget);
           dots()?.setData(empty());
         }
-        status(data.scenario.year+' 年 · 基础地形 '+baseLines.length+
-          ' 条（常显） · 积水影响 '+wetLines.length+
-          ' 条（逐年变化） · 汇水线束 '+ribbons.length+
+        status(data.scenario.year+' 年 · 综合张量 '+baseLines.length+
+          ' 条（全年常显） · 积水改变局部方向 · 汇水线束 '+ribbons.length+
           ' 条 · DEM '+data.demNativeResolutionM+' m · 非实测水速');
       };
       return true;
@@ -126,42 +125,38 @@ export function createHydroTensorRenderer(args){
     if(ix<0||iy<0||ix>=cols||iy>=rows)return false;
     const i=iy*cols+ix;
     if(!f.validMask[i])return false;
-    if(family==='base')return f.baseConfidence[i]>.10;
-    // Dynamic highlighting must be supported by this year's modeled water.
-    return f.confidence[i]>=.075&&f.rainfallInfluence[i]>=.035&&
-      (branch!=='secondary'||f.crossSuitability[i]>=.085);
+    return f.confidence[i]>=.075&&f.anisotropy[i]>.02&&
+      Math.hypot(f.primaryX[i],f.primaryY[i])>.5;
   }
   function sample(x,y,branch,previous,family='wet'){
     if(!validAt(x,y,branch,family))return null;
     const {cols,rows,fields:f}=result;
     const cx=x-.5,cy=y-.5,x0=Math.floor(cx),y0=Math.floor(cy);
     const tx=cx-x0,ty=cy-y0;
-    let sumX=0,sumY=0,count=0,strength=0,acc=0,suit=0,reference=previous;
+    let sumX=0,sumY=0,count=0,strength=0,acc=0,suit=0,water=0,reference=previous;
     for(let oy=0;oy<=1;oy++)for(let ox=0;ox<=1;ox++){
       const u=x0+ox,v=y0+oy;
       if(u<0||v<0||u>=cols||v>=rows)continue;
       const k=v*cols+u;
-      const supported=family==='base'?f.baseConfidence[k]>.10:
-        f.confidence[k]>=.075&&f.rainfallInfluence[k]>=.035;
-      if(!f.validMask[k]||!supported||
-         family==='wet'&&branch==='secondary'&&f.crossSuitability[k]<.085)continue;
+      const supported=f.confidence[k]>=.075&&f.anisotropy[k]>.02&&
+        Math.hypot(f.primaryX[k],f.primaryY[k])>.5;
+      if(!f.validMask[k]||!supported)continue;
       const weight=(ox?tx:1-tx)*(oy?ty:1-ty);
       if(!(weight>0))continue;
-      let ax=family==='base'?f.basePrimaryX[k]:f.primaryX[k];
-      let ay=family==='base'?f.basePrimaryY[k]:f.primaryY[k];
+      let ax=f.primaryX[k],ay=f.primaryY[k];
       if(branch==='secondary'){const a=ax;ax=-ay;ay=a}
       if(!reference)reference={x:ax,y:ay};
       if(ax*reference.x+ay*reference.y<0){ax=-ax;ay=-ay}
-      const intensity=family==='base'?f.baseIntensity[k]:f.hydroIntensity[k];
+      const intensity=f.hydroIntensity[k];
       sumX+=ax*weight;sumY+=ay*weight;count+=weight;
       strength+=intensity*weight;acc+=f.drainageRank[k]*weight;
-      suit+=f.baseConfidence[k]*weight;
+      suit+=f.confidence[k]*weight;water+=f.rainfallInfluence[k]*weight;
     }
     const mag=Math.hypot(sumX,sumY);
     if(mag<.10||count<.16)return null;
     return {x:sumX/mag,y:sumY/mag,
       strength:clamp(strength/count,0,1),
-      catchment:clamp(acc/count,0,1),suitable:clamp(suit/count,0,1)};
+      catchment:clamp(acc/count,0,1),suitable:clamp(suit/count,0,1),water:water/count};
   }
   function integrate(sx,sy,branch,sign,max,family='wet'){
     let x=sx,y=sy,previous=null;
@@ -178,7 +173,7 @@ export function createHydroTensorRenderer(args){
       if(Math.floor(x)!==Math.floor(nx)&&Math.floor(y)!==Math.floor(ny)&&
          (!validAt(nx,y,branch,family)||!validAt(x,ny,branch,family)))break;
       points.push({x,y,rank:a.strength,catchment:a.catchment,
-        suit:a.suitable});
+        suit:a.suitable,water:a.water});
       previous=a;x=nx;y=ny;
     }
     return points;
@@ -204,10 +199,10 @@ export function createHydroTensorRenderer(args){
     const branches=settings.direction==='dual'?
       ['primary','secondary']:[settings.direction];
     const cap=Math.min(460,Math.round(100+settings.density*3.2));
-    const baseCap=Math.round(cap*.67),wetCap=cap-baseCap;
+    const baseCap=cap;
     baseLines=[];wetLines=[];
-    for(const family of ['base','wet']){
-      const total=family==='base'?baseCap:wetCap;
+    for(const family of ['base']){
+      const total=baseCap;
       const perBranch=Math.ceil(total/branches.length);
       for(const branch of branches){
         const occupied=new Uint8Array(cols*rows),seeds=[];
@@ -221,14 +216,8 @@ export function createHydroTensorRenderer(args){
           for(let oy=0;oy<stride&&y+oy<rows-1;oy++)for(let ox=0;ox<stride&&x+ox<cols-1;ox++){
             const id=(y+oy)*cols+x+ox;
             if(!f.validMask[id])continue;
-            const score=family==='base'?
-              f.baseConfidence[id]*(.48+.52*f.baseIntensity[id]):
-              f.rainfallInfluence[id]*(.40+.60*f.hydroIntensity[id])*
-              f.confidence[id];
-            if(score>bestScore&&
-              (family!=='base'||f.baseConfidence[id]>.10)&&
-              (family!=='wet'||f.rainfallInfluence[id]>=.035)&&
-              score>bestScore){
+            const score=f.confidence[id]*(.48+.52*f.hydroIntensity[id]);
+            if(score>bestScore&&f.confidence[id]>=.075&&f.anisotropy[id]>.02){
               best=id;bestScore=score;
             }
           }
@@ -264,6 +253,7 @@ export function createHydroTensorRenderer(args){
           rank=clamp(.80*rank/points.length+
             .20*Math.sqrt(catchment/points.length),0,1);
           const item={family,branch,index:output.length,
+            wetSupport:points.reduce((sum,p)=>sum+p.water,0)/points.length,
             coordinates:points.map(toGeo),rank,
             color:family==='base'?
               (branch==='primary'?'#5fa5c9':'#8993c5'):
@@ -278,7 +268,10 @@ export function createHydroTensorRenderer(args){
         else wetLines.push(...output);
       }
     }
-    lines=baseLines.concat(wetLines);
+    // Existing particles may follow the wet subset of this SAME eigenfield;
+    // there is no second static direction layer overlaid on the computed one.
+    lines=baseLines;
+    wetLines=baseLines.filter(line=>line.wetSupport>.035).map((line,index)=>({...line,index}));
     features=lines.map(line=>{
       const background=line.family==='base';
       return {type:'Feature',
@@ -574,6 +567,9 @@ export function createHydroTensorRenderer(args){
   }
   function configure(patch){
     if(disposed)return;
+    if(Object.prototype.hasOwnProperty.call(patch,'wetnessWeight')&&
+       !Object.prototype.hasOwnProperty.call(patch,'avoidance'))
+      patch={...patch,avoidance:patch.wetnessWeight};
     const next={...settings,...patch};
     for(const key of ['terrainWeight','drainageWeight','avoidance','smoothness',
       'crossStrength','density','length','ribbonConcentration','ribbonWidth',
@@ -699,6 +695,8 @@ export function createHydroTensorRenderer(args){
     if(result.depth)out.depthMm=new Uint16Array(result.depth);
     // Do not return road polylines as validated street designs.
     out.terrainBaseIsYearInvariant=true;
+    out.displayUsesUnifiedComputedEigenfield=true;
+    out.displayCountIndependentOfYear=true;
     out.annualWetDirectionDataIsDynamic=true;
     out.hydrologyRibbonVisualOnly=true;
     out.hydrologyRibbonCount=ribbons.length;

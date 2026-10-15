@@ -56,14 +56,37 @@ with tempfile.TemporaryDirectory(prefix='london-tensor-audit-') as td:
   ax.add_collection(LineCollection(segments,colors=color,linewidths=.85 if kx!='drainageX' else 1.1))
   ax.set_title(title,fontsize=11,loc='left');ax.set_aspect('equal')
   ax.set_xlabel('Local east (ground m)');ax.set_ylabel('Local north (ground m)')
- fig.suptitle('London Map | Computation audit v3.22.47\nKew sample: real OS Terrain 50 + published contributing area; source resolution 50 m',fontsize=15)
+ fig.suptitle('London Map | Computation audit v3.22.48\nKew sample: real OS Terrain 50 + published contributing area; source resolution 50 m',fontsize=15)
  fig.supxlabel('Blue: illustrative 25 mm/h, 120 min event, unchanged flood solver. No building input in this offline sample.\nNetwork tangents are unsigned estimates; original D8 directions are unavailable. Not a 2100 forecast.',fontsize=10)
- fig.savefig(out/'tensor-directions.png',dpi=160)
+ fig.savefig(out/'tensor-continuity.png',dpi=160)
  # A compact lossless copy is tracked with the report.
- Image.open(out/'tensor-directions.png').save(out/'tensor-directions.webp',lossless=True)
- stats={k:v for k,v in data.items() if k not in ['terrain','depthMm','wet','dry']}
+ Image.open(out/'tensor-continuity.png').save(out/'tensor-continuity.webp',lossless=True)
+ # Fixed sampling positions and line lengths: only actual eigenaxes change.
+ fig2,axes2=plt.subplots(3,2,figsize=(12,12),constrained_layout=True)
+ names={'terrainWeight':'Terrain weight','drainageWeight':'Drainage weight','avoidance':'Wetness weight'}
+ for row,(key,cases) in enumerate(data['cases'].items()):
+  entry=next(x for x in data['sensitivity'] if x['parameter']==key)
+  for col,case in enumerate(cases):
+   ax=axes2[row,col];f=case['fields']
+   ux=np.array(f['primaryX']).reshape(h,w);uy=np.array(f['primaryY']).reshape(h,w)
+   ax.imshow(terrain,cmap='Greys',extent=extent,alpha=.4,origin='upper')
+   ax.imshow(np.ma.masked_less(dep,.02),cmap='Blues',vmin=.02,vmax=.25,extent=extent,alpha=.3,origin='upper')
+   segments=[]
+   for y in range(0,h,6):
+    for x in range(0,w,6):
+     if not valid[y,x] or np.hypot(ux[y,x],uy[y,x])<.5:continue
+     cx=(x+.5)*dx;cy=(h-y-.5)*dy;half=dx*2.1
+     segments.append([(cx-ux[y,x]*half,cy+uy[y,x]*half),(cx+ux[y,x]*half,cy-uy[y,x]*half)])
+   ax.add_collection(LineCollection(segments,colors='#703f26',linewidths=.8))
+   ax.set_title(names[key]+' '+str(entry['from'] if col==0 else entry['to']),loc='left')
+   ax.set_aspect('equal');ax.set_xlabel('Local east (ground m)');ax.set_ylabel('Local north (ground m)')
+ fig2.suptitle('Eigenaxis sensitivity | identical DEM, accumulation and modeled depth\nOnly the named weight changes in each row; fixed cell samples and line lengths',fontsize=13)
+ fig2.supxlabel('Real Kew rasters; illustrative 25 mm/h storm; no building input. Not a future-year forecast.',fontsize=10)
+ fig2.savefig(out/'tensor-weight-response.png',dpi=140)
+ Image.open(out/'tensor-weight-response.png').save(out/'tensor-weight-response.webp',lossless=True)
+ stats={k:v for k,v in data.items() if k not in ['terrain','depthMm','wet','dry','cases']}
  stats['dry']=data['dry']['diagnostics'];stats['wet']=data['wet']['diagnostics']
  stats['grid']=data['wet']['grid'];stats['bboxLngLat']=config['bbox']
  stats['sourceHashesVerified']=True
- (out/'tensor-audit.json').write_text(json.dumps(stats,indent=2)+'\n')
+ (out/'tensor-continuity.json').write_text(json.dumps(stats,indent=2)+'\n')
  print(json.dumps(stats,indent=2))

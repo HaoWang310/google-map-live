@@ -1,0 +1,109 @@
+{
+  "baselineFloodDepthBitIdentical": true,
+  "baselineFloodVolumeIdentical": true,
+  "sensitivity": [
+    {
+      "parameter": "terrainWeight",
+      "from": 5,
+      "to": 95,
+      "comparedCells": 39509,
+      "medianAngleDeg": 3.2768750731732457,
+      "p95AngleDeg": 48.305238564323986,
+      "meanAngleDeg": 9.547437734280619,
+      "changedOver5Deg": 15988
+    },
+    {
+      "parameter": "drainageWeight",
+      "from": 5,
+      "to": 95,
+      "comparedCells": 2214,
+      "medianAngleDeg": 63.20744804407154,
+      "p95AngleDeg": 87.59972787761949,
+      "meanAngleDeg": 52.61596029525039,
+      "changedOver5Deg": 2006
+    },
+    {
+      "parameter": "avoidance",
+      "from": 0,
+      "to": 100,
+      "comparedCells": 10059,
+      "medianAngleDeg": 15.936145436382084,
+      "p95AngleDeg": 77.76380480526694,
+      "meanAngleDeg": 25.093156296568367,
+      "changedOver5Deg": 7732
+    }
+  ],
+  "continuity": {
+    "rawRoughness": 0.029236143647452664,
+    "smoothRoughness": 0.01812987316949651
+  },
+  "confidentWetCells": 39471,
+  "modelEvent": {
+    "rainMmH": 25,
+    "durationMin": 120,
+    "infiltrationMmH": 0.5,
+    "buildingInput": "none; building collisions tested separately with synthetic fixtures",
+    "EAReference": "not loaded in offline diagnostic; no EA data used to drive floodwater"
+  },
+  "drainageTerrainComparisonCells": 2215,
+  "medianDrainageTerrainAxisDifferenceDeg": 77.5339391497633,
+  "wetDryComparisonCells": 39903,
+  "medianWetDryAxisChangeDeg": 0.5902866344533723,
+  "cellsWetDryAxisChangeOver5Deg": 8083,
+  "maxEigenResidual": 5.875774553967218e-08,
+  "peakDepthM": 1.0937172174453735,
+  "dry": {
+    "counts": {
+      "valid": 39917,
+      "terrain": 39917,
+      "drainage": 2215,
+      "hydraulic": 0,
+      "tensor": 39908
+    },
+    "drainageD8Available": false,
+    "groundMetreBasis": true,
+    "obstacleCells": 0,
+    "continuityRadiusM": 110,
+    "regularizationIterations": 11,
+    "hierarchy": "regional DEM (150m support), local DEM (50m support), accumulation ridge, local depth head",
+    "yearUsedOnlyForMetadata": true,
+    "hydraulicDepthAvailable": true
+  },
+  "wet": {
+    "counts": {
+      "valid": 39917,
+      "terrain": 39917,
+      "drainage": 2215,
+      "hydraulic": 21751,
+      "tensor": 39909
+    },
+    "drainageD8Available": false,
+    "groundMetreBasis": true,
+    "obstacleCells": 0,
+    "continuityRadiusM": 110,
+    "regularizationIterations": 11,
+    "hierarchy": "regional DEM (150m support), local DEM (50m support), accumulation ridge, local depth head",
+    "yearUsedOnlyForMetadata": true,
+    "hydraulicDepthAvailable": true
+  },
+  "grid": {
+    "id": 1,
+    "crs": "EPSG:3857",
+    "cols": 223,
+    "rows": 179,
+    "left": -34509.042145914806,
+    "top": 6708431.056500631,
+    "cellProjectedM": 15,
+    "groundScale": 0.6227536332341963,
+    "axisX": "east",
+    "axisY": "south",
+    "groundMetric": "local Mercator scale at site centre"
+  },
+  "bboxLngLat": [
+    -0.31,
+    51.475,
+    -0.28,
+    51.49
+  ],
+  "sourceHashesVerified": true
+}

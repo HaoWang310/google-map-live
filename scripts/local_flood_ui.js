@@ -1,6 +1,6 @@
-import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.47-tensor-logic';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.47-tensor-logic';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.47-tensor-logic';
+import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.48-tensor-continuity';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.48-tensor-continuity';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.48-tensor-continuity';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2312,7 +2312,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.47-tensor-logic</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.48-tensor-continuity</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',

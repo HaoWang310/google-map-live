@@ -70,10 +70,13 @@ test('buildings, parcel masks and diagonal corner blocking',()=>{
  const f=solve(d).fields;
  assert.equal(f.hydraulicConfidence[4],0);assert.equal(f.primaryX[5],0);
  assert.equal(f.validMask[3],0);
- const a=structuredClone(ridge);for(let y=0;y<41;y++)a.obstacle[y*41+21]=1;
+ const a=structuredClone(ridge);a.config.smoothness=100;for(let y=0;y<41;y++)a.obstacle[y*41+21]=1;
  const b=structuredClone(a);for(let y=0;y<41;y++)for(let x=22;x<41;x++)b.accumulation[y*41+x]=areaCode(10000);
  const x=solve(a).fields,z=solve(b).fields;
- for(let y=0;y<41;y++)for(let c=0;c<21;c++)assert.equal(x.drainageConfidence[y*41+c],z.drainageConfidence[y*41+c]);
+ for(let y=0;y<41;y++)for(let c=0;c<21;c++){
+  const i=y*41+c;assert.equal(x.drainageConfidence[i],z.drainageConfidence[i]);
+  assert.equal(x.tensorXX[i],z.tensorXX[i]);assert.equal(x.tensorXY[i],z.tensorXY[i]);
+ }
 });
 test('true ordered eigenvalues, orthogonality and matrix residuals after smoothing',()=>{
  const d=structuredClone(ridge);d.config.smoothness=100;d.depthMm.fill(200);
@@ -87,6 +90,69 @@ test('true ordered eigenvalues, orthogonality and matrix residuals after smoothi
   assert.ok(Math.hypot(xx*ux+xy*uy-a*ux,xy*ux+yy*uy-a*uy)<1e-6);
   assert.ok(Math.hypot(xx*vx+xy*vy-b*vx,xy*vx+yy*vy-b*vy)<1e-6);
  }
+});
+const mixed=structuredClone(ridge);
+for(let y=0;y<41;y++)for(let x=0;x<41;x++){
+ mixed.terrain[y*41+x]=20-x*.02-y*.01;
+ mixed.depthMm[y*41+x]=1500-y*25;
+}
+const axisDistance=(f,g,i)=>Math.acos(Math.min(1,Math.abs(f.primaryX[i]*g.primaryX[i]+f.primaryY[i]*g.primaryY[i])));
+const cueDistance=(f,x,y,i)=>Math.acos(Math.min(1,Math.abs(f.primaryX[i]*x+f.primaryY[i]*y)));
+test('terrain, drainage and wetness weights each change the actual principal axis',()=>{
+ for(const [key,cx,cy] of [['terrainWeight',Math.cos(Math.atan2(.01,.02)),Math.sin(Math.atan2(.01,.02))],
+  ['drainageWeight',1,0],['avoidance',null,null]]){
+  const low=structuredClone(mixed),high=structuredClone(mixed);
+  low.config[key]=5;high.config[key]=100;
+  const a=solve(low).fields,b=solve(high).fields;
+  assert.ok(axisDistance(a,b,center)>.02,key+' must rotate eigenaxes');
+  const x=cx??b.hydraulicX[center],y=cy??b.hydraulicY[center];
+  assert.ok(cueDistance(b,x,y,center)<cueDistance(a,x,y,center),key+' must approach the weighted cue');
+ }
+});
+test('calendar labels do not rotate a fixed hydrological state',()=>{
+ const a=solve({...mixed,scenario:{year:2026}}),b=solve({...mixed,scenario:{year:2100}});
+ assert.deepEqual(a.fields.tensorXY,b.fields.tensorXY);assert.deepEqual(a.fields.primaryY,b.fields.primaryY);
+});
+test('dry baseline exists and rising same-site depth reorients axes smoothly',()=>{
+ const d=structuredClone(mixed);d.config.drainageWeight=0;
+ const values=[0,.1,.25,.5,.75,1].map(scale=>{
+  const depthMm=Uint16Array.from(d.depthMm,v=>Math.round(v*scale));
+  return solve({...d,depthMm}).fields;
+ });
+ assert.ok(Math.hypot(values[0].primaryX[center],values[0].primaryY[center])>.99);
+ assert.equal(values[0].hydraulicCueWeight[center],0);
+ assert.ok(axisDistance(values[0],values.at(-1),center)>.1);
+ for(let i=1;i<values.length;i++){
+  assert.ok(values[i].hydraulicCueWeight[center]>values[i-1].hydraulicCueWeight[center]);
+  assert.ok(axisDistance(values[i],values[i-1],center)<Math.PI/4);
+ }
+});
+test('anchored physical-scale regularization reduces undirected neighbour roughness',()=>{
+ const d=fixture(61,61);d.config={terrainWeight:100,drainageWeight:0,avoidance:0,smoothness:0};
+ for(let y=0;y<61;y++)for(let x=0;x<61;x++)d.terrain[y*61+x]=30-x*.2+.5*Math.sin(x*.8)*Math.cos(y*.35);
+ const rough=f=>{
+  let sum=0,n=0;
+  for(let y=1;y<60;y++)for(let x=1;x<59;x++){
+   const i=y*61+x,j=i+1;if(f.confidence[i]<.02||f.confidence[j]<.02)continue;
+   const dot=f.primaryX[i]*f.primaryX[j]+f.primaryY[i]*f.primaryY[j];sum+=Math.max(0,1-dot*dot);n++;
+  }return sum/n;
+ };
+ const a=solve(d).fields;d.config.smoothness=100;const b=solve(d).fields;
+ assert.ok(rough(b)<rough(a));
+ for(let i=0;i<61*61;i++){
+  assert.ok(b.anisotropy[i]>=0&&b.anisotropy[i]<=1);
+  assert.ok(b.confidence[i]<=b.anisotropy[i]+1e-6);
+  assert.ok(b.directionContinuity[i]>=0&&b.directionContinuity[i]<=1.000001);
+ }
+});
+test('building geometry removes the adjacent normal axis without creating unsupported fields',()=>{
+ const d=fixture();d.config.smoothness=100;
+ for(let y=0;y<41;y++)for(let x=0;x<41;x++){d.terrain[y*41+x]=30-x*.1;if(x===21)d.obstacle[y*41+x]=1}
+ const f=solve(d).fields;
+ assert.equal(f.obstacleConstraint[center],1);
+ assert.ok(Math.abs(f.primaryX[center])<1e-5&&Math.abs(f.primaryY[center])>.99);
+ const flat=structuredClone(d);flat.terrain.fill(20);const empty=solve(flat).fields;
+ assert.equal(empty.primaryY[center],0);assert.equal(empty.tensorYY[center],0);
 });
 test('grid validation distinguishes equal-sized parcels at different origins',()=>{
  const g=ridge.grid;assert.ok(validHydroGrid(g,41,41));
@@ -115,8 +181,9 @@ test('invalid grid array and missing metric rejected',()=>{
 const requests=[];
 globalThis.Worker=class {constructor(){globalThis.testWorker=this}postMessage(d){requests.push(structuredClone(d))}terminate(){}};
 globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
-const map={getSource:()=>({setData(){}}),getLayer:()=>false};
-const renderer=createHydroTensorRenderer({map,getBounds:()=>[[99,1],[100,1],[100,0],[99,0]]});
+const drawn=new Map();
+const map={getSource:id=>({setData(data){drawn.set(id,data)}}),getLayer:()=>false};
+const renderer=createHydroTensorRenderer({map,sourceId:'axes',particleSourceId:'dots',getBounds:()=>[[99,1],[100,1],[100,0],[99,0]]});
 renderer.configure({mode:'analysis'});renderer.setEnabled(true);
 const spatial={cols:41,rows:41,grid:ridge.grid,...Object.fromEntries(['terrain','accumulation','inside','obstacle'].map(k=>[k,ridge[k]]))};
 const flow={cols:41,rows:41,vx:ridge.vx,vy:ridge.vy,intensity:ridge.intensity};
@@ -134,5 +201,14 @@ assert.equal(renderer.exportStructuredData().depthMm[center],0);
 await delay();send(requests.at(-1));assert.equal(renderer.exportStructuredData().stage.year,2075);
 renderer.setEnabled(false);renderer.setField(flow,null,{grid:ridge.grid,year:2040,depthMm:ridge.depthMm});
 renderer.setEnabled(true);await delay();assert.equal(requests.at(-1).scenario.year,2040);
+// A dry, perfectly flat DEM with a supported network has zero raw DEM axes,
+// but its actual computed network tensor must still be visible in 2026.
+const flat=structuredClone(ridge);flat.terrain.fill(20);
+const flatSpatial={...spatial,terrain:flat.terrain};
+renderer.setField(flow,flatSpatial,{grid:ridge.grid,year:2026,depthMm:flat.depthMm,force:true});
+await delay();send(requests.at(-1));
+assert.ok(drawn.get('axes').features.length>0);
+assert.equal(renderer.exportStructuredData().displayCountIndependentOfYear,true);
+assert.equal(renderer.exportStructuredData().displayUsesUnifiedComputedEigenfield,true);
 renderer.dispose();passed++;console.log('PASS renderer exact-grid contract, stale responses, snapshot exports and re-enable');
 console.log(`${passed} regression groups passed`);

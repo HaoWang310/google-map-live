@@ -33,6 +33,10 @@ export function tensorDiagnosticGeoJSON(result,stride=4){
       const half=g.cellProjectedM*.38;
       features.push({type:'Feature',properties:{cell:i,col:x,row:y,axis:name,
         confidence:f[kc][i],areaKm2:f.drainageAreaKm2[i],
+        anisotropy:f.anisotropy?.[i]??null,continuity:f.directionContinuity?.[i]??null,
+        dominantProcess:f.dominantProcess?.[i]??null,
+        terrainWeight:f.terrainCueWeight?.[i]??null,drainageWeight:f.drainageCueWeight?.[i]??null,
+        wetnessWeight:f.hydraulicCueWeight?.[i]??null,obstacleConstraint:f.obstacleConstraint?.[i]??null,
         semantics:name==='terrain'?'DEM downhill':name==='drainage'?
           'inferred accumulation-ridge tangent; unsigned; not D8':'symmetric tensor eigenaxis; unsigned'},
         geometry:{type:'LineString',coordinates:[geo(cx-ux*half,cy+uy*half),geo(cx+ux*half,cy-uy*half)]}});

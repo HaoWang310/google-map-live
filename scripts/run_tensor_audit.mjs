@@ -26,8 +26,7 @@ assert.deepEqual(new Uint16Array(a.frame.depthMm),new Uint16Array(b.frame.depthM
 assert.equal(a.frame.stats.volumeM3,b.frame.stats.volumeM3);
 const {terrain,accumulation,inside,obstacle}=b.arrays;
 const grid=b.frame.grid,cols=b.frame.width,rows=b.frame.height,n=cols*rows;
-const tscope=vm.createContext({self:{}});vm.runInContext(fs.readFileSync(new URL('./hydro_tensor_worker.js',import.meta.url),'utf8'),tscope);
-const solve=vm.runInContext('solve',tscope);
+const solve=new Function('self',fs.readFileSync(new URL('./hydro_tensor_worker.js',import.meta.url),'utf8')+'\nreturn solve;')({});
 const input={type:'solve',requestId:1,cols,rows,grid,cellX:grid.cellProjectedM*grid.groundScale,
  cellY:grid.cellProjectedM*grid.groundScale,terrain,accumulation,inside,obstacle,
  vx:new Int8Array(n),vy:new Int8Array(n),intensity:new Uint8Array(n),
@@ -45,9 +44,47 @@ for(let i=0;i<n;i++){
  residual=Math.max(residual,Math.hypot(f.tensorXX[i]*f.primaryX[i]+f.tensorXY[i]*f.primaryY[i]-f.eigenvalueMajor[i]*f.primaryX[i],f.tensorXY[i]*f.primaryX[i]+f.tensorYY[i]*f.primaryY[i]-f.eigenvalueMajor[i]*f.primaryY[i]));
 }
 const median=a=>a.sort((a,b)=>a-b)[Math.floor(a.length/2)]??null;
-const serial=r=>({...r,fields:Object.fromEntries(Object.entries(r.fields).map(([k,v])=>[k,Array.from(v)]))});
+const plotKeys=['basePrimaryX','basePrimaryY','drainageX','drainageY','primaryX','primaryY','secondaryX','secondaryY',
+ 'validMask','drainageAreaKm2','confidence','anisotropy','directionContinuity',
+ 'terrainCueWeight','drainageCueWeight','hydraulicCueWeight'];
+const serial=r=>({...r,fields:Object.fromEntries(Object.entries(r.fields).filter(([k])=>plotKeys.includes(k)).map(([k,v])=>[k,Array.from(v)]))});
+const angle=(a,b,i)=>Math.acos(Math.min(1,Math.abs(a.primaryX[i]*b.primaryX[i]+a.primaryY[i]*b.primaryY[i])))*180/Math.PI;
+const cases={},sensitivity=[];
+for(const [key,lo,hi] of [['terrainWeight',5,95],['drainageWeight',5,95],['avoidance',0,100]]){
+ const configs=[{...input.config,[key]:lo},{...input.config,[key]:hi}];
+ const fields=configs.map(config=>solve({...input,depthMm,config}));
+ const cueIndex={terrainWeight:'terrainCueWeight',drainageWeight:'drainageCueWeight',avoidance:'hydraulicCueWeight'}[key];
+ const angles=[];
+ for(let i=0;i<n;i++){
+  const l=fields[0].fields,h=fields[1].fields;
+  if(h[cueIndex][i]<.01||l.confidence[i]<.02||h.confidence[i]<.02||Math.hypot(l.primaryX[i],l.primaryY[i])<.5||Math.hypot(h.primaryX[i],h.primaryY[i])<.5)continue;
+  if(key==='drainageWeight'&&h.drainageConfidence[i]<.2)continue;
+  if(key==='avoidance'&&depthMm[i]<8)continue;
+  angles.push(angle(l,h,i));
+ }
+ assert.ok(angles.some(a=>a>5),key+' failed real-raster sensitivity');
+ sensitivity.push({parameter:key,from:lo,to:hi,comparedCells:angles.length,
+  medianAngleDeg:median([...angles]),p95AngleDeg:[...angles].sort((a,b)=>a-b)[Math.floor(angles.length*.95)],
+  meanAngleDeg:angles.reduce((a,b)=>a+b,0)/angles.length,changedOver5Deg:angles.filter(a=>a>5).length});
+ cases[key]=fields.map(r=>({cols:r.cols,rows:r.rows,fields:Object.fromEntries(['primaryX','primaryY','confidence'].map(k=>[k,Array.from(r.fields[k])]))}));
+}
+const roughness=(f,other)=>{
+ let total=0,count=0;
+ for(let y=0;y<rows;y++)for(let x=0;x<cols-1;x++){
+  const i=y*cols+x,j=i+1;if(f.confidence[i]<.075||f.confidence[j]<.075||other.confidence[i]<.075||other.confidence[j]<.075)continue;
+  const dot=f.primaryX[i]*f.primaryX[j]+f.primaryY[i]*f.primaryY[j];total+=Math.max(0,1-dot*dot);count++;
+ }return total/count;
+};
+const unsmoothed=solve({...input,depthMm,config:{smoothness:0}});
+const regularized=solve({...input,depthMm,config:{smoothness:100}});
+const continuity={rawRoughness:roughness(unsmoothed.fields,regularized.fields),smoothRoughness:roughness(regularized.fields,unsmoothed.fields)};
+assert.ok(continuity.smoothRoughness<continuity.rawRoughness,'real-raster regularization must reduce roughness');
+const roughIds=Object.values(wet.fields.confidence).filter(v=>v>=.075).length;
+console.log(JSON.stringify({sensitivity,continuity,confidentWetCells:roughIds}));
+
 fs.writeFileSync(path.join(dir,'result.json'),JSON.stringify({dry:serial(dry),wet:serial(wet),terrain:Array.from(terrain),depthMm:Array.from(depthMm),
  baselineFloodDepthBitIdentical:true,baselineFloodVolumeIdentical:true,
+ sensitivity,continuity,cases,confidentWetCells:roughIds,
  modelEvent:{rainMmH:25,durationMin:120,infiltrationMmH:.5,buildingInput:'none; building collisions tested separately with synthetic fixtures',EAReference:'not loaded in offline diagnostic; no EA data used to drive floodwater'},
  drainageTerrainComparisonCells:diffs.length,medianDrainageTerrainAxisDifferenceDeg:median(diffs),
  wetDryComparisonCells:changes.length,medianWetDryAxisChangeDeg:median(changes),
