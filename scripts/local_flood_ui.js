@@ -1014,13 +1014,18 @@ export function createLocalFloodUI({
   // Flood rendering is independent of tensor generation. Never accept an
   // undated request-flow-field response as a year-specific flood snapshot.
   let tensorSession=null,tensorSessionId=0,tensorContext=null,tensorStageTimer=0;
+  let tensorSessionRestoreFrame=null;
   const TENSOR_YEARS=[2026,2035,2045,2055,2065,2075,2085,2095,2100];
-  const tensorPeakFrame=()=>{
-    const peak=yearFrames.get(2100);
-    return peak?.annualAreaStage?.kind==='rainfall-risk-scenario'&&
-      peak.annualAreaStage.rainfallCase===rainPreset&&
-      peak.grid&&peak.depthMm&&peak.flowField?peak:null;
-  };
+  const validTensorPeak=frame=>Boolean(
+    frame?.scenarioYear===2100&&
+    frame?.annualAreaStage?.kind==='rainfall-risk-scenario'&&
+    frame.annualAreaStage.rainfallCase===rainPreset&&
+    frame.grid&&frame.depthMm&&frame.flowField
+  );
+  // A valid visible year-2100 frame is as authoritative as one in the
+  // yearFrames cache. The cache can be cleared independently of map rendering.
+  const tensorPeakFrame=()=>[yearFrames.get(2100),lastHydroFrame]
+    .find(validTensorPeak)||null;
   function stopTensorSequence({restoreRain=false}={}){
     const original=tensorSession?.originalYear;
     tensorSessionId++;tensorSession=null;
@@ -1028,12 +1033,13 @@ export function createLocalFloodUI({
     hydroVector?.setEnabled(false);
     if(restoreRain&&Number.isInteger(original)){
       futureYear=original;simYearDisplay();
-      const frame=yearFrames.get(original);
-      if(frame){
+      const frame=yearFrames.get(original)||tensorSessionRestoreFrame;
+      if(frame?.scenarioYear===original){
         const previous=applyingYearFrame;applyingYearFrame=true;
         try{handleFrame(frame)}finally{applyingYearFrame=previous}
       }
     }
+    tensorSessionRestoreFrame=null;
   }
   function advanceTensorStage(session,index){
     if(tensorSession!==session||!hydroDisplay.flow||!isolatedSelection)return;
@@ -1059,34 +1065,75 @@ export function createLocalFloodUI({
       advanceTensorStage(session,index+1);
     },22000);
   }
+  function requestTensorContext(session,peak){
+    if(tensorSession!==session||!hydroDisplay.flow||!validTensorPeak(peak))return;
+    session.awaitingPeak=false;
+    session.grid=peak.grid;
+    session.awaitingPeakToken=null;
+    setSiteHud('siteHudTensorGrowthStatus',
+      '已确认 '+peak.scenarioYear+' 年洪水设计包络，正在读取 DEM／汇水格网…');
+    if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
+    simulator?.requestFlowField();
+    tensorStageTimer=setTimeout(()=>{
+      tensorStageTimer=0;
+      if(tensorSession!==session||session.index>=0)return;
+      hydroDisplay.flow=false;stopTensorSequence({restoreRain:true});
+      const toggle=siteHud('siteHudShowFlow');if(toggle)toggle.checked=false;
+      updateHydroLayerVisibility();
+      status('洪水数据已确认，但没有获得张量场所需的地形格网；已恢复雨水显示。',true);
+    },20000);
+  }
   function startTensorSequence(){
-    if(annualPlaying){status('请等雨水模拟运行至2100年结束，再开启张量场');return false}
-    const peak=tensorPeakFrame();
-    if(!peak){
-      status('请先完成雨水模拟至2100年，再开启张量场，程序将自动从2026年开始生成。');
+    if(!prepared||!isolatedSelection){
+      status('请先生成并进入有效的场地。');return false;
+    }
+    // Reaching the final year is enough to stop year playback; the UI must
+    // not reject a computed final-year frame because annualPlaying has not
+    // yet been cleared by the last UI timer.
+    if(annualPlaying&&futureYear<2100){
+      status('雨水仍在计算 '+futureYear+' 年。请等到 2100 年再开启张量场。');
       return false;
     }
+    const peak=tensorPeakFrame();
+    if(annualPlaying)stopAnnual();
     stopTensorSequence();
     tensorContext=null;
-    const session={id:++tensorSessionId,index:-1,awaitingYear:null,awaitingToken:null,
-      originalYear:futureYear,completed:false,grid:peak.grid,rainfallCase:rainPreset};
+    tensorSessionRestoreFrame=lastHydroFrame;
+    const session={id:++tensorSessionId,index:-1,awaitingYear:null,
+      awaitingToken:null,awaitingPeak:!peak,awaitingPeakToken:null,
+      originalYear:futureYear,completed:false,grid:peak?.grid||null,
+      rainfallCase:rainPreset};
     tensorSession=session;
     lastFlowUpdateAt=0;
     hydroVector?.clear();
     hydroVector?.setEnabled(true);
     hydroVector?.setTimelineYear(2026,{instant:true});
-    setSiteHud('siteHudTensorGrowthStatus','正在读取当前场地真实地形与汇水格网…');
-    simulator?.requestFlowField();
-    // An unavailable DEM/context must return to the existing rain picture
-    // instead of leaving the user with an indefinitely black tensor scene.
+    if(peak){
+      // Deferred because the checkbox handler sets hydroDisplay.flow=true
+      // immediately after this function returns.
+      setTimeout(()=>{
+        if(tensorSession===session&&hydroDisplay.flow)
+          requestTensorContext(session,peak);
+      },0);
+      return true;
+    }
+    // The visible 2100 result may be complete without a cache entry.
+    // Refresh ONLY the single 2100 snapshot, never restart 75 years of rain.
+    futureYear=2100;simYearDisplay();
+    if(!requestYear(2100)){
+      stopTensorSequence({restoreRain:true});return false;
+    }
+    session.awaitingPeakToken=lastRequestedScenarioToken;
+    setSiteHud('siteHudTensorGrowthStatus',
+      '正在校验并读取 2100 年完成的雨水结果；无需重新播放雨水…');
     tensorStageTimer=setTimeout(()=>{
       tensorStageTimer=0;
-      if(tensorSession!==session||session.index>=0)return;
+      if(tensorSession!==session||!session.awaitingPeak)return;
       hydroDisplay.flow=false;stopTensorSequence({restoreRain:true});
-      const box=siteHud('siteHudShowFlow');if(box)box.checked=false;
+      const toggle=siteHud('siteHudShowFlow');if(toggle)toggle.checked=false;
       updateHydroLayerVisibility();
-      status('张量场启动超时：未取得匹配的 DEM／汇水格网；雨水模拟已恢复。',true);
-    },15000);
+      status('2100 年洪水快照读取超时。请检查当前雨水 Worker 状态，原画面已恢复。',true);
+    },60000);
     return true;
   }
 
@@ -3967,6 +4014,11 @@ export function createLocalFloodUI({
         return;
       }
     }
+    // Accept a freshly hydrated 2100 peak exactly once; never reuse stale
+    // frames from another precipitation scenario or request token.
+    if(hydroDisplay.flow&&tensorSession?.awaitingPeak&&
+       data.scenarioToken===tensorSession.awaitingPeakToken&&
+       validTensorPeak(data))requestTensorContext(tensorSession,data);
     // In the 2026–2100 baseline playback, show the maximum inundation
     // envelope observed up to the selected year. Never clear risk patches
     // when a new representative storm starts. This is a design-risk envelope,
