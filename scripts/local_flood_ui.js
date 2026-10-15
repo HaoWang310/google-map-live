@@ -1814,8 +1814,12 @@ export function createLocalFloodUI({
   function syncFocusFloodWaterRendering(){
     const viewer=isolateViewer;
     if(!viewer)return;
+    // Keep reference rasters readable: the custom 3D water mesh otherwise
+    // renders later and covers the EA/drainage comparison layers.
+    const reference=focusContextSettings();
     const useVolume=Boolean(!hydroDisplay.flow&&hydroDisplay.depth&&
-      hydroDisplay.volume&&viewer.getPitch()>.5&&volumetricWater?.ready);
+      !reference.ea&&!reference.drainage&&hydroDisplay.volume&&
+      viewer.getPitch()>.5&&volumetricWater?.ready);
     volumetricWater?.setVisible(useVolume);
     if(viewer.getLayer(FOCUS_RAIN_LAYER)){
       const visibility=!hydroDisplay.flow&&hydroDisplay.depth&&!useVolume?'visible':'none';
@@ -2852,6 +2856,7 @@ export function createLocalFloodUI({
       if(hudId==='siteHudEA'||hudId==='siteHudDrainage'){
         // Update directly and do not rely solely on the city-panel listener.
         updateFocusAnalysisLayers();
+        syncFocusFloodWaterRendering();
         if(e.target.checked)setSiteHud(
           hudId==='siteHudEA'?'siteHudEAStatus':'siteHudDrainStatus',
           '已勾选，等待地图加载参考瓦片…');
