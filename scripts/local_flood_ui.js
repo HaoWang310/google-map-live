@@ -1,5 +1,5 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.38-catchment-tensor';
-import {createHydroVectorRenderer} from './hydro_vector_field.js?v=3.22.38-catchment-tensor';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.39-hydro-tensor';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.39-hydro-tensor';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -834,6 +834,7 @@ export function createLocalFloodUI({
   let isolateViewerElement=null;
   let volumetricWater=null;
   let hydroVector=null;
+  let tensorShowBuildings=false;
   let focusWaterBounds=null;
   let focusSiteSerial=0;
   let focusAppliedThreshold=null;
@@ -1295,7 +1296,9 @@ export function createLocalFloodUI({
 
   function syncFocusFootprintVisibility(){
     if(!isolateViewer)return;
-    const visible=(hydroDisplay.flow||hideSelectedBuildings)?'visible':'none';
+    const visible=hydroDisplay.flow
+      ?(tensorShowBuildings?'visible':'none')
+      :(hideSelectedBuildings?'visible':'none');
     // Neutral footprints are shown only in the independent vector view.
     for(const [id,paint,defaultPaint] of [
       [FOCUS_FOOTPRINT_FILL,'fill-color',
@@ -1851,9 +1854,10 @@ export function createLocalFloodUI({
     const viewer=isolateViewer;
     if(!viewer)return;
     const is3D=viewer.getPitch()>.5;
+    const show=!hydroDisplay.flow||tensorShowBuildings;
     for(const [id,v] of [
-      [FOCUS_2D,is3D?'none':'visible'],
-      [FOCUS_3D,is3D?'visible':'none']
+      [FOCUS_2D,show&&!is3D?'visible':'none'],
+      [FOCUS_3D,show&&is3D?'visible':'none']
     ]){
       if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!==v){
         viewer.setLayoutProperty(id,'visibility',v);
@@ -1887,6 +1891,7 @@ export function createLocalFloodUI({
     hydroVector?.dispose();
     hydroVector=null;
     delete window.getLondonHydroVectorFieldData;
+    delete window.getLondonHydroTensorFieldData;
     isolateViewer=null;
     volumetricWater=null;
     if(viewer){
@@ -2275,7 +2280,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.38-catchment-tensor</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.39-hydro-tensor</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2374,21 +2379,30 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
       '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
-      '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · HYDROLOGICAL VECTOR FIELD</div>',
-      '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 显示独立水文向量场</label>',
-      '<div class="site-vector-modes" role="group" aria-label="Vector Field 显示模式"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">Analysis</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">Presentation</button></div>',
+      '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · HYDRO TENSOR FIELD</div>',
+      '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用道路方向张量场 · 4-RoSy</label>',
+      '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">Analysis</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">Presentation</button></div>',
+      '<div class="site-hydro-mini site-tensor-caption">SPATIAL ROAD GUIDANCE · NOT HYDRAULIC VELOCITY</div>',
       '<div class="site-vector-params">',
-      '<label class="site-vector-param"><span>Density · 密度<output id="siteHudVectorDensityValue">55</output></span><input id="siteHudVectorDensity" type="range" min="0" max="100" step="1" value="55"></label>',
-      '<label class="site-vector-param"><span>Length · 长度<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
-      '<label class="site-vector-param"><span>Width · 线宽<output id="siteHudVectorWidthValue">1.4</output></span><input id="siteHudVectorWidth" type="range" min="0.5" max="3.5" step="0.1" value="1.4"></label>',
-      '<label class="site-vector-param"><span>Opacity · 透明度<output id="siteHudVectorOpacityValue">0.85</output></span><input id="siteHudVectorOpacity" type="range" min="0.1" max="1" step="0.05" value="0.85"></label>',
-      '<label class="site-vector-param"><span>Glow · 发光<output id="siteHudVectorGlowValue">0.5</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0.5"></label>',
-      '<label class="site-vector-param"><span>Particle Speed · 粒子速度<output id="siteHudVectorSpeedValue">1</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="1"></label>',
-      '<label class="site-vector-param"><span>Growth · 生长速度<output id="siteHudVectorGrowthValue">1</output></span><input id="siteHudVectorGrowth" type="range" min="0.5" max="3" step="0.1" value="1"></label>',
+      '<label class="site-vector-param"><span>DEM Terrain Weight<output id="siteHudVectorTerrainWeightValue">35</output></span><input id="siteHudVectorTerrainWeight" type="range" min="0" max="100" step="5" value="35"></label>',
+      '<label class="site-vector-param"><span>Drainage Network Weight<output id="siteHudVectorDrainageWeightValue">45</output></span><input id="siteHudVectorDrainageWeight" type="range" min="0" max="100" step="5" value="45"></label>',
+      '<label class="site-vector-param"><span>Flood Avoidance<output id="siteHudVectorAvoidanceValue">70</output></span><input id="siteHudVectorAvoidance" type="range" min="0" max="100" step="5" value="70"></label>',
+      '<label class="site-vector-param"><span>Tensor Smoothness<output id="siteHudVectorSmoothnessValue">60</output></span><input id="siteHudVectorSmoothness" type="range" min="0" max="100" step="5" value="60"></label>',
+      '<label class="site-vector-param"><span>Cross Field Strength<output id="siteHudVectorCrossStrengthValue">60</output></span><input id="siteHudVectorCrossStrength" type="range" min="0" max="100" step="5" value="60"></label>',
+      '<label class="site-vector-param"><span>Line Density<output id="siteHudVectorDensityValue">55</output></span><input id="siteHudVectorDensity" type="range" min="0" max="100" step="1" value="55"></label>',
+      '<label class="site-vector-param"><span>Line Length<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
+      '<label class="site-vector-param"><span>Line Width<output id="siteHudVectorWidthValue">1.4</output></span><input id="siteHudVectorWidth" type="range" min="0.5" max="3.5" step="0.1" value="1.4"></label>',
+      '<label class="site-vector-param"><span>Opacity<output id="siteHudVectorOpacityValue">0.85</output></span><input id="siteHudVectorOpacity" type="range" min="0.1" max="1" step="0.05" value="0.85"></label>',
+      '<label class="site-vector-param"><span>Glow<output id="siteHudVectorGlowValue">0.5</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0.5"></label>',
+      '<label class="site-vector-param"><span>Particle Motion<output id="siteHudVectorSpeedValue">1</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="1"></label>',
+      '<label class="site-vector-param"><span>Growth Speed<output id="siteHudVectorGrowthValue">1</output></span><input id="siteHudVectorGrowth" type="range" min="0.5" max="3" step="0.1" value="1"></label>',
       '</div>',
+      '<div class="site-hydro-section-title site-tensor-subtitle">DIRECTION STRUCTURE</div>',
+      '<div class="site-vector-modes site-tensor-directions" role="group" aria-label="Tensor directions"><button type="button" class="site-vector-mode" data-tensor-direction="primary" aria-pressed="false">Primary</button><button type="button" class="site-vector-mode" data-tensor-direction="secondary" aria-pressed="false">Secondary</button><button type="button" class="site-vector-mode active" data-tensor-direction="dual" aria-pressed="true">Dual</button></div>',
+      '<label class="site-hydro-check site-vector-enable"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑 · 默认隐藏</label>',
       '<div class="site-vector-scale"><span>LOW</span><div aria-hidden="true"></div><span>HIGH</span></div>',
-      '<div class="site-hydro-mini" id="siteHudVectorStatus">等待计算流场 · 选择情景后运行</div>',
-      '<div class="site-hydro-mini site-vector-provenance">2026–2100 随年份更新：弱色为 DEM 汇流潜势，亮色为模拟积水引导；箭头沿计算坡向。<br>OS Terrain 50 · 对数汇水面积 · 模拟水深 · 建筑障碍<br>RELATIVE INTENSITY · 非真实流速 / 非逐年洪灾预报</div>',
+      '<div class="site-hydro-mini" id="siteHudVectorStatus">等待 DEM、排水网络与模拟水深数据</div>',
+      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 对数汇水面积 · 模拟雨水 · 建筑遮罩<br>主方向／次方向／4-RoSy · 2026–2100 分期<br>Native DEM resolution · 非实测水速 · 非逐年洪水预报</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -2829,21 +2843,20 @@ export function createLocalFloodUI({
       hydroDisplay[flag]=e.target.checked;
       updateHydroLayerVisibility();
     };
-    const vectorControls=[
-      ['Density','density'],['Length','length'],['Width','width'],
-      ['Opacity','opacity'],['Glow','glow'],['Speed','speed'],
-      ['Growth','growth']
+    const tensorControls=[
+      ['TerrainWeight','terrainWeight'],['DrainageWeight','drainageWeight'],
+      ['Avoidance','avoidance'],['Smoothness','smoothness'],
+      ['CrossStrength','crossStrength'],['Density','density'],
+      ['Length','length'],['Width','width'],['Opacity','opacity'],
+      ['Glow','glow'],['Speed','speed'],['Growth','growth']
     ];
-    for(const [name,key] of vectorControls){
+    for(const [name,key] of tensorControls){
       const slider=siteHud('siteHudVector'+name);
       const output=siteHud('siteHudVector'+name+'Value');
       if(!slider)continue;
       slider.oninput=()=>{
         if(output)output.textContent=slider.value;
-        if(key==='growth'){
-          // Growth rate scales the duration of presentation reveal, not hydrology.
-          hydroVector?.configure({growth:Number(slider.value)});
-        }else hydroVector?.configure({[key]:Number(slider.value)});
+        hydroVector?.configure({[key]:Number(slider.value)});
       };
     }
     for(const button of container.querySelectorAll('[data-vector-mode]')){
@@ -2855,6 +2868,26 @@ export function createLocalFloodUI({
           item.setAttribute('aria-pressed',String(active));
         }
         hydroVector?.configure({mode});
+      };
+    }
+    for(const button of container.querySelectorAll('[data-tensor-direction]')){
+      button.onclick=()=>{
+        const direction=button.dataset.tensorDirection;
+        for(const item of container.querySelectorAll('[data-tensor-direction]')){
+          const active=item.dataset.tensorDirection===direction;
+          item.classList.toggle('active',active);
+          item.setAttribute('aria-pressed',String(active));
+        }
+        hydroVector?.configure({direction});
+      };
+    }
+    const showTensorBuildings=siteHud('siteHudTensorBuildings');
+    if(showTensorBuildings){
+      showTensorBuildings.checked=tensorShowBuildings;
+      showTensorBuildings.onchange=e=>{
+        tensorShowBuildings=Boolean(e.target.checked);
+        setFocusPitchMode();
+        syncFocusFootprintVisibility();
       };
     }
     siteHud('siteHudRun').onclick=()=>{
@@ -2959,7 +2992,7 @@ export function createLocalFloodUI({
       throw error;
     }
     isolateViewer=viewer;
-    hydroVector=createHydroVectorRenderer({
+    hydroVector=createHydroTensorRenderer({
       map:viewer,sourceId:FOCUS_FLOW_SOURCE,
       particleSourceId:FOCUS_FLOW_PARTICLES,
       glowLayerId:FOCUS_FLOW_GLOW,lineLayerId:FOCUS_FLOW_LAYER,
@@ -2967,8 +3000,9 @@ export function createLocalFloodUI({
       getBounds:()=>focusWaterBounds,
       onStatus:message=>setSiteHud('siteHudVectorStatus',message)
     });
-    // Typed-array spatial contract for the later Tensor -> Wool -> Parcels stage.
-    window.getLondonHydroVectorFieldData=()=>hydroVector?.exportStructuredData()||null;
+    // Typed native-grid design tensor contract for future Wool and roads.
+    window.getLondonHydroTensorFieldData=()=>hydroVector?.exportStructuredData()||null;
+    window.getLondonHydroVectorFieldData=window.getLondonHydroTensorFieldData;
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
     lastFlowUpdateAt=0;
