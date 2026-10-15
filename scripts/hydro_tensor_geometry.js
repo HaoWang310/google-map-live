@@ -118,12 +118,14 @@ export function createTensorGeometry(result,options={}){
     return {x:ux,y:uy,confidence:conf/total,rank:rank/total,water:water/total};
   }
   class SpacingIndex{
-    constructor(gap){this.gap=gap;this.bins=new Map();this.segments=[]}
+    constructor(gap){this.gap=gap;this.bins=new Map();this.segments=[];
+      this.visitedSegments=[];this.distanceQuery=0;}
     key(x,y){return Math.floor(x/this.gap)+','+Math.floor(y/this.gap)}
     add(path){
       for(let k=1;k<path.length;k++){
         const a={x:path[k-1].x*dx,y:path[k-1].y*dy},b={x:path[k].x*dx,y:path[k].y*dy};
         const id=this.segments.length;this.segments.push([a,b]);
+        this.visitedSegments.push(0);
         const x0=Math.floor(Math.min(a.x,b.x)/this.gap),x1=Math.floor(Math.max(a.x,b.x)/this.gap);
         const y0=Math.floor(Math.min(a.y,b.y)/this.gap),y1=Math.floor(Math.max(a.y,b.y)/this.gap);
         for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
@@ -134,9 +136,18 @@ export function createTensorGeometry(result,options={}){
     distance(x,y,radius=this.gap*1.6){
       x*=dx;y*=dy;const ix=Math.floor(x/this.gap),iy=Math.floor(y/this.gap),r=Math.ceil(radius/this.gap);
       let best=Infinity;
+      const serial=++this.distanceQuery;
       for(let oy=-r;oy<=r;oy++)for(let ox=-r;ox<=r;ox++){
         const bin=this.bins.get((ix+ox)+','+(iy+oy));if(!bin)continue;
-        for(const id of bin){const [a,b]=this.segments[id];best=Math.min(best,pointSegment(x,y,a,b))}
+        // The same segment occupies several bins. Evaluate its distance
+        // only once per query; this is a hot path during RK4 integration.
+        for(const id of bin){
+          if(this.visitedSegments[id]===serial)continue;
+          this.visitedSegments[id]=serial;
+          const [a,b]=this.segments[id];
+          const distance=pointSegment(x,y,a,b);
+          if(distance<best)best=distance;
+        }
       }return best;
     }
   }
@@ -264,7 +275,9 @@ export function createTensorGeometry(result,options={}){
       }
       stats.probedSeeds=queue.length;queue.sort((a,b)=>b.potential-a.potential||a.y-b.y||a.x-b.x);
       let vertices=0;
-      const vertexBudget=Math.min(650000,Math.max(12000,Math.ceil(supported*cell/gap*22)));
+      // Hard cap prevents the two eigenfamilies from overwhelming the map's
+      // GeoJSON/3D paint pass. This limits resolution, not the source tensor.
+      const vertexBudget=Math.min(220000,Math.max(12000,Math.ceil(supported*cell/gap*22)));
       const take=seed=>{
         const i=index(seed.x,seed.y),variation=localVariation(i),wet=wetAt(i);
         // Wet scenarios alter sample concentration, not tensor eigenaxes.
