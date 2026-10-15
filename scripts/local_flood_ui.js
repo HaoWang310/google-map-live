@@ -1015,6 +1015,7 @@ export function createLocalFloodUI({
   // Flood rendering is independent of tensor generation. Never accept an
   // undated request-flow-field response as a year-specific flood snapshot.
   let tensorSession=null,tensorSessionId=0,tensorContext=null,tensorStageTimer=0;
+  let lastTensorProgressHudAt=0;
   let tensorSessionRestoreFrame=null;
   const TENSOR_YEARS=[2026,2035,2045,2055,2065,2075,2085,2095,2100];
   const validTensorPeak=frame=>Boolean(
@@ -1879,7 +1880,8 @@ export function createLocalFloodUI({
   function updateHydroLayerVisibility(){
     const viewer=isolateViewer;
     if(!viewer)return;
-    if(hydroDisplay.flow&&viewer.getPitch()>.01)viewer.jumpTo({pitch:0});
+    // Tensor lines are MapLibre geographic lines and remain aligned when pitched.
+    // Never force the camera back to a top-down view on mode changes.
     syncFocusFloodWaterRendering();
     const desired=hydroDisplay.flow?'visible':'none';
     hydroVector?.setEnabled(hydroDisplay.flow);
@@ -2067,7 +2069,7 @@ export function createLocalFloodUI({
   function setFocusPitchMode(){
     const viewer=isolateViewer;
     if(!viewer)return;
-    if(hydroDisplay.flow&&viewer.getPitch()>.01){viewer.jumpTo({pitch:0});return}
+    // Pitch is a camera choice, not a tensor mode restriction.
     const is3D=viewer.getPitch()>.5;
     const show=!hydroDisplay.flow||tensorShowBuildings;
     for(const [id,v] of [
@@ -3140,6 +3142,10 @@ export function createLocalFloodUI({
       throw error;
     }
     isolateViewer=viewer;
+    // Independent-view mouse navigation: left drag pans, right drag rotates
+    // and tilts; both continue working with the tensor field enabled.
+    viewer.dragRotate?.enable();
+    viewer.touchZoomRotate?.enable();
     hydroVector=createHydroTensorRenderer({
       map:viewer,sourceId:FOCUS_FLOW_SOURCE,
       particleSourceId:FOCUS_FLOW_PARTICLES,
@@ -3165,6 +3171,10 @@ export function createLocalFloodUI({
         },260);
       },
       onProgress:({year,fraction,geometryYear,waitingForGeometry})=>{
+        // Avoid rapid DOM writes during streamline reveal and 3D interaction.
+        const now=performance.now();
+        if(now-lastTensorProgressHudAt<220&&fraction<.999)return;
+        lastTensorProgressHudAt=now;
         const exact=geometryYear===year&&!waitingForGeometry;
         setSiteHud('siteHudTensorGrowthStatus','线条生长 '+Math.round(fraction*100)+
           '% · '+year+' 年'+(exact?' · 年份数据匹配':
@@ -3213,7 +3223,7 @@ export function createLocalFloodUI({
       viewer.easeTo({
         center:viewer.getCenter(),
         zoom:Math.max(15.2,Math.min(18,fittedZoom-0.3)),
-        pitch:hydroDisplay.flow?0:42,bearing:isolateCamera?.bearing||0,duration:550
+        pitch:42,bearing:isolateCamera?.bearing||0,duration:550
       });
     });
   }
