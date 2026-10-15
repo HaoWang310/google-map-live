@@ -973,18 +973,28 @@ export function createLocalFloodUI({
   const seekYear=value=>{
     stopAnnual();
     futureYear=Math.max(2026,Math.min(2100,Math.round(Number(value)||2026)));
+    // Manual year-scrub interrupts automatic keyframes, not the tensor layer.
+    const manualTensor=hydroDisplay.flow&&tensorSession?tensorSession:null;
+    if(manualTensor){
+      if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
+      manualTensor.completed=true;manualTensor.manual=true;
+      manualTensor.awaitingYear=futureYear;
+    }
     // The accepted curves reveal immediately on both timeline sliders.
     // Hydrology data remains authoritative only once this year's Worker finishes.
     simYearDisplay();
     if(!longTermMode)return;
-    if(displayMode==='year'&&showCachedYear(futureYear))return;
+    if(!manualTensor&&displayMode==='year'&&showCachedYear(futureYear))return;
     clearTimeout(yearSeekDebounce);
     const requestedYear=futureYear;
     yearSeekDebounce=setTimeout(()=>{
       yearSeekDebounce=0;
       if(!isolatedSelection||!prepared||requestedYear!==futureYear)return;
-      if(requestYear(requestedYear))
-        status('正在计算 '+requestedYear+' 年洪水和真实张量场；线条生长是即时预览…');
+      if(requestYear(requestedYear)){
+        if(manualTensor&&tensorSession===manualTensor)
+          manualTensor.awaitingToken=lastRequestedScenarioToken;
+        status('正在计算 '+requestedYear+' 年已选择的真实水深与张量场…');
+      }
     },145); // Debounce heavy rain-event runs during fast scrubbing.
   };
   let previousWaterFrame=null,waterBlendStart=0,waterBlendHandle=0;
@@ -2020,6 +2030,8 @@ export function createLocalFloodUI({
   }
 
   function destroyFocusViewer(){
+    stopTensorSequence();
+    tensorContext=null;hydroDisplay.flow=false;
     if(focusThresholdTimer)clearTimeout(focusThresholdTimer);
     focusThresholdTimer=null;
     const viewer=isolateViewer;
@@ -2589,6 +2601,9 @@ export function createLocalFloodUI({
       map.triggerRepaint();isolateViewer?.triggerRepaint();
     };
     const resetFuture=()=>{
+      stopTensorSequence();hydroDisplay.flow=false;
+      if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
+      updateHydroLayerVisibility();
       stopAnnual();clearRiskEnvelope();clearYearFrames();
       simulator?.reset();
       siteHydroHistory.length=0;lastHydroFrame=null;hydroState='reset';
@@ -2768,6 +2783,9 @@ export function createLocalFloodUI({
     syncFuture();
 
     const resetForNewRain=()=>{
+      stopTensorSequence();hydroDisplay.flow=false;
+      if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
+      updateHydroLayerVisibility();
       stopAnnual();clearYearFrames();clearRiskEnvelope();
       if(simulator){simulator.pause();simulator.reset();}
       hydroState='reset';siteHydroHistory.length=0;lastHydroFrame=null;
@@ -3984,7 +4002,7 @@ export function createLocalFloodUI({
     // Water is painted before buildings so roofs/facades stay unobscured.
     isolateViewer?.triggerRepaint();
     // Only an accepted matching year/case/token can update tensor input.
-    if(hydroDisplay.flow&&tensorSession&&!tensorSession.completed&&tensorContext&&
+    if(hydroDisplay.flow&&tensorSession&&tensorContext&&
       data.scenarioYear===tensorSession.awaitingYear&&
       data.scenarioToken===tensorSession.awaitingToken&&
       data.annualAreaStage?.rainfallCase===tensorSession.rainfallCase)
