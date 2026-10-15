@@ -1023,10 +1023,22 @@ onmessage=async({data})=>{
       // statistics are untouched; the user may switch the independent layer
       // on without running a fresh flood simulation.
       const field=buildHydroFlowField(true);
+      const spatialContext=sim?{
+        cols:sim.cols,rows:sim.rows,
+        terrain:new Float32Array(sim.terrain).buffer,
+        accumulation:new Uint16Array(sim.accumulation).buffer,
+        inside:new Uint8Array(sim.inside).buffer,
+        obstacle:new Uint8Array(sim.obstacle).buffer,
+        drainageAvailable:sim.drainageAvailable,
+        source:'OS Terrain 50 DEM; terrain-derived catchment accumulation'
+      }:null;
       const buffers=field?
         [field.vx.buffer,field.vy.buffer,field.intensity.buffer]:[];
+      if(spatialContext)buffers.push(spatialContext.terrain,
+        spatialContext.accumulation,spatialContext.inside,spatialContext.obstacle);
       postMessage({
         type:'flow-field',
+        spatialContext,
         flowField:field?{
           cols:field.cols,rows:field.rows,units:'relative',
           vx:field.vx.buffer,vy:field.vy.buffer,
