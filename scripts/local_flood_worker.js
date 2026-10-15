@@ -677,13 +677,13 @@ function simulationStep(dt=5){
 // generate these values: each pixel comes from simulated water in metres.
 const SIM_DEPTH_BOUNDS=[0.001,0.05,0.15,0.30,0.60,1.20];
 const SIM_DEPTH_COLOURS=[
-  // v3.22.32-water: grey-blue fallback matching the displayed legend.
-  [183,205,210,154], // 0.001–0.05 m
-  [145,183,195,180], // 0.05–0.15 m
-  [115,156,174,198], // 0.15–0.30 m
-  [96,143,168,212],  // 0.30–0.60 m
-  [61,105,134,225],  // 0.60–1.20 m
-  [36,72,95,238]     // >=1.20 m
+  // v3.22.33-apple-ui — rendered colours only.
+  [180,206,255,154],
+  [74,146,255,180],
+  [34,113,255,198],
+  [28,90,223,212],
+  [21,69,183,225],
+  [4,28,75,238]
 ];
 
 function depthBandIndex(depth){
