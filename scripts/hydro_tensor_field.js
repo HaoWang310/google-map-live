@@ -86,15 +86,16 @@ export function createHydroTensorRenderer(args){
       worker.postMessage(request);
     },immediate?0:Math.max(100,310-(performance.now()-lastSubmitted)));
   }
-  function validAt(x,y){
+  function validAt(x,y,branch='primary'){
     if(!result)return false;
     const {cols,rows,fields:f}=result,ix=Math.floor(x),iy=Math.floor(y);
     if(ix<0||iy<0||ix>=cols||iy>=rows)return false;
     const i=iy*cols+ix;
-    return f.validMask[i]&&f.suitability[i]>=.27&&f.confidence[i]>=.08;
+    return f.validMask[i]&&f.suitability[i]>=.27&&f.confidence[i]>=.08&&
+      (branch!=='secondary'||f.crossSuitability[i]>=.10);
   }
   function sample(x,y,branch,previous){
-    if(!validAt(x,y))return null;
+    if(!validAt(x,y,branch))return null;
     const {cols,rows,fields:f}=result;
     const cx=x-.5,cy=y-.5,x0=Math.floor(cx),y0=Math.floor(cy);
     const tx=cx-x0,ty=cy-y0;
@@ -103,7 +104,8 @@ export function createHydroTensorRenderer(args){
       const u=x0+ox,v=y0+oy;
       if(u<0||v<0||u>=cols||v>=rows)continue;
       const k=v*cols+u;
-      if(!f.validMask[k]||f.suitability[k]<.20)continue;
+      if(!f.validMask[k]||f.suitability[k]<.20||
+        (branch==='secondary'&&f.crossSuitability[k]<.10))continue;
       const w=(ox?tx:1-tx)*(oy?ty:1-ty);
       if(!(w>0))continue;
       let dx=f.primaryX[k],dy=f.primaryY[k];
@@ -134,19 +136,20 @@ export function createHydroTensorRenderer(args){
       const mid=sample(x+ax*step*.5,y+ay*step*.5,branch,a);
       if(!mid)break;
       const nx=x+mid.x*sign*step,ny=y+mid.y*sign*step;
-      if(!validAt(nx,ny)||!validAt((x+nx)/2,(y+ny)/2))break;
+      if(!validAt(nx,ny,branch)||!validAt((x+nx)/2,(y+ny)/2,branch))break;
       if(Math.floor(x)!==Math.floor(nx)&&Math.floor(y)!==Math.floor(ny)){
-        if(!validAt(nx,y)||!validAt(x,ny))break;
+        if(!validAt(nx,y,branch)||!validAt(x,ny,branch))break;
       }
       points.push({x,y,rank:a.strength,catchment:a.catchment,suit:a.suitable});
       previous=a;x=nx;y=ny;
     }
     return points;
   }
+  let renderGeo=null;
   function toGeo(p){
-    const bbox=getBounds(),nw=toMerc(bbox[0]),ne=toMerc(bbox[1]),sw=toMerc(bbox[3]);
-    return fromMerc(nw[0]+p.x*(ne[0]-nw[0])/result.cols,
-      nw[1]-p.y*(nw[1]-sw[1])/result.rows);
+    if(!renderGeo)return [0,0];
+    return fromMerc(renderGeo.nw[0]+p.x*renderGeo.dx,
+      renderGeo.nw[1]-p.y*renderGeo.dy);
   }
   const color=value=>{
     const t=clamp(value,0,1);
@@ -158,6 +161,11 @@ export function createHydroTensorRenderer(args){
   };
   function buildLines(){
     if(!result)return;
+    const bounds=getBounds();
+    if(!bounds)return;
+    const nw=toMerc(bounds[0]),ne=toMerc(bounds[1]),sw=toMerc(bounds[3]);
+    renderGeo={nw,dx:(ne[0]-nw[0])/result.cols,
+      dy:(nw[1]-sw[1])/result.rows};
     const {cols,rows,fields:f}=result,branches=settings.direction==='dual'?
       ['primary','secondary']:[settings.direction];
     const stride=clamp(Math.round(16-settings.density*.13),3,15);
@@ -169,7 +177,8 @@ export function createHydroTensorRenderer(args){
         let choice=-1,best=-1;
         for(let oy=0;oy<Math.max(1,stride*.5);oy+=1)for(let ox=0;ox<Math.max(1,stride*.5);ox+=1){
           const cx=Math.min(cols-2,x+ox),cy=Math.min(rows-2,y+oy),k=cy*cols+cx;
-          const score=f.suitability[k]*(.35+.65*f.confidence[k])*
+          const score=f.suitability[k]*(branch==='secondary'?f.crossSuitability[k]:1)*
+            (.35+.65*f.confidence[k])*
             (.80+.20*Math.sqrt(f.drainageRank[k]));
           if(score>best&&score>.06){best=score;choice=k}
         }
@@ -179,7 +188,7 @@ export function createHydroTensorRenderer(args){
       const occupied=new Uint8Array(cols*rows);
       for(const seed of seeds){
         if(newLines.length>=totalMax)break;
-        if(occupied[seed.id]||!validAt(seed.x,seed.y))continue;
+        if(occupied[seed.id]||!validAt(seed.x,seed.y,branch))continue;
         const maxSteps=Math.round((16+settings.length*1.2)*(0.7+seed.score*.7));
         const backward=integrate(seed.x,seed.y,branch,-1,Math.round(maxSteps*.48));
         const forward=integrate(seed.x,seed.y,branch,1,Math.round(maxSteps*.52));
