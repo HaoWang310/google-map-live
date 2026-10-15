@@ -1,5 +1,5 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.37-vector-field';
-import {createHydroVectorRenderer} from './hydro_vector_field.js?v=3.22.37-vector-field';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.38-catchment-tensor';
+import {createHydroVectorRenderer} from './hydro_vector_field.js?v=3.22.38-catchment-tensor';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -1680,6 +1680,10 @@ export function createLocalFloodUI({
     syncFocusFloodWaterRendering();
     const desired=hydroDisplay.flow?'visible':'none';
     hydroVector?.setEnabled(hydroDisplay.flow);
+    // Reapply the accepted year frame when switching to the hydrology view.
+    // Never override a displayed earlier year with a stale 2100 worker state.
+    if(hydroDisplay.flow&&lastHydroFrame?.flowField)
+      updateFocusFlowVectors({...lastHydroFrame,forceVectorRefresh:true});
     // Dark academic scene is applied only while the independent flow layer is on.
     const ground=hydroDisplay.flow?'#11151b':'#e8e7e2';
     const green=hydroDisplay.flow?'#192822':'#bfd9b1';
@@ -2271,7 +2275,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.37-vector-field</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.38-catchment-tensor</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2384,7 +2388,7 @@ export function createLocalFloodUI({
       '</div>',
       '<div class="site-vector-scale"><span>LOW</span><div aria-hidden="true"></div><span>HIGH</span></div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus">等待计算流场 · 选择情景后运行</div>',
-      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 DEM · 汇水栅格 · 水深坡降 · 建筑遮罩<br>RELATIVE INTENSITY · 非实测 m/s</div>',
+      '<div class="site-hydro-mini site-vector-provenance">2026–2100 随年份更新：弱色为 DEM 汇流潜势，亮色为模拟积水引导；箭头沿计算坡向。<br>OS Terrain 50 · 对数汇水面积 · 模拟水深 · 建筑障碍<br>RELATIVE INTENSITY · 非真实流速 / 非逐年洪灾预报</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -3518,7 +3522,22 @@ export function createLocalFloodUI({
       ],
       onFrame:handleFrame,
       onFlowField:data=>{
-        if(hydroDisplay.flow)updateFocusFlowVectors(data);
+        if(!hydroDisplay.flow)return;
+        // Explicit flow request carries readonly DEM and upstream drainage
+        // arrays. Reuse the accepted year frame's hydraulic state instead of
+        // flashing a different year or overwritten worker snapshot.
+        const current=lastHydroFrame;
+        const matching=Boolean(current?.flowField&&data?.flowField&&
+          current.flowField.cols===data.flowField.cols&&
+          current.flowField.rows===data.flowField.rows);
+        updateFocusFlowVectors({
+          ...data,
+          flowField:matching?current.flowField:data.flowField,
+          depthMm:matching?current.depthMm:null,
+          scenarioYear:matching?current.scenarioYear:futureYear,
+          annualAreaStage:matching?current.annualAreaStage:null,
+          forceVectorRefresh:true
+        });
       },
       onStatus:data=>{
         hydroState=data.state;
@@ -3735,12 +3754,20 @@ export function createLocalFloodUI({
   // FlowField direction / relative intensity is calculated in the existing
   // worker from DEM hydraulic head and building obstructions. This adapter
   // never adjusts rainfall, solver physics or simulated volume.
+  let lastDisplayedVectorYear=null;
   function updateFocusFlowVectors(data){
     if(!hydroDisplay.flow||!hydroVector||!data?.flowField)return;
     const now=performance.now();
-    if(now-lastFlowUpdateAt<430&&!data.spatialContext)return;
+    const year=Number.isInteger(data.scenarioYear)?data.scenarioYear:futureYear;
+    const yearChanged=year!==lastDisplayedVectorYear;
+    if(now-lastFlowUpdateAt<430&&!yearChanged&&!data.spatialContext&&
+      !data.forceVectorRefresh)return;
     lastFlowUpdateAt=now;
-    hydroVector.setField(data.flowField,data.spatialContext||null);
+    lastDisplayedVectorYear=year;
+    hydroVector.setField(data.flowField,data.spatialContext||null,{
+      year,kind:data.annualAreaStage?.kind||'rainfall-simulation',
+      depthMm:data.depthMm||null
+    });
   }
 
   function handleFrame(data){
