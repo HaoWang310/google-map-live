@@ -790,7 +790,8 @@ export function createLocalFloodUI({
   });
   const needsExternalStage=()=>floodMode==='external'||floodMode==='coupled';
   const enableEaRiskGuidance=()=>{
-    if(!siteRiskAvailable)return false;
+    // Legacy rain-risk mode means rainfall + independent EA comparison.
+    // EA coverage is optional: physics works from DEM even without EA.
     // Distinct model: no invented boundary water level. The coupled mode is
     // transparently replaced only when its required datum is absent.
     floodMode='rain-risk';
@@ -799,11 +800,11 @@ export function createLocalFloodUI({
     clearYearFrames();
     updateFocusAnalysisLayers();
     setSiteHud('siteHudRiskFusionNote',
-      '当前使用降雨＋EA 风险引导：官方现状概率等级仅轻度引导向低处流动，不作为外部洪水水位或水深。');
+      '统一水流路径：三档降雨共用 DEM / 建筑阻挡 / 汇水网络。EA 风险及官方水深独立校核，不改变水流方向。');
     if(siteHud('siteHudFutureStage'))siteHud('siteHudFutureStage').disabled=true;
     for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
       if(siteHud(id))siteHud(id).disabled=true;
-    status('缺少外部边界水位，已明确改为「降雨＋EA 风险引导」；这不是外部洪水耦合结果。');
+    status('当前为地形驱动的降雨模拟，EA 仅作官方范围和水深校核，不提供额外水量或水流偏好。');
     return true;
   };
   const resolveFloodModeForPlayback=()=>{
@@ -812,10 +813,6 @@ export function createLocalFloodUI({
     if(needsExternalStage()&&!Number.isFinite(externalStageM)){
       status('当前已选择「'+(floodMode==='external'?'仅外部洪水':'降雨＋外部洪水')+
         '」，但尚未提供同一高程基准的外部边界水位。请先输入水位；不会自动切换模式，也不会伪造外部洪水。',true);
-      return false;
-    }
-    if(floodMode==='rain-risk'&&!siteRiskAvailable){
-      status('当前已选择「降雨＋EA 风险引导」，但该场地独立 EA 地表水风险数据缺失或没有有效等级。不会用河流／海洋综合风险代替。',true);
       return false;
     }
     return true;
@@ -832,7 +829,7 @@ export function createLocalFloodUI({
     if(longTermMode&&!(displayMode==='year'&&showCachedYear(futureYear))){
       if(requestYear(futureYear))
         status('正在加载 '+futureYear+' 年'+
-          (floodMode==='rain-risk'?'降雨＋EA 风险引导':
+          (floodMode==='rain-risk'?'降雨＋EA 独立校核':
             floodMode==='rain'?'仅降雨':'外部水位')+'情景…');
     }
   };
@@ -1854,9 +1851,9 @@ export function createLocalFloodUI({
       const finalHa=(stage.finalWetAreaM2||0)/10000;
       const pct=(stage.fraction*100).toFixed(1);
       const riskText=stage.riskAvailable
-        ?(floodMode==='rain-risk'?'EA 风险引导 · ':'EA 风险对照 · ')+
-          '淹没格重合 '+(v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
-        :'EA 风险暂不可用';
+        ?'EA 现状风险独立对照 · 淹没格与风险区重合 '+
+          (v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
+        :'EA 风险覆盖缺失（仍可计算地表积水）';
       setSiteHud('siteHudAreaProgress',
         futureYear+' 年 / 设计包络展示 '+pct+'% · 积水 '+nowHa.toFixed(2)+
         ' ha（2026展示起点 0.00 → 2100最大包络 '+finalHa.toFixed(2)+
@@ -2137,8 +2134,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-row"><label>120min <input type="number" id="siteHudDdf120" min="0.1" max="500" step="0.1" placeholder="mm" style="width:64px"></label><label>360min <input type="number" id="siteHudDdf360" min="0.1" max="500" step="0.1" placeholder="mm" style="width:64px"></label></div>',
       '<div class="site-hydro-actions"><button type="button" id="siteHudUseDdf" class="site-hydro-btn">应用四历时数据</button><button type="button" id="siteHudClearDdf" class="site-hydro-btn">清除 / 默认试验</button></div>',
       '<div id="siteHudDdfSource" class="site-hydro-mini">尚无 FEH 数据：四场暴雨使用同一设计总雨量，仅作历时敏感性比较；不可宣称四个历时具有相同 AEP。<a href="https://fehweb.ceh.ac.uk/Home/" target="_blank" rel="noopener noreferrer">FEH Web Service ↗</a></div>',
-      '<div class="site-hydro-actions"><button type="button" class="site-hydro-btn" id="siteHudUseRiskGuide">使用 EA 风险引导（无外部水位）</button></div>',
-      '<div id="siteHudRiskFusionNote" class="site-hydro-mini">EA 风险分类反映现状洪涝概率，不代表积水水深。可与 DEM 降雨流动做探索性空间引导。</div>',
+      '<div class="site-hydro-actions"><button type="button" class="site-hydro-btn" id="siteHudUseRiskGuide">使用统一降雨模型 + EA 校核</button></div>',
+      '<div id="siteHudRiskFusionNote" class="site-hydro-mini">所有雨量等级采用相同 DEM、建筑及汇水路径规则；EA 风险和官方水深用于独立验证，不修改模拟洪水方向和水量。</div>',
       '<div class="site-hydro-actions"><button type="button" id="siteHudShowEARisk" class="site-hydro-btn">显示 EA 官方风险图</button></div>',
       '<div class="site-hydro-mini">EA 现状风险图是概率分级，不提供所选年份的洪水深度；可独立叠加查看。</div>',
       '<div class="site-hydro-mini" style="margin-top:6px"><strong>EA 官方规划水深来源（2026 发布）</strong>：</div>',
@@ -2320,14 +2317,13 @@ export function createLocalFloodUI({
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
         siteHud(id).disabled=!external;
       if(siteHud('siteHudUseRiskGuide'))
-        siteHud('siteHudUseRiskGuide').disabled=!siteRiskAvailable;
-      setSiteHud('siteHudRiskFusionNote',floodMode==='rain-risk'
-        ?'EA 独立地表水洪涝概率等级参与下坡汇流偏好；蓝色水深仍由降雨、DEM 和建筑求解，属于探索性情景，非 EA 官方水深。'
-        :'没有核实的外部洪水位时，可选「降雨＋EA 风险引导」；它不等同真正的外部洪水耦合。');
+        siteHud('siteHudUseRiskGuide').disabled=false;
+      setSiteHud('siteHudRiskFusionNote',
+        '平均、中等、特大暴雨使用相同 DEM 高程、建筑障碍和地形汇水路径（路径权重不因雨强或 EA 风险分级而切换）。EA 官方范围与深度只用于独立结果校核。');
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
         (floodMode==='rain-risk'
-          ?'四种独立降雨历时结合 EA 地表水风险和 DEM 汇流，2026–2100 展示最大水深设计包络，2100 达到设计峰值；中间年份为插值，不是官方逐年洪水预测。'
+          ?'四种暴雨历时采用同一 DEM/建筑/汇水网络模型，EA 仅进行独立校核。2026–2100 是最大水深设计包络的展示插值，2100 为规划峰值，不是官方逐年预报。'
           :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
         '2026—2100 为研究设计包络展示刻度，2100 达到最大规划情景；不是年度气象预测，也不等于单场暴雨持续74年。':
@@ -2337,7 +2333,7 @@ export function createLocalFloodUI({
         status('已切换到外部洪水模式。请在模式下方输入外部边界绝对水位（m）再运行；未输入时不会运行或切换模式。');
       }
       if(floodMode==='rain-risk'&&!siteRiskAvailable)
-        status('该场地没有可用的 EA 风险等级数据，暂不能使用引导模式。',true);
+        status('EA 现状风险参考在此区域不可用，仍可按 DEM、建筑和降雨计算；官方重合率会标注不可用。');
     };
     siteHud('siteHudTimeMode').onchange=e=>{
       stopAnnual();
@@ -2448,16 +2444,16 @@ export function createLocalFloodUI({
         output.textContent='EA 站点查询失败：'+(error?.message||String(error))+'。未替换为估计水位。';
       }finally{clearTimeout(timeout);}
     };
-    // v3.22.23: no selectable model. Rainfall + EA RoFSW guidance remains the default.
+    // v3.22.29: same DEM runoff model for every rainfall scenario; EA = validation only.
     siteHud('siteHudUseRiskGuide').onclick=()=>{
       if(enableEaRiskGuidance())syncFuture();
-      else status('EA 现状洪涝风险栅格不可用，不能创建风险引导情景。',true);
+      else status('无法应用降雨分析模式。',true);
     };
-    // Risk data remains in the solver; it must never create a red/yellow map overlay.
+    // Risk layers remain available for independent comparison; never force a map overlay.
     siteHud('siteHudShowEARisk').onclick=()=>{
       forceEaRiskOverlay=false;
       updateFocusAnalysisLayers();
-      status('EA 风险已用于降雨引导；单独红黄图层已隐藏。');
+      status('EA 风险及深度仅作结果校核；红黄风险图层保持隐藏，不影响蓝色积水。');
     };
         siteHud('siteHudFutureClimate').onchange=e=>{
       rainPreset=Object.prototype.hasOwnProperty.call(RAIN_PRESETS,e.target.value)?e.target.value:'moderate';
@@ -3407,21 +3403,22 @@ export function createLocalFloodUI({
       siteTerrainMinM=Number.isFinite(Number(info.terrainMinM))&&info.terrainMinM!==null?Number(info.terrainMinM):null;
       siteRiskMappedCount=Number(info.riskMappedCells)||0;
       setSiteHud('siteHudOfficialStatus',info.eaDepthAvailable?
-        '官方未来 0.1% AEP 水深分级已配准（'+(info.eaDepthMappedCells||0)+' 个有效单元），特大暴雨会在物理下坡流动条件下轻度参考官方范围。'
-        :(info.eaDepthInfo||'无 EA 官方未来水深数据；此次仅按 DEM 计算。'));
+        'EA 2070s Upper End 0.1% AEP 官方水深已配准（'+
+          (info.eaDepthMappedCells||0)+' 格）。三档降雨使用同一水流规则；官方范围独立校核，绝不吸引水流。'
+        :(info.eaDepthInfo||'EA 官方深度参考不可用；仍可按 DEM 计算，但不能进行官方水深校核。'));
       floodMode='rain-risk';
       forceEaRiskOverlay=false;
       siteRiskAvailable=Boolean(info.riskAvailable&&siteRiskMappedCount>0);
       if(siteHud('siteHudUseRiskGuide'))
-        siteHud('siteHudUseRiskGuide').disabled=!siteRiskAvailable;
+        siteHud('siteHudUseRiskGuide').disabled=false;
       if(siteHud('siteHudShowEARisk')){
         siteHud('siteHudShowEARisk').disabled=!siteRiskAvailable;
         siteHud('siteHudShowEARisk').textContent='显示 EA 官方风险图';
       }
       if(siteHud('siteHudRiskFusionNote'))
         setSiteHud('siteHudRiskFusionNote',siteRiskAvailable
-          ?'场地内 EA 地表水风险等级已配准（'+siteRiskMappedCount+' 个有效网格），可用于空间引导。风险等级不是水深。'
-          :'该地块缺少独立 EA 地表水风险数据或有效风险等级，不能启用融合引导。');
+          ?'EA 现状 RoFSW 风险等级已配准（'+siteRiskMappedCount+' 格）；仅用于和 DEM 降雨结果独立对比，非水深或流动权重。'
+          :'EA 现状风险等级缺失；蓝色洪水仍使用统一 DEM/建筑/汇水规则计算，EA 校核项标记为不可用。');
       prepared=true;
       ensureWaterLayer(info);
       publishBuildingScene();
