@@ -166,7 +166,7 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
       if(Math.floor(nx)!==Math.floor(x)&&Math.floor(ny)!==Math.floor(y)){
         if(!validAt(nx,y)||!validAt(x,ny))break;
       }
-      pts.push({x,y,power:v.power,catchment:v.catchment});
+      pts.push({x,y,power:v.power,catchment:v.catchment,wet:v.wet,slope:v.slope});
       x=nx;y=ny;last=mid;
     }
     return pts;
