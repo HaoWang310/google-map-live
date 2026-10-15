@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.51-ground-flood-footprints';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.52-live-tensor-growth';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.53-tensor-live-stability';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2325,7 +2325,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.52-live-tensor-growth</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.53-tensor-live-stability</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2403,7 +2403,7 @@ export function createLocalFloodUI({
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · 水文张量场</div>',
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 启用张量场</label>',
-      '<div class="site-hydro-mini site-tensor-caption">拖动年份即时显现线场生长 · 数据随后按实际水深重算</div>',
+      '<div class="site-hydro-mini site-tensor-caption">拖动年份实时显现 · 保留旧线直到新方向场计算完成</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">分析模式</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">演示模式</button></div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
@@ -2420,7 +2420,7 @@ export function createLocalFloodUI({
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>弱</span><div aria-hidden="true"></div><span>强</span></div>',
-      '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">线条生长预览 · 等待启动</div>',
+      '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">张量场准备中 · 首次计算将先显示真实方向预览</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 回放张量场生成（约4秒）</button>',
       '<div class="site-hydro-mini" style="font-size:11px">回放与线条生长百分比是可视化进度，不代表真实逐年道路建设；方向仍取当前计算场景。</div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
