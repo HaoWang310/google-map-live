@@ -924,6 +924,7 @@ export function createLocalFloodUI({
   };
   const scenarioRequest=year=>({
     year,climateScenario,floodMode,rainfallCase:rainPreset,
+    includeTensorFlow:hydroDisplay.flow===true,
     eventRainMmH:presetRainRate(),
     eventTotalMm:RAIN_PRESETS[rainPreset].total,
     durationMin:120,
