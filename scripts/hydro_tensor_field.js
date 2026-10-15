@@ -1,4 +1,4 @@
-/* v3.22.45-hydro-tensor-dynamic · Hydrological 2x2 tensor field, not a road proposal.
+/* v3.22.46-tensor-base-wet · Separate always-visible topographic tensor from annual wet enhancements.
    The original DEM and flood solver remain unchanged. Visualization is
    gradually revealed over the 2026–2100 design-scenario timeline;
    particles illustrate eigenfield axes and do not represent measured speed. */
@@ -19,7 +19,7 @@ export function createHydroTensorRenderer(args){
   let context=null,flow=null,scenario={year:2026,kind:'design-envelope'};
   let depth=null,result=null,worker=null;
   let workerGeneration=0,requestId=0,requestTimer=0,lastSubmitted=0;
-  let pendingFrame=null,lines=[],features=[],animation=0,animationOrigin=0;
+  let pendingFrame=null,lines=[],baseLines=[],wetLines=[],features=[],animation=0,animationOrigin=0;
   let ribbons=[],ribbonFeatures=[],hydroCorePaths=[];
   let lastAnimationDraw=0,renderedFraction=0,reported='';
   let yearGrowth=0.22,growthFrom=0.22,growthTo=0.22,growthChangeAt=0;
@@ -34,7 +34,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.45-hydro-tensor-dynamic',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.46-tensor-base-wet',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -112,16 +112,19 @@ export function createHydroTensorRenderer(args){
       worker.postMessage(request);
     },immediate?0:Math.max(100,310-(performance.now()-lastSubmitted)));
   }
-  function validAt(x,y,branch='primary'){
+  function validAt(x,y,branch='primary',family='wet'){
     if(!result)return false;
     const {cols,rows,fields:f}=result,ix=Math.floor(x),iy=Math.floor(y);
     if(ix<0||iy<0||ix>=cols||iy>=rows)return false;
     const i=iy*cols+ix;
-    return f.validMask[i]&&f.suitability[i]>=.27&&f.confidence[i]>=.08&&
-      (branch!=='secondary'||f.crossSuitability[i]>=.10);
+    if(!f.validMask[i])return false;
+    if(family==='base')return f.baseConfidence[i]>.10;
+    // Dynamic highlighting must be supported by this year's modeled water.
+    return f.confidence[i]>=.075&&f.rainfallInfluence[i]>=.035&&
+      (branch!=='secondary'||f.crossSuitability[i]>=.085);
   }
-  function sample(x,y,branch,previous){
-    if(!validAt(x,y,branch))return null;
+  function sample(x,y,branch,previous,family='wet'){
+    if(!validAt(x,y,branch,family))return null;
     const {cols,rows,fields:f}=result;
     const cx=x-.5,cy=y-.5,x0=Math.floor(cx),y0=Math.floor(cy);
     const tx=cx-x0,ty=cy-y0;
@@ -130,43 +133,43 @@ export function createHydroTensorRenderer(args){
       const u=x0+ox,v=y0+oy;
       if(u<0||v<0||u>=cols||v>=rows)continue;
       const k=v*cols+u;
-      if(!f.validMask[k]||f.suitability[k]<.20||
-        (branch==='secondary'&&f.crossSuitability[k]<.10))continue;
-      const w=(ox?tx:1-tx)*(oy?ty:1-ty);
-      if(!(w>0))continue;
-      let dx=f.primaryX[k],dy=f.primaryY[k];
-      if(branch==='secondary'){const a=dx;dx=-dy;dy=a}
-      // A line FIELD has no inherent positive direction: select the locally
-      // continuous eigenvector sign relative to the last integration step.
-      if(previous&&dx*previous.x+dy*previous.y<0){dx=-dx;dy=-dy}
-      const axisStrength=f.hydroIntensity[k];
-      sumX+=dx*w;sumY+=dy*w;count+=w;
-      strength+=axisStrength*w;acc+=f.drainageRank[k]*w;
-      suit+=f.suitability[k]*w;
+      const supported=family==='base'?f.baseConfidence[k]>.10:
+        f.confidence[k]>=.075&&f.rainfallInfluence[k]>=.035;
+      if(!f.validMask[k]||!supported||
+         family==='wet'&&branch==='secondary'&&f.crossSuitability[k]<.085)continue;
+      const weight=(ox?tx:1-tx)*(oy?ty:1-ty);
+      if(!(weight>0))continue;
+      let ax=family==='base'?f.basePrimaryX[k]:f.primaryX[k];
+      let ay=family==='base'?f.basePrimaryY[k]:f.primaryY[k];
+      if(branch==='secondary'){const a=ax;ax=-ay;ay=a}
+      if(previous&&ax*previous.x+ay*previous.y<0){ax=-ax;ay=-ay}
+      const intensity=family==='base'?f.baseIntensity[k]:f.hydroIntensity[k];
+      sumX+=ax*weight;sumY+=ay*weight;count+=weight;
+      strength+=intensity*weight;acc+=f.drainageRank[k]*weight;
+      suit+=f.baseConfidence[k]*weight;
     }
-    const magnitude=Math.hypot(sumX,sumY);
-    if(magnitude<.09||count<.15)return null;
-    return {x:sumX/magnitude,y:sumY/magnitude,
+    const mag=Math.hypot(sumX,sumY);
+    if(mag<.10||count<.16)return null;
+    return {x:sumX/mag,y:sumY/mag,
       strength:clamp(strength/count,0,1),
-      catchment:clamp(acc/count,0,1),
-      suitable:clamp(suit/count,0,1)};
+      catchment:clamp(acc/count,0,1),suitable:clamp(suit/count,0,1)};
   }
-  function integrate(sx,sy,branch,sign,max){
+  function integrate(sx,sy,branch,sign,max,family='wet'){
     let x=sx,y=sy,previous=null;
-    const points=[];
-    const step=.55-.18*(settings.curvatureSmoothing/100);
+    const points=[],step=.55-.18*(settings.curvatureSmoothing/100);
     for(let i=0;i<max;i++){
-      const a=sample(x,y,branch,previous);
+      const a=sample(x,y,branch,previous,family);
       if(!a)break;
       const ax=a.x*sign,ay=a.y*sign;
-      const mid=sample(x+ax*step*.5,y+ay*step*.5,branch,a);
+      const mid=sample(x+ax*step*.5,y+ay*step*.5,branch,a,family);
       if(!mid)break;
       const nx=x+mid.x*sign*step,ny=y+mid.y*sign*step;
-      if(!validAt(nx,ny,branch)||!validAt((x+nx)/2,(y+ny)/2,branch))break;
-      if(Math.floor(x)!==Math.floor(nx)&&Math.floor(y)!==Math.floor(ny)){
-        if(!validAt(nx,y,branch)||!validAt(x,ny,branch))break;
-      }
-      points.push({x,y,rank:a.strength,catchment:a.catchment,suit:a.suitable});
+      if(!validAt(nx,ny,branch,family)||
+         !validAt((x+nx)*.5,(y+ny)*.5,branch,family))break;
+      if(Math.floor(x)!==Math.floor(nx)&&Math.floor(y)!==Math.floor(ny)&&
+         (!validAt(nx,y,branch,family)||!validAt(x,ny,branch,family)))break;
+      points.push({x,y,rank:a.strength,catchment:a.catchment,
+        suit:a.suitable});
       previous=a;x=nx;y=ny;
     }
     return points;
@@ -192,70 +195,107 @@ export function createHydroTensorRenderer(args){
     const nw=toMerc(bounds[0]),ne=toMerc(bounds[1]),sw=toMerc(bounds[3]);
     renderGeo={nw,dx:(ne[0]-nw[0])/result.cols,
       dy:(nw[1]-sw[1])/result.rows};
-    const {cols,rows,fields:f}=result,branches=settings.direction==='dual'?
+    const {cols,rows,fields:f}=result;
+    const branches=settings.direction==='dual'?
       ['primary','secondary']:[settings.direction];
-    const stride=clamp(Math.round(12-settings.density*.09),3,12);
-    const totalMax=Math.min(520,Math.round(70+settings.density*4.1));
-    // Guarantee both primary and secondary tensor eigen-directions retain
-    // independent drawing budgets in Dual mode.
-    const maxPerBranch=Math.ceil(totalMax/branches.length);
-    const newLines=[];
-    for(const branch of branches){
-      let branchCount=0;
-      const seeds=[];
-      for(let y=1;y<rows-1;y+=stride)for(let x=1;x<cols-1;x+=stride){
-        let choice=-1,best=-1;
-        for(let oy=0;oy<Math.max(1,stride*.5);oy+=1)for(let ox=0;ox<Math.max(1,stride*.5);ox+=1){
-          const cx=Math.min(cols-2,x+ox),cy=Math.min(rows-2,y+oy),k=cy*cols+cx;
-          const score=f.suitability[k]*(branch==='secondary'?f.crossSuitability[k]:1)*
-            (.28+.72*f.confidence[k])*
-            (.50+.50*f.hydroIntensity[k]);
-          if(score>best&&score>.06){best=score;choice=k}
+    const cap=Math.min(460,Math.round(100+settings.density*3.2));
+    const baseCap=Math.round(cap*.67),wetCap=cap-baseCap;
+    baseLines=[];wetLines=[];
+    for(const family of ['base','wet']){
+      const total=family==='base'?baseCap:wetCap;
+      const perBranch=Math.ceil(total/branches.length);
+      for(const branch of branches){
+        const occupied=new Uint8Array(cols*rows),seeds=[];
+        // Stratified seeding covers the site instead of sorting all points
+        // toward the brightest/flooded cells. All candidates remain rooted
+        // in actual topographic or modeled wet-direction evidence.
+        const stride=clamp(Math.round(Math.sqrt(cols*rows/
+          Math.max(35,perBranch*3.3))),2,14);
+        for(let y=1;y<rows-1;y+=stride)for(let x=1;x<cols-1;x+=stride){
+          let best=-1,bestScore=.02;
+          for(let oy=0;oy<stride&&y+oy<rows-1;oy++)for(let ox=0;ox<stride&&x+ox<cols-1;ox++){
+            const id=(y+oy)*cols+x+ox;
+            if(!f.validMask[id])continue;
+            const score=family==='base'?
+              f.baseConfidence[id]*(.48+.52*f.baseIntensity[id]):
+              f.rainfallInfluence[id]*(.40+.60*f.hydroIntensity[id])*
+              f.confidence[id];
+            if(score>bestScore&&
+              (family!=='base'||f.baseConfidence[id]>.10)&&
+              (family!=='wet'||f.rainfallInfluence[id]>=.035)&&
+              score>bestScore){
+              best=id;bestScore=score;
+            }
+          }
+          if(best>=0)seeds.push({id:best,score:bestScore,
+            x:best%cols+.5,y:Math.floor(best/cols)+.5});
         }
-        if(choice>=0)seeds.push({x:choice%cols+.5,y:Math.floor(choice/cols)+.5,score:best,id:choice});
-      }
-      seeds.sort((a,b)=>b.score-a.score||a.id-b.id);
-      const occupied=new Uint8Array(cols*rows);
-      for(const seed of seeds){
-        if(branchCount>=maxPerBranch)break;
-        if(occupied[seed.id]||!validAt(seed.x,seed.y,branch))continue;
-        const maxSteps=Math.round((16+settings.length*1.2)*(0.7+seed.score*.7));
-        const backward=integrate(seed.x,seed.y,branch,-1,Math.round(maxSteps*.48));
-        const forward=integrate(seed.x,seed.y,branch,1,Math.round(maxSteps*.52));
-        const points=backward.reverse().slice(0,-1).concat(forward);
-        if(points.length<8)continue;
-        let overlaps=0;
-        for(let i=0;i<points.length;i+=4){
-          const p=points[i],key=Math.floor(p.y)*cols+Math.floor(p.x);
-          if(occupied[key])overlaps++;
+        // Uniformly spaced candidate traversal; no wetness-ranked prefix
+        // that would erase low-lying background regions from the screen.
+        const sampleCount=Math.min(seeds.length,perBranch*3);
+        const output=[];
+        for(let k=0;k<sampleCount&&output.length<perBranch;k++){
+          const candidate=seeds[Math.min(seeds.length-1,
+            Math.floor((k+.5)*seeds.length/sampleCount))];
+          if(occupied[candidate.id]||
+             !validAt(candidate.x,candidate.y,branch,family))continue;
+          const budget=Math.round((26+settings.length*.95)*
+            (.70+.50*candidate.score));
+          const backwards=integrate(candidate.x,candidate.y,branch,-1,
+            Math.round(budget*.48),family);
+          const forwards=integrate(candidate.x,candidate.y,branch,1,
+            Math.round(budget*.52),family);
+          const points=backwards.reverse().slice(0,-1).concat(forwards);
+          if(points.length<7)continue;
+          let overlap=0,checked=0;
+          for(let i=0;i<points.length;i+=4){
+            const p=points[i],key=Math.floor(p.y)*cols+Math.floor(p.x);
+            if(occupied[key])overlap++;
+            checked++;
+          }
+          if(overlap>Math.max(3,checked*.48))continue;
+          let rank=0,catchment=0;
+          for(const p of points){rank+=p.rank;catchment+=p.catchment}
+          rank=clamp(.80*rank/points.length+
+            .20*Math.sqrt(catchment/points.length),0,1);
+          const item={family,branch,index:output.length,
+            coordinates:points.map(toGeo),rank,
+            color:family==='base'?
+              (branch==='primary'?'#5fa5c9':'#8993c5'):
+              (branch==='primary'?color(rank):'#a396f5')};
+          output.push(item);
+          for(let i=0;i<points.length;i+=3){
+            const p=points[i],key=Math.floor(p.y)*cols+Math.floor(p.x);
+            if(key>=0&&key<occupied.length)occupied[key]=1;
+          }
         }
-        if(overlaps>Math.max(2,points.length/15))continue;
-        const coordinates=points.map(toGeo),distances=[0];let total=0,rank=0,acc=0;
-        for(let j=0;j<points.length;j++){
-          rank+=points[j].rank;acc+=points[j].catchment;
-          if(j>0)total+=Math.hypot(points[j].x-points[j-1].x,points[j].y-points[j-1].y);
-          if(j>0)distances.push(total);
-        }
-        rank=clamp(.77*rank/points.length+
-          .23*Math.sqrt(acc/points.length),0,1);
-        newLines.push({branch,coordinates,distances,total,rank,
-          color:branch==='secondary'?'#91a9de':color(rank),index:newLines.length});
-        branchCount++;
-        for(let j=0;j<points.length;j+=2){
-          const p=points[j],idx=Math.floor(p.y)*cols+Math.floor(p.x);
-          if(idx>=0&&idx<occupied.length)occupied[idx]=1;
-        }
+        if(family==='base')baseLines.push(...output);
+        else wetLines.push(...output);
       }
     }
-    lines=newLines;
-    // One continuous LineString per tensor trajectory; no 5-point seams.
-    features=lines.map(line=>({type:'Feature',properties:{
-      color:line.color,analysisColor:line.branch==='primary'?'#a6b7c6':'#71869e',
-      width:settings.width*(line.branch==='primary'?1:.72)*(.55+.95*line.rank),
-      opacity:(line.branch==='primary'?.86:.44)*
-        (.30+.70*line.rank),
-      branch:line.branch,relativeGuidance:line.rank
-    },geometry:{type:'LineString',coordinates:line.coordinates}}));
+    lines=baseLines.concat(wetLines);
+    features=lines.map(line=>{
+      const background=line.family==='base';
+      return {type:'Feature',
+        properties:{
+          color:line.color,
+          analysisColor:background?
+            (line.branch==='primary'?'#6b98ad':'#767f9b'):
+            (line.branch==='primary'?'#9dd9f2':'#bbb0f1'),
+          width:background?
+            Math.max(.68,settings.width*(line.branch==='primary'?.72:.53)):
+            settings.width*(line.branch==='primary'?1.15:.90)*
+              (.74+.80*line.rank),
+          opacity:background?
+            (line.branch==='primary'?.77:.50):
+            (line.branch==='primary'?.95:.65)*(.55+.45*line.rank),
+          glowFactor:background?0:1,
+          family:line.family,branch:line.branch,
+          relativeGuidance:line.rank
+        },
+        geometry:{type:'LineString',coordinates:line.coordinates}
+      };
+    });
   }
 
   // Compute visualization-only hydrological ribbons from upstream
@@ -417,7 +457,7 @@ export function createHydroTensorRenderer(args){
         ['*',['get','width'],1.5+settings.glow*4]);
       map.setPaintProperty(glowLayerId,'line-opacity',
         ['*',present?settings.glow*settings.opacity*.27:0,
-          ['get','opacity']]);
+          ['get','opacity'],['get','glowFactor']]);
       map.setPaintProperty(glowLayerId,'line-blur',1+settings.glow*3);
     }
     if(ribbonLayerId&&map.getLayer(ribbonLayerId)){
@@ -449,9 +489,11 @@ export function createHydroTensorRenderer(args){
     // Year-based spatial growth: show more seeded tensor trajectories AND
     // longer portions of each path as the accepted scenario year advances.
     // Geometry itself is still derived from the current year DEM + water.
+    // The DEM base persists at full length at EVERY year. Only the
+    // modeled-wetness layer grows, in density and integrated path length.
     const reveal=items=>{
       if(f>=1)return items;
-      const count=Math.max(1,Math.ceil(items.length*f));
+      const count=Math.ceil(items.length*f);
       return items.slice(0,count).map(feature=>{
         const coords=feature.geometry.coordinates;
         const length=Math.max(2,Math.floor(1+(coords.length-1)*f));
@@ -459,8 +501,11 @@ export function createHydroTensorRenderer(args){
           coordinates:coords.slice(0,length)}};
       }).filter(feature=>feature.geometry.coordinates.length>=2);
     };
+    const background=features.filter(feature=>feature.properties.family==='base');
+    const modeled=features.filter(feature=>feature.properties.family==='wet');
     src()?.setData({type:'FeatureCollection',
-      features:settings.showFilaments?reveal(features):[]});
+      features:settings.showFilaments?
+        background.concat(reveal(modeled)):[]});
     ribbonSource()?.setData({type:'FeatureCollection',
       features:settings.showRibbon?reveal(ribbonFeatures):[]});
   }
@@ -472,7 +517,7 @@ export function createHydroTensorRenderer(args){
     const particles=[],count=Math.min(145,Math.round(30+settings.density));
     for(let i=0;i<count;i++){
       const main=settings.showRibbon&&ribbons.length&&i%3===0;
-      const available=main?ribbons:lines;
+      const available=main?ribbons:wetLines;
       if(!available.length||(!main&&!settings.showFilaments))continue;
       const line=available[(i*37)%available.length];
       if(line.index>=available.length*progress)continue;
@@ -601,7 +646,8 @@ export function createHydroTensorRenderer(args){
   function clear(){
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     requestId++;result=null;flow=null;context=null;depth=null;
-    lines=[];features=[];ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
+    lines=[];baseLines=[];wetLines=[];features=[];
+    ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
     lastRenderedYear=2026;yearGrowth=.20;growthFrom=.20;growthTo=.20;
     stop();src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());
@@ -627,6 +673,8 @@ export function createHydroTensorRenderer(args){
     if(c)for(const [name,array] of Object.entries(c))out[name]=new array.constructor(array);
     if(depth)out.depthMm=new Uint16Array(depth);
     // Do not return road polylines as validated street designs.
+    out.terrainBaseIsYearInvariant=true;
+    out.annualWetDirectionDataIsDynamic=true;
     out.hydrologyRibbonVisualOnly=true;
     out.hydrologyRibbonCount=ribbons.length;
     out.nextStages=['Wool Algorithm','Road Network','Urban Parcel Subdivision'];
