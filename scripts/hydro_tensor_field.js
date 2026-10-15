@@ -587,13 +587,15 @@ export function createHydroTensorRenderer(args){
       depth=d;
     }else depth=null;
     drainageThresholdKm2=Number(meta.drainageThresholdKm2??1);
-    scenario={year:Number(meta.year)||2026,kind:meta.kind||'design-envelope',token:meta.token??null};
+    scenario={year:Number(meta.year)||2026,kind:meta.kind||'design-envelope',
+      token:meta.token??null,rainfallCase:meta.rainPreset??null};
     // Repeated visibility refreshes publish identical native frames. They
     // must not continually invalidate the slower geometry worker.
     const sameContext=oldContext&&context&&sameHydroGrid(oldGrid,grid)&&
       ['terrain','accumulation','inside','obstacle'].every(k=>sameArray(oldContext[k],context[k]));
     if(sameContext&&sameArray(oldDepth,depth)&&oldThreshold===drainageThresholdKm2&&
-      oldScenario.year===scenario.year&&oldScenario.kind===scenario.kind&&oldScenario.token===scenario.token)return;
+      oldScenario.year===scenario.year&&oldScenario.kind===scenario.kind&&
+      oldScenario.token===scenario.token&&oldScenario.rainfallCase===scenario.rainfallCase)return;
     if(enabled)queueSolve(meta.force===true);
   }
   function setEnabled(on){
