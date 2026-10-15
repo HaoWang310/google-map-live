@@ -1,5 +1,5 @@
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.39-hydro-tensor';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.39-hydro-tensor';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.39-hydro-tensor-dem50';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2402,7 +2402,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑 · 默认隐藏</label>',
       '<div class="site-vector-scale"><span>LOW</span><div aria-hidden="true"></div><span>HIGH</span></div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus">等待 DEM、排水网络与模拟水深数据</div>',
-      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 对数汇水面积 · 模拟雨水 · 建筑遮罩<br>主方向／次方向／4-RoSy · 2026–2100 分期<br>Native DEM resolution · 非实测水速 · 非逐年洪水预报</div>',
+      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 对数汇水面积 · 模拟雨水 · 建筑遮罩<br>主方向／次方向／4-RoSy · 2026–2100 分期<br>DEM 原始约 50m；坡度按 ≥50m 支持尺度推导 · 非实测水速 · 非逐年洪水预报</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
