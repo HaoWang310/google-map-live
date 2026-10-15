@@ -694,7 +694,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.52-live-tensor-growth',
+    return {schema:'london-tensor-site-v1',version:'3.22.53-tensor-live-stability',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
