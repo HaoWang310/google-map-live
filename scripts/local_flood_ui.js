@@ -331,7 +331,7 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
         lerp(lo[3],hi[3],t)+light+foam*.3];
       let alpha=shallow
         ?(showShallow?.16*smooth(.001,.020,depth):0)
-        :(.55+.43*smooth(.02,.60,depth))*smooth(.0195,.025,depth);
+        :(.55+.43*smooth(.02,.60,depth))*smooth(.019,.02025,depth);
       // Contrast is a categorical comparison of actual solver depths;
       // highlight never changes the physical depth or water mesh height.
       const cls=contrast?.[nearest]||0;
@@ -427,7 +427,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'if(v_contrast>1.5)water=vec3(0.52,0.44,0.96);',
           'else if(v_contrast>0.5)water=vec3(0.18,0.90,0.82);',
           'float threshold=u_shallow>0.5?0.0015:0.020;',
-          'float edge=smoothstep(threshold*0.95,threshold+0.005,depth);',
+          'float edge=smoothstep(threshold-0.001,threshold+0.00025,depth);',
           'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
           'if(depth<0.020){water=vec3(0.54,0.75,0.83);alpha=0.16*edge;}',
           'if(v_contrast>0.5&&depth>=0.020)alpha=max(alpha,0.90*edge);',
