@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.33-apple-ui';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.34-apple-ui';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2211,7 +2211,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.33-apple-ui</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.34-apple-ui</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2309,7 +2309,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
       '<label class="site-hydro-check"><input id="siteHudShowCollision" type="checkbox" checked> 建筑碰撞效果</label>',
       '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
-      '</div></section>',
+      '</div>', // Close 03 only; keep the left sidebar section open through 04.
       '<div class="site-hydro-section"><div class="site-hydro-section-title">04 · 独立向量场</div>',
       '<label class="site-hydro-check"><input id="siteHudShowFlow" type="checkbox"> 单独查看水文向量场</label>',
       '<div class="site-hydro-mini">默认关闭。开启后暂时隐藏洪水颜色和3D建筑，仅显示连续流线、道路和灰色建筑基底；关闭后恢复洪水画面。计算数据、年份与受淹统计不变。</div>',
