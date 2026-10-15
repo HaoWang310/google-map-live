@@ -355,8 +355,22 @@ function solve(data){
     corridorDistance.set(next);
   }
   const counts={valid:0,terrain:0,drainage:0,hydraulic:0,tensor:0};
+  let wet1mm=0,wet20mm=0,wet100mm=0,depthSumMm=0,maxDepthMm=0;
+  let wetDirectionComparison=0,wetDirectionSamples=0,hydraulicDrivenCells=0;
   for(let i=0;i<n;i++)if(validMask[i]){
     counts.valid++;
+    const millimetres=depth[i];
+    depthSumMm+=millimetres;
+    maxDepthMm=Math.max(maxDepthMm,millimetres);
+    if(millimetres>=1)wet1mm++;
+    if(millimetres>=20)wet20mm++;
+    if(millimetres>=100)wet100mm++;
+    if(dominantProcess[i]===3)hydraulicDrivenCells++;
+    if(millimetres>=20&&Math.hypot(basePrimaryX[i],basePrimaryY[i])>.5&&
+      Math.hypot(primaryX[i],primaryY[i])>.5){
+      const dot=Math.min(1,Math.abs(basePrimaryX[i]*primaryX[i]+basePrimaryY[i]*primaryY[i]));
+      wetDirectionComparison+=Math.acos(dot);wetDirectionSamples++;
+    }
     if(Math.hypot(basePrimaryX[i],basePrimaryY[i])>.5)counts.terrain++;
     if(drainageConfidence[i]>.02)counts.drainage++;
     if(hydraulicConfidence[i]>.02)counts.hydraulic++;
@@ -370,7 +384,14 @@ function solve(data){
       obstacleCells,buildingFootprintsPassable:true,continuityRadiusM:continuityRadius,regularizationIterations:smooth>0?iterations:0,
       hierarchy:'regional DEM (150m support), local DEM (50m support), accumulation ridge, local depth head',
       yearUsedOnlyForMetadata:true,
-      hydraulicDepthAvailable:data.depthAvailable!==false},
+      hydraulicDepthAvailable:data.depthAvailable!==false,
+      rainfallResponse:{wetCells1mm:wet1mm,wetCells20mm:wet20mm,wetCells100mm:wet100mm,
+        maxDepthMm,meanSiteDepthMm:counts.valid?depthSumMm/counts.valid:0,
+        wetAreaFraction20mm:counts.valid?wet20mm/counts.valid:0,
+        hydraulicDominantCells:hydraulicDrivenCells,
+        meanWetAxisDifferenceDeg:wetDirectionSamples?
+          wetDirectionComparison/wetDirectionSamples*180/Math.PI:0,
+        note:'Computed-depth response only; does not assert different flow direction when terrain head implies the same axis'}},
     demNativeResolutionM:demSupportMeters,
     terrainGradientSupportM:[demRadiusX*dx,demRadiusY*dy],
     dataSource:'OS Terrain 50 DEM (>=50m gradient support), contributing area, dynamic modeled rainfall/depth; building bases passable',
