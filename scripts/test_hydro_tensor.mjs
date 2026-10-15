@@ -65,19 +65,19 @@ test('same-frame water head rotates the wet tensor; stale vx/vy have no influenc
  const dry=fixture();dry.vy.fill(127);dry.intensity.fill(255);
  assert.equal(solve(dry).fields.rainfallInfluence[center],0);
 });
-test('buildings, parcel masks and diagonal corner blocking',()=>{
- const d=fixture(3,3,50,50);d.depthMm[4]=500;
- d.obstacle[5]=1;d.obstacle[7]=1;d.inside[3]=0;d.inside[1]=0;
- const f=solve(d).fields;
- assert.equal(f.hydraulicConfidence[4],0);assert.equal(f.primaryX[5],0);
- assert.equal(f.validMask[3],0);
- const a=structuredClone(ridge);a.config.smoothness=100;for(let y=0;y<41;y++)a.obstacle[y*41+21]=1;
- const b=structuredClone(a);for(let y=0;y<41;y++)for(let x=22;x<41;x++)b.accumulation[y*41+x]=areaCode(10000);
- const x=solve(a).fields,z=solve(b).fields;
- for(let y=0;y<41;y++)for(let c=0;c<21;c++){
-  const i=y*41+c;assert.equal(x.drainageConfidence[i],z.drainageConfidence[i]);
-  assert.equal(x.tensorXX[i],z.tensorXX[i]);assert.equal(x.tensorXY[i],z.tensorXY[i]);
- }
+test('building footprints are passable but parcel or NoData gaps stay invalid',()=>{
+  const d=fixture(3,3,50,50);d.depthMm[4]=500;
+  d.obstacle[5]=1;d.obstacle[7]=1;d.inside[3]=0;d.inside[1]=0;
+  const f=solve(d).fields;
+  assert.equal(f.validMask[5],1);assert.equal(f.validMask[7],1);
+  assert.equal(f.validMask[3],0);assert.equal(f.validMask[1],0);
+  const a=structuredClone(ridge);a.config.smoothness=100;
+  for(let y=0;y<41;y++)a.obstacle[y*41+21]=1;
+  const b=structuredClone(a);b.obstacle.fill(0);
+  const x=solve(a).fields,z=solve(b).fields;
+  assert.deepEqual(x.primaryX,z.primaryX);
+  assert.deepEqual(x.tensorXX,z.tensorXX);
+  assert.deepEqual(x.validMask,z.validMask);
 });
 test('true ordered eigenvalues, orthogonality and matrix residuals after smoothing',()=>{
  const d=structuredClone(ridge);d.config.smoothness=100;d.depthMm.fill(200);
@@ -146,14 +146,18 @@ test('anchored physical-scale regularization reduces undirected neighbour roughn
   assert.ok(b.directionContinuity[i]>=0&&b.directionContinuity[i]<=1.000001);
  }
 });
-test('building geometry removes the adjacent normal axis without creating unsupported fields',()=>{
- const d=fixture();d.config.smoothness=100;
- for(let y=0;y<41;y++)for(let x=0;x<41;x++){d.terrain[y*41+x]=30-x*.1;if(x===21)d.obstacle[y*41+x]=1}
- const f=solve(d).fields;
- assert.equal(f.obstacleConstraint[center],1);
- assert.ok(Math.abs(f.primaryX[center])<1e-5&&Math.abs(f.primaryY[center])>.99);
- const flat=structuredClone(d);flat.terrain.fill(20);const empty=solve(flat).fields;
- assert.equal(empty.primaryY[center],0);assert.equal(empty.tensorYY[center],0);
+test('building base does not repel a supported terrain slope',()=>{
+  const d=fixture();d.config.smoothness=100;
+  for(let y=0;y<41;y++)for(let x=0;x<41;x++){
+    d.terrain[y*41+x]=30-x*.1;
+    if(x===21)d.obstacle[y*41+x]=1;
+  }
+  const f=solve(d).fields;
+  assert.equal(f.obstacleConstraint[center],0);
+  assert.equal(f.validMask[20*41+21],1);
+  assert.ok(Math.abs(f.primaryX[center])>.99);
+  const flat=structuredClone(d);flat.terrain.fill(20);const empty=solve(flat).fields;
+  assert.equal(empty.primaryY[center],0);assert.equal(empty.tensorYY[center],0);
 });
 test('grid validation distinguishes equal-sized parcels at different origins',()=>{
  const g=ridge.grid;assert.ok(validHydroGrid(g,41,41));
