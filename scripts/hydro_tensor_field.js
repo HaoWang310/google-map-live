@@ -303,7 +303,7 @@ export function createHydroTensorRenderer(args){
     const maxDistance=cellSize*(1+settings.ribbonWidth/100*4);
     const occupied=new Uint8Array(cols*rows);
     for(const seed of seeds){
-      if(hydroCorePaths.length>=24)break;
+      if(hydroCorePaths.length>=14)break;
       if(occupied[seed.id])continue;
       const budget=Math.round(110+settings.length*1.7);
       const backward=hydroTrace(seed.x,seed.y,-1,
@@ -351,11 +351,11 @@ export function createHydroTensorRenderer(args){
             rank,color:color(rank),
             width:settings.width*(.28+.50*balance),
             opacity:.20+.70*balance,isHydrologicalReference:true});
-          if(ribbons.length>=320)break;
+          if(ribbons.length>=280)break;
         }
-        if(ribbons.length>=320)break;
+        if(ribbons.length>=280)break;
       }
-      if(ribbons.length>=320)break;
+      if(ribbons.length>=280)break;
     }
     ribbonFeatures=ribbons.map(line=>({
       type:'Feature',properties:{
