@@ -1001,6 +1001,74 @@ export function createLocalFloodUI({
   let spongeTool='navigate';
   let hydroDisplay={depth:true,flow:false,collision:true,volume:true};
   let lastFlowUpdateAt=0;
+  // Flood rendering is independent of tensor generation. Never accept an
+  // undated request-flow-field response as a year-specific flood snapshot.
+  let tensorSession=null,tensorSessionId=0,tensorContext=null,tensorStageTimer=0;
+  const TENSOR_YEARS=[2026,2035,2045,2055,2065,2075,2085,2095,2100];
+  const tensorPeakFrame=()=>{
+    const peak=yearFrames.get(2100);
+    return peak?.annualAreaStage?.kind==='rainfall-risk-scenario'&&
+      peak.annualAreaStage.rainfallCase===rainPreset&&
+      peak.grid&&peak.depthMm&&peak.flowField?peak:null;
+  };
+  function stopTensorSequence({restoreRain=false}={}){
+    const original=tensorSession?.originalYear;
+    tensorSessionId++;tensorSession=null;
+    if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
+    hydroVector?.setEnabled(false);
+    if(restoreRain&&Number.isInteger(original)){
+      futureYear=original;simYearDisplay();
+      const frame=yearFrames.get(original);
+      if(frame){
+        const previous=applyingYearFrame;applyingYearFrame=true;
+        try{handleFrame(frame)}finally{applyingYearFrame=previous}
+      }
+    }
+  }
+  function advanceTensorStage(session,index){
+    if(tensorSession!==session||!hydroDisplay.flow||!isolatedSelection)return;
+    if(index>=TENSOR_YEARS.length){
+      session.completed=true;
+      setSiteHud('siteHudTensorGrowthStatus','2026–2100 张量场生成完成 · 2100 年最终曲线');
+      status('2100 年张量场已完成；关闭开关可回到原雨水画面。');
+      return;
+    }
+    session.index=index;session.awaitingYear=TENSOR_YEARS[index];
+    futureYear=session.awaitingYear;simYearDisplay();
+    if(!requestYear(futureYear)){
+      status('无法读取 '+futureYear+' 年水文情景');return;
+    }
+    session.awaitingToken=lastRequestedScenarioToken;
+    setSiteHud('siteHudTensorGrowthStatus','自动生成 '+futureYear+
+      ' 年 · '+(index+1)+'/'+TENSOR_YEARS.length+' · 等待当年流线');
+    if(tensorStageTimer)clearTimeout(tensorStageTimer);
+    tensorStageTimer=setTimeout(()=>{
+      tensorStageTimer=0;
+      if(tensorSession!==session||!hydroDisplay.flow||session.index!==index||session.completed)return;
+      status(futureYear+' 年积分超时；继续下一个设计年份');
+      advanceTensorStage(session,index+1);
+    },22000);
+  }
+  function startTensorSequence(){
+    if(annualPlaying){status('请等雨水模拟运行至2100年结束，再开启张量场');return false}
+    const peak=tensorPeakFrame();
+    if(!peak){
+      status('请先完成雨水模拟至2100年，再开启张量场，程序将自动从2026年开始生成。');
+      return false;
+    }
+    stopTensorSequence();
+    tensorContext=null;
+    const session={id:++tensorSessionId,index:-1,awaitingYear:null,awaitingToken:null,
+      originalYear:futureYear,completed:false,grid:peak.grid,rainfallCase:rainPreset};
+    tensorSession=session;
+    hydroVector?.clear();
+    hydroVector?.setEnabled(true);
+    hydroVector?.setTimelineYear(2026,{instant:true});
+    setSiteHud('siteHudTensorGrowthStatus','正在读取当前场地真实地形与汇水格网…');
+    simulator?.requestFlowField();
+    return true;
+  }
+
 
   const status=(message,error=false)=>{
     $('localFloodStatus').textContent=message;
@@ -1735,8 +1803,7 @@ export function createLocalFloodUI({
     hydroVector?.setEnabled(hydroDisplay.flow);
     // Reapply the accepted year frame when switching to the hydrology view.
     // Never override a displayed earlier year with a stale 2100 worker state.
-    if(hydroDisplay.flow&&lastHydroFrame?.flowField)
-      updateFocusFlowVectors({...lastHydroFrame,forceVectorRefresh:true});
+    // No stale frame is reattached on a display-only switch.
     // Dark academic scene is applied only while the independent flow layer is on.
     const ground=hydroDisplay.flow?'#000000':'#e8e7e2';
     const green=hydroDisplay.flow?'#000000':'#bfd9b1';
@@ -1763,8 +1830,7 @@ export function createLocalFloodUI({
       viewer.setPaintProperty(FOCUS_DRAINAGE_LAYER,'raster-opacity',
         hydroDisplay.flow?.30:.52);
     }
-    simulator?.setParams(currentParams());
-    if(hydroDisplay.flow&&prepared)simulator?.requestFlowField();
+    // Mode switching must never modify the hydraulic solver or request undated water.
   }
 
   function focusStyle(details){
@@ -2776,7 +2842,14 @@ export function createLocalFloodUI({
       ['siteHudShowFlow','flow'],
       ['siteHudShowCollision','collision']
     ])siteHud(id).onchange=e=>{
-      hydroDisplay[flag]=e.target.checked;
+      if(flag==='flow'){
+        if(e.target.checked){
+          if(startTensorSequence())hydroDisplay.flow=true;
+          else{hydroDisplay.flow=false;e.target.checked=false;}
+        }else{
+          hydroDisplay.flow=false;stopTensorSequence({restoreRain:true});
+        }
+      }else hydroDisplay[flag]=e.target.checked;
       updateHydroLayerVisibility();
     };
     const tensorControls=[
@@ -2962,6 +3035,20 @@ export function createLocalFloodUI({
       particleLayerId:FOCUS_FLOW_PARTICLE_LAYER,
       getBounds:()=>focusWaterBounds,
       onStatus:message=>setSiteHud('siteHudVectorStatus',message),
+      onGeometryReady:({year,token,rainfallCase,lineCount})=>{
+        const session=tensorSession;
+        if(!session||!hydroDisplay.flow||session.completed||
+          year!==session.awaitingYear||token!==session.awaitingToken||
+          rainfallCase!==session.rainfallCase)return;
+        if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
+        setSiteHud('siteHudTensorGrowthStatus',year+' 年完整流线 '+lineCount+
+          ' 条 · '+(session.index+1)+'/'+TENSOR_YEARS.length);
+        tensorStageTimer=setTimeout(()=>{
+          tensorStageTimer=0;
+          if(tensorSession===session&&hydroDisplay.flow)
+            advanceTensorStage(session,session.index+1);
+        },260);
+      },
       onProgress:({year,fraction,geometryYear,waitingForGeometry})=>{
         const exact=geometryYear===year&&!waitingForGeometry;
         setSiteHud('siteHudTensorGrowthStatus','线条生长 '+Math.round(fraction*100)+
@@ -3000,10 +3087,7 @@ export function createLocalFloodUI({
       updateFocusAnalysisLayers();
       // Controls can be toggled before the map style finishes loading.
       // Rehydrate the vector layers once their GeoJSON sources are ready.
-      if(hydroDisplay.flow){
-        hydroVector?.setEnabled(true);
-        if(prepared)simulator?.requestFlowField();
-      }
+      if(hydroDisplay.flow&&tensorSession)hydroVector?.setEnabled(true);
       const bounds=selectionBounds(polygon[0]);
       if(!bounds)return;
       viewer.fitBounds(bounds,{
@@ -3537,32 +3621,13 @@ export function createLocalFloodUI({
       ],
       onFrame:handleFrame,
       onFlowField:data=>{
-        if(!hydroDisplay.flow)return;
-        // Explicit flow request carries readonly DEM and upstream drainage
-        // arrays. Reuse the accepted year frame's hydraulic state instead of
-        // flashing a different year or overwritten worker snapshot.
-        const current=lastHydroFrame;
-        const matching=Boolean(current?.depthMm&&data?.flowField&&
-          sameHydroGrid(current.grid,data.grid)&&
-          current.scenarioYear===futureYear&&
-          (!longTermMode||current.scenarioToken===lastRequestedScenarioToken));
-        const snapshotMatches=data.scenarioYear===futureYear&&
-          (!longTermMode||data.scenarioToken===lastRequestedScenarioToken)&&
-          (!data.annualAreaStage?.rainfallCase||
-            data.annualAreaStage.rainfallCase===rainPreset);
-        // Do not ever label an old rainfall scenario with the newly selected
-        // year/intensity before its actual water-depth frame has arrived.
-        if(!matching&&!snapshotMatches)return;
-        updateFocusFlowVectors({
-          ...data,
-          flowField:matching?(current.flowField||data.flowField):data.flowField,
-          grid:matching?current.grid:data.grid,
-          depthMm:matching?current.depthMm:snapshotMatches?data.depthMm:null,
-          scenarioYear:matching?current.scenarioYear:futureYear,
-          scenarioToken:matching?current.scenarioToken:snapshotMatches?data.scenarioToken:null,
-          annualAreaStage:matching?current.annualAreaStage:snapshotMatches?data.annualAreaStage:null,
-          forceVectorRefresh:true
-        });
+        // Undated reply supplies only native DEM and accumulation.
+        // The per-year water depth is taken from the verified frame below.
+        if(!hydroDisplay.flow||!tensorSession||!data?.spatialContext)return;
+        const session=tensorSession;
+        if(!sameHydroGrid(data.grid,session.grid))return;
+        tensorContext=data.spatialContext;
+        if(session.index<0)advanceTensorStage(session,0);
       },
       onStatus:data=>{
         hydroState=data.state;
@@ -3783,7 +3848,7 @@ export function createLocalFloodUI({
   // never adjusts rainfall, solver physics or simulated volume.
   let lastDisplayedVectorYear=null;
   function updateFocusFlowVectors(data){
-    if(!hydroDisplay.flow||!hydroVector||!data?.flowField)return;
+    if(!hydroDisplay.flow||!hydroVector||!tensorSession||!data?.flowField)return;
     const now=performance.now();
     const year=Number.isInteger(data.scenarioYear)?data.scenarioYear:futureYear;
     const yearChanged=year!==lastDisplayedVectorYear;
@@ -3792,7 +3857,7 @@ export function createLocalFloodUI({
     lastFlowUpdateAt=now;
     lastDisplayedVectorYear=year;
     setSiteHud('siteHudTensorYear',String(year));
-    hydroVector.setField(data.flowField,data.spatialContext||null,{
+    hydroVector.setField(data.flowField,tensorContext,{
       year,kind:data.annualAreaStage?.kind||'rainfall-simulation',
       rainPreset:data.annualAreaStage?.rainfallCase||null,
       depthMm:data.depthMm||null,grid:data.grid,token:data.scenarioToken,
@@ -3918,7 +3983,12 @@ export function createLocalFloodUI({
     // The independent 3D viewer shares this very same simulation canvas.
     // Water is painted before buildings so roofs/facades stay unobscured.
     isolateViewer?.triggerRepaint();
-    updateFocusFlowVectors(data);
+    // Only an accepted matching year/case/token can update tensor input.
+    if(hydroDisplay.flow&&tensorSession&&!tensorSession.completed&&tensorContext&&
+      data.scenarioYear===tensorSession.awaitingYear&&
+      data.scenarioToken===tensorSession.awaitingToken&&
+      data.annualAreaStage?.rainfallCase===tensorSession.rainfallCase)
+      updateFocusFlowVectors(data);
 
     const nextImpacted=new Set(data.impactedIds||[]);
 
