@@ -1908,7 +1908,9 @@ export function createLocalFloodUI({
       setSiteHud('siteHudLiveRain',v.currentRainMmH.toFixed(1)+' mm/h');
     }
     const progress=siteHud('siteHudProgress');
-    if(progress)progress.style.width=((futureYear-2026)/74*100).toFixed(2)+'%';
+    if(progress)progress.style.width=(
+      displayMode==='event'?eventTimeMin/Math.max(1,criticalDurationMin):
+        (futureYear-2026)/74)*100+'%';
     if(longTermMode&&v&&hydroState==='preparing')hydroState='ready';
     setSiteHud('siteHudRunState',longTermMode?
       (annualPlaying?'水流演算回放中 · ':'模拟快照可回放 · ')+
@@ -2323,7 +2325,7 @@ export function createLocalFloodUI({
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
         (floodMode==='rain-risk'
-          ?'2 小时降雨情景结合 EA 地表水风险等级和 DEM 汇流，统一显示蓝色水体。2026–2100 为可视化进程，不是官方逐年降雨或水深预测。'
+          ?'四种独立降雨历时结合 EA 地表水风险和 DEM 汇流，2026–2100 展示最大水深设计包络，2100 达到设计峰值；中间年份为插值，不是官方逐年洪水预测。'
           :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
         'EA 伦敦 2070s 设计增幅；2026—2075 线性插值，之后持平。年份不是精确天气预报。':
@@ -2334,6 +2336,53 @@ export function createLocalFloodUI({
       }
       if(floodMode==='rain-risk'&&!siteRiskAvailable)
         status('该场地没有可用的 EA 风险等级数据，暂不能使用引导模式。',true);
+    };
+    siteHud('siteHudTimeMode').onchange=e=>{
+      stopAnnual();
+      displayMode=e.target.value==='event'?'event':'year';
+      const box=siteHud('siteHudEventControls');
+      if(box)box.style.display=displayMode==='event'?'block':'none';
+      for(const id of ['siteHudYear','siteHudFooterYear']){
+        const control=siteHud(id);
+        if(control)control.disabled=displayMode==='event';
+      }
+      if(displayMode==='event'){
+        eventTimeMin=0;
+        if(siteHud('siteHudEventTime'))siteHud('siteHudEventTime').value='0';
+      }
+      setSiteHud('siteHudEventTimeText',Math.round(eventTimeMin)+' / '+criticalDurationMin+' min');
+      updateSiteHydroDashboard();
+      if(prepared)requestYear(futureYear);
+    };
+    siteHud('siteHudEventTime').oninput=e=>{
+      stopAnnual();
+      eventTimeMin=Math.max(0,Math.min(criticalDurationMin,Number(e.target.value)||0));
+      setSiteHud('siteHudEventTimeText',Math.round(eventTimeMin)+' / '+criticalDurationMin+' min');
+      if(prepared&&displayMode==='event')requestYear(futureYear);
+    };
+    siteHud('siteHudUseDdf').onclick=()=>{
+      const minutes=[30,60,120,360];
+      const entries=minutes.map(m=>(siteHud('siteHudDdf'+m)?.value||'').trim());
+      const values=entries.map(Number);
+      if(entries.some((v,i)=>!v||!Number.isFinite(values[i])||values[i]<=0||values[i]>500)){
+        status('FEH 数据必须填写完整的 30 / 60 / 120 / 360 分钟四项总雨量（每项0.1–500 mm），不能只填一项。',true);
+        return;
+      }
+      fehDurationDepthsMm=values;
+      stopAnnual();clearYearFrames();
+      setSiteHud('siteHudDdfSource','四项 FEH DDF 数值由用户输入；系统没有核验官方授权或 AEP 一致性。');
+      simYearDisplay();
+      if(prepared)requestYear(futureYear);
+      status('已应用四历时雨量：'+values.join(' / ')+' mm；选择的 FEH 数据来源请自行核对。');
+    };
+    siteHud('siteHudClearDdf').onclick=()=>{
+      fehDurationDepthsMm=null;
+      for(const m of [30,60,120,360])if(siteHud('siteHudDdf'+m))siteHud('siteHudDdf'+m).value='';
+      stopAnnual();clearYearFrames();
+      setSiteHud('siteHudDdfSource','相同总雨量敏感性试验：不能声称四个历时具有相同年超越概率。');
+      simYearDisplay();
+      if(prepared)requestYear(futureYear);
+      status('已恢复四历时等总雨量敏感性试验，不再标记为 FEH 官方 DDF。');
     };
     siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
     siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
@@ -2411,11 +2460,14 @@ export function createLocalFloodUI({
         siteHud('siteHudFutureClimate').onchange=e=>{
       rainPreset=Object.prototype.hasOwnProperty.call(RAIN_PRESETS,e.target.value)?e.target.value:'moderate';
       rainfallMode='manual';manualFourHourMm=null;
+      fehDurationDepthsMm=null; // different precipitation scenarios cannot reuse old FEH entries
+      for(const m of [30,60,120,360])if(siteHud('siteHudDdf'+m))siteHud('siteHudDdf'+m).value='';
+      setSiteHud('siteHudDdfSource','已切换降雨等级，旧 FEH 值已清除。当前为等总雨量敏感性测试。');
       copyHudControl('localFloodDuration',120,'input');
       syncSiteControls();
       syncFuture();
-      status('已选择 '+RAIN_PRESETS[rainPreset].label+'：2 小时总雨量 '+RAIN_PRESETS[rainPreset].total+
-        ' mm（平均雨强 '+presetRainRate()+' mm/h）；资料支持的研究情景，非逐年预报。');
+      status('已选择 '+RAIN_PRESETS[rainPreset].label+'：四历时按同一总量 '+
+        RAIN_PRESETS[rainPreset].total+' mm 比较（非同一 FEH 重现期），2100 为设计包络峰值。');
     };
     siteHud('siteHudTrialStage').onclick=()=>{
       if(!needsExternalStage()){status('请先选择仅外部洪水或降雨＋外部洪水模式。');return;}
@@ -2534,12 +2586,20 @@ export function createLocalFloodUI({
       if(!prepared)return;
       if(longTermMode){
         if(!resolveFloodModeForPlayback())return;
-        stopAnnual();annualPlaying=true;futureYear=2026;
-        clearRiskEnvelope();clearYearFrames();simYearDisplay();
-        if(requestYear(2026))
-          status('正在计算'+(floodMode==='rain-risk'?'降雨＋EA 风险引导':
-            floodMode==='rain'?'仅降雨':'外部水位')+
-            '情景的 2100 年终态，并按年份展示到 2100 年。');
+        stopAnnual();annualPlaying=true;
+        if(displayMode==='event'){
+          eventTimeMin=0;
+          const slider=siteHud('siteHudEventTime');
+          if(slider)slider.value='0';
+          setSiteHud('siteHudEventTimeText','0 / '+criticalDurationMin+' min');
+          if(requestYear(futureYear))
+            status('正在计算四种历时，随后仅回放临界单场暴雨的真实涨水与退水过程。');
+        }else{
+          futureYear=2026;
+          clearRiskEnvelope();clearYearFrames();simYearDisplay();
+          if(requestYear(2026))
+            status('正在计算四种历时的最大水深设计包络，逐步展示到2100年峰值。');
+        }
         return;
       }
       if(!resolveFloodModeForPlayback())return;
@@ -2558,7 +2618,9 @@ export function createLocalFloodUI({
       stopAnnual();
       clearRiskEnvelope();clearYearFrames();
       annualBudget=null;pendingBaselineFrame=false;
-      futureYear=2026;hydroState='reset';
+      futureYear=2026;eventTimeMin=0;hydroState='reset';
+      if(siteHud('siteHudEventTime'))siteHud('siteHudEventTime').value='0';
+      setSiteHud('siteHudEventTimeText','0 / '+criticalDurationMin+' min');
       lastHydroFrame=null;siteHydroHistory.length=0;
       lastFlowUpdateAt=0;
       awaitingInitialReset=Boolean(simulator&&prepared);
@@ -3663,19 +3725,36 @@ export function createLocalFloodUI({
     }
     updateSiteHydroDashboard(data);
     if(longTermMode&&annualPlaying&&!applyingYearFrame&&
-       data.annualAreaStage?.kind==='rainfall-risk-scenario'&&
        data.scenarioYear===futureYear){
-      clearTimeout(annualAdvanceTimer);
-      if(futureYear<2100){
-        annualAdvanceTimer=setTimeout(()=>{
-          if(!annualPlaying||!isolatedSelection)return;
-          futureYear++;
-          simYearDisplay();
-          requestYear(futureYear);
-        },165);
-      }else{
-        stopAnnual();
-        status('2026—2100 年度面积分期演示完成 · 可拖动时间轴逐年回放');
+      if(displayMode==='year'&&data.annualAreaStage?.kind==='rainfall-risk-scenario'){
+        clearTimeout(annualAdvanceTimer);
+        if(futureYear<2100){
+          annualAdvanceTimer=setTimeout(()=>{
+            if(!annualPlaying||!isolatedSelection||displayMode!=='year')return;
+            futureYear++;
+            simYearDisplay();
+            requestYear(futureYear);
+          },165);
+        }else{
+          stopAnnual();
+          status('2100 年最大设计包络展示完成 · 该范围为多个独立暴雨事件的并集，不是单场水面。');
+        }
+      }else if(displayMode==='event'&&data.annualAreaStage?.kind==='storm-event'){
+        clearTimeout(annualAdvanceTimer);
+        if(eventTimeMin<criticalDurationMin){
+          annualAdvanceTimer=setTimeout(()=>{
+            if(!annualPlaying||!isolatedSelection||displayMode!=='event')return;
+            eventTimeMin=Math.min(criticalDurationMin,
+              eventTimeMin+Math.max(1,Math.ceil(criticalDurationMin/90)));
+            const t=siteHud('siteHudEventTime');
+            if(t)t.value=String(eventTimeMin);
+            setSiteHud('siteHudEventTimeText',Math.round(eventTimeMin)+' / '+criticalDurationMin+' min');
+            requestYear(futureYear);
+          },145);
+        }else{
+          stopAnnual();
+          status('单场临界暴雨分钟级模拟回放完成；拖动滑块可以检查峰值和退水。');
+        }
       }
     }
     $('localFloodStats').textContent=
