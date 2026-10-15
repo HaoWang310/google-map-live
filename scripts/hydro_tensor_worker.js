@@ -24,6 +24,12 @@ function solve(data){
   const smooth=clamp(Number(cfg.smoothness??60)/100,0,1);
   const cross=clamp(Number(cfg.crossStrength??60)/100,0,1);
   const dx=Math.max(1,Number(data.cellX)||10),dy=Math.max(1,Number(data.cellY)||10);
+  // OS Terrain 50 contributes no new independent elevations at 10m grid
+  // spacing. Estimate DEM gradients at >=50m neighbour SUPPORT, while retaining
+  // the original solver grid only for obstacles, water and drawing placement.
+  const demSupportMeters=50;
+  const demRadiusX=Math.max(1,Math.ceil(demSupportMeters/dx));
+  const demRadiusY=Math.max(1,Math.ceil(demSupportMeters/dy));
   const tensorXX=new Float32Array(n),tensorXY=new Float32Array(n),tensorYY=new Float32Array(n);
   const primaryX=new Float32Array(n),primaryY=new Float32Array(n);
   const crossCos4=new Float32Array(n),crossSin4=new Float32Array(n);
@@ -52,8 +58,10 @@ function solve(data){
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
     const i=y*w+x;
     if(!valid(i))continue;
-    const left=x>0?i-1:i,right=x+1<w?i+1:i;
-    const top=y>0?i-w:i,bottom=y+1<h?i+w:i;
+    const left=x>0?y*w+Math.max(0,x-demRadiusX):i;
+    const right=x+1<w?y*w+Math.min(w-1,x+demRadiusX):i;
+    const top=y>0?Math.max(0,y-demRadiusY)*w+x:i;
+    const bottom=y+1<h?Math.min(h-1,y+demRadiusY)*w+x:i;
     if(left!==right&&valid(left)&&valid(right))
       slopeX[i]=(terrain[right]-terrain[left])/((right-left)*dx);
     if(top!==bottom&&valid(top)&&valid(bottom))
@@ -183,7 +191,9 @@ function solve(data){
   }
   const out={type:'result',requestId:data.requestId,cols:w,rows:h,
     cellX:dx,cellY:dy,
-    dataSource:'OS Terrain 50 DEM / terrain drainage / rainfall scenario',
+    demNativeResolutionM:demSupportMeters,
+    terrainGradientSupportM:[demRadiusX*dx,demRadiusY*dy],
+    dataSource:'OS Terrain 50 DEM at >=50m derivative support / terrain drainage / rainfall scenario',
     fields:{tensorXX,tensorXY,tensorYY,primaryX,primaryY,
       crossCos4,crossSin4,confidence,suitability,
       drainageRank,avoidMask,floodProximity,crossSuitability,validMask,
