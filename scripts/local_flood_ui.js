@@ -1,4 +1,4 @@
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.43-tensor-ribbon';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.44-small-site-aa';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.43-tensor-ribbon';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -329,6 +329,11 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       const wa=a>=wetThreshold?1:0,wb=b>=wetThreshold?1:0;
       const wc=c>=wetThreshold?1:0,wd=d>=wetThreshold?1:0;
       const occupancy=w00*wa+w10*wb+w01*wc+w11*wd;
+      // Mask antialiasing is done on the DISPLAY pixels, not on obstacle
+      // cells or the hydraulic depth grid. Nearest invalid stays transparent.
+      const maskCoverage=valid?
+        w00*(valid[i00]?1:0)+w10*(valid[i10]?1:0)+
+        w01*(valid[i01]?1:0)+w11*(valid[i11]?1:0):1;
       // Subcell wet coverage: interpolate the visual contour between pixels,
       // not the simulation's real depths, building masks or wet-area metrics.
       if(occupancy<=0.16)continue;
@@ -356,6 +361,9 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       // Continuous visual shoreline: low-alpha fringe only in valid, dry
       // neighbouring pixels. Invalid and building pixels stay transparent.
       alpha*=smooth(.16,.85,occupancy)*(nearestIsWet?1:.38);
+      // Stop hard-edged 10m building/site masks from producing visible
+      // square steps on small parcels. Fade only WITHIN valid cells.
+      alpha*=smooth(.10,.95,maskCoverage);
       if(alpha<.004)continue;
       // Contrast is a categorical comparison of actual solver depths;
       // highlight never changes the physical depth or water mesh height.
@@ -405,11 +413,13 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'in vec4 a_meta;',
           'in float a_contact;',
           'in float a_contrast;',
+          'in float a_mask;',
           'uniform mat4 u_matrix;',
           'uniform float u_time;',
           'uniform float u_metres;',
           'out vec4 v_meta;',
           'out float v_contact;',
+          'out float v_mask;',
           'flat out float v_contrast;',
           'void main(){',
           'vec3 p=a_pos;',
@@ -421,6 +431,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'gl_Position=u_matrix*vec4(p,1.0);',
           'v_meta=a_meta;',
           'v_contact=a_contact;',
+          'v_mask=a_mask;',
           'v_contrast=a_contrast;',
           '}'
         ].join('\n');
@@ -429,6 +440,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'precision highp float;',
           'in vec4 v_meta;',
           'in float v_contact;',
+          'in float v_mask;',
           'flat in float v_contrast;',
           'uniform float u_time;',
           'uniform float u_shallow;',
@@ -459,6 +471,10 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'float edge=smoothstep(max(0.0,threshold-0.0012),threshold+edgeWidth,depth);',
           'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
           'if(depth<0.020){alpha=(0.34+0.18*smoothstep(0.001,0.02,depth))*edge;}',
+          '// mask feather is a display-only, subcell coverage alpha.',
+          '// Invalid native building/site cells still contain no geometry.',
+          'float maskFeather=max(0.03,1.5*fwidth(v_mask));',
+          'alpha*=smoothstep(0.14,0.94+maskFeather,v_mask);',
           '// no contrast-driven alpha',
           'if(v_meta.w>0.5){water*=0.96;alpha*=0.82;}',
           'fragColor=vec4(water,alpha);',
@@ -496,11 +512,12 @@ function createFloodVolumeLayer(maplibregl,bounds){
         this.vao=gl.createVertexArray();
         gl.bindVertexArray(this.vao);
         gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
-        const stride=9*4;
+        const stride=10*4;
         const coords=gl.getAttribLocation(program,'a_pos');
         const meta=gl.getAttribLocation(program,'a_meta');
         const contact=gl.getAttribLocation(program,'a_contact');
         const contrastLoc=gl.getAttribLocation(program,'a_contrast');
+        const maskLoc=gl.getAttribLocation(program,'a_mask');
         gl.enableVertexAttribArray(coords);
         gl.vertexAttribPointer(coords,3,gl.FLOAT,false,stride,0);
         gl.enableVertexAttribArray(meta);
@@ -509,6 +526,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
         gl.vertexAttribPointer(contact,1,gl.FLOAT,false,stride,7*4);
         gl.enableVertexAttribArray(contrastLoc);
         gl.vertexAttribPointer(contrastLoc,1,gl.FLOAT,false,stride,8*4);
+        gl.enableVertexAttribArray(maskLoc);
+        gl.vertexAttribPointer(maskLoc,1,gl.FLOAT,false,stride,9*4);
         gl.bindVertexArray(null);
         gl.bindBuffer(gl.ARRAY_BUFFER,null);
         const origin=maplibregl.MercatorCoordinate.fromLngLat(bounds[0]);
@@ -624,7 +643,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
       const makeVertex=(point,side,zOverride,category)=>{
         const z=zOverride===undefined?visualHeight(point.d):zOverride;
         quads.push(point.x,point.y,z,point.u,point.v,point.d,side,point.foam,
-          category??point.category??0);
+          category??point.category??0,point.mask??1);
       };
       const triangle=(a,b,c,side=0)=>{
         // Flat categorical tint: same comparison class for whole triangle.
@@ -637,10 +656,27 @@ function createFloodVolumeLayer(maplibregl,bounds){
       // More detailed visual contours on small sites. <=120k display nodes;
       // the DEM and flood calculation grids are never resampled as input.
       const displayCells=meshCols*meshRows;
-      const subdivisions=displayCells<=5000?4:
+      const subdivisions=displayCells<=1200?6:
+        displayCells<=2500?5:displayCells<=5000?4:
         displayCells<=12000?3:displayCells<=30000?2:1;
       const renderCols=meshCols*subdivisions,renderRows=meshRows*subdivisions;
       const validCells=data.validMask?new Uint8Array(data.validMask):null;
+      // Bilinear source-grid mask coverage; used only for the rendering
+      // alpha at an edge. Native building collision/terrain are untouched.
+      const maskAt=(u,v)=>{
+        if(!validCells)return 1;
+        const gx=Math.max(0,Math.min(widths-1,u-.5));
+        const gy=Math.max(0,Math.min(rows-1,v-.5));
+        const x0=Math.floor(gx),y0=Math.floor(gy);
+        const x1=Math.min(widths-1,x0+1),y1=Math.min(rows-1,y0+1);
+        const tx=gx-x0,ty=gy-y0;
+        const a=validCells[y0*widths+x0]?1:0;
+        const b=validCells[y0*widths+x1]?1:0;
+        const c=validCells[y1*widths+x0]?1:0;
+        const d=validCells[y1*widths+x1]?1:0;
+        return (a*(1-tx)+b*tx)*(1-ty)+
+          (c*(1-tx)+d*tx)*ty;
+      };
       const fieldAt=(field,x,y)=>{
         const cx=Math.max(0,Math.min(meshCols-1,x));
         const cy=Math.max(0,Math.min(meshRows-1,y));
@@ -667,6 +703,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           d:exposed?fieldAt(sampled,gx,gy):0,
           foam:exposed?fieldAt(foam,gx,gy)*.45:0,
           category:exposed?categories[rowIndex*meshCols+colIndex]:0,
+          mask:exposed?maskAt(u,v):0,
           contour:false
         };
       };
@@ -677,6 +714,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           u:a.u+(b.u-a.u)*t,v:a.v+(b.v-a.v)*t,
           d:cutoff,foam:a.foam+(b.foam-a.foam)*t,
           category:a.category===1||b.category===1?1:a.category===2||b.category===2?2:0,
+          mask:(a.mask??1)+((b.mask??1)-(a.mask??1))*t,
           contour:true
         };
       };
@@ -735,6 +773,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
             d:(a.d+b.d+c.d+d.d)*.25,
             foam:(a.foam+b.foam+c.foam+d.foam)*.25,
             category:[a,b,c,d].some(n=>n.category===1)?1:[a,b,c,d].some(n=>n.category===2)?2:0,
+            mask:((a.mask??1)+(b.mask??1)+(c.mask??1)+(d.mask??1))*.25,
             contour:false
           };
           for(let k=0;k<4;k++){
@@ -746,7 +785,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
         }
       }
       this.mesh=new Float32Array(quads);
-      this.count=this.mesh.length/9;
+      this.count=this.mesh.length/10;
       this.dirty=true;
       this.map.triggerRepaint();
     },
@@ -2270,7 +2309,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.43-tensor-ribbon</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.44-small-site-aa</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3518,11 +3557,13 @@ export function createLocalFloodUI({
     removeWaterLayers();
     canvas=document.createElement('canvas');
     canvas.id='localFloodCanvas';
-    // Adaptive 2D super-sampling, capped to keep large sites responsive.
+    // Higher visual sampling only for small selected parcels; the native
+    // 10-50m physical cells, DEM and flood statistics are NEVER resampled.
+    const cells=Math.max(1,info.cols*info.rows);
+    const preferred=cells<=6000?12:cells<=16000?9:6;
     const targetSide=Math.floor(2400/Math.max(1,info.cols,info.rows));
-    const pixelBudget=Math.floor(Math.sqrt(4200000/
-      Math.max(1,info.cols*info.rows)));
-    waterUpscale=Math.max(1,Math.min(6,targetSide,pixelBudget));
+    const pixelBudget=Math.floor(Math.sqrt(4200000/cells));
+    waterUpscale=Math.max(1,Math.min(preferred,targetSide,pixelBudget));
     canvas.width=info.cols*waterUpscale;
     canvas.height=info.rows*waterUpscale;
     lowResWater=document.createElement('canvas');
