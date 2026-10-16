@@ -887,7 +887,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.63-dark-texture-cleanup</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.64-planning-grayscale</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -1274,12 +1274,12 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.63-dark-texture-cleanup';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.63-dark-texture-cleanup';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.64-planning-grayscale';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.64-planning-grayscale';
   import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.63-dark-texture-cleanup';
+  const APP_VERSION='3.22.64-planning-grayscale';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1653,7 +1653,7 @@
     if(osmMap&&osmStyleReady){
       // Paint-only; never setStyle() or lose EA/DEM/tensor/site layers.
       basemapThemeController?.apply(next);
-      const building=next==='dark'?'#2b2f33':'#bbc5cb';
+      const building=next==='dark'?'#2b2f33':'#ffffff';
       if(osmMap.getLayer(CITY_BUILDINGS_LAYER))
         osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',building);
       if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL))
@@ -7712,7 +7712,7 @@
      */
     const nativeHeight=height;
     const nativeBase=base;
-    const nativeColour=basemapTheme==='dark'?'#2b2f33':'#bbc5cb';
+    const nativeColour=basemapTheme==='dark'?'#2b2f33':'#ffffff';
 
     /*
      * Transparent driver layer: keep the dedicated building source requesting
@@ -7846,13 +7846,13 @@
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
-      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',basemapTheme==='dark'?'#2b2f33':'#bbc5cb');
+      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',basemapTheme==='dark'?'#2b2f33':'#ffffff');
       osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-height',visibleHeight);
       osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-base',visibleBase);
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL)){
-      osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-color',basemapTheme==='dark'?'#2b2f33':'#bbc5cb');
+      osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-color',basemapTheme==='dark'?'#2b2f33':'#ffffff');
       osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-opacity',fillOpacity);
     }
 
