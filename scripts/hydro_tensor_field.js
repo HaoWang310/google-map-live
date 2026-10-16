@@ -305,9 +305,9 @@ export function createHydroTensorRenderer(args){
               buildLines(packet,unpacked);buildRibbons(packet,unpacked);
               provisionalLineCount=0;previewBaseSettings=null;
               lastRenderedYear=packet.scenario?.year??2026;
-              // Preserve selected-year reveal even if geometry finishes late.
-              yearGrowth=growthTo;growthFrom=growthTo;
-              restart();geometryStatus();
+              // Keep the already-running reveal tween across year packets.
+              // Never snap all visible geometry to the final fraction.
+              restart({preserveGrowth:true});geometryStatus();
               // A full, matching geometry packet is the ONLY trigger that
               // advances automatic hydrology-to-tensor year staging.
               onGeometryReady?.({year:packet.scenario?.year,
@@ -498,13 +498,20 @@ export function createHydroTensorRenderer(args){
       if(transition>=1&&settings.speed<=0)stop();
     }else if(transition>=1)stop();
   }
-  function restart(){
+  function restart({preserveGrowth=false}={}){
     stop();animationOrigin=performance.now();
     lastAnimationDraw=0;renderedFraction=-1;applyStyle();
     if(!enabled)return;
-    yearGrowth=growthTo;growthFrom=growthTo;growthChangeAt=performance.now();
+    if(preserveGrowth){
+      // New geometry is allowed, but display fraction stays continuous.
+      growthFrom=yearGrowth;growthChangeAt=performance.now();
+    }else{
+      yearGrowth=growthTo;growthFrom=growthTo;growthChangeAt=performance.now();
+    }
     drawLines(yearGrowth);renderedFraction=yearGrowth;
-    if(settings.mode==='presentation')animation=requestAnimationFrame(tick);
+    if(settings.mode==='presentation'||
+       (preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005))
+      animation=requestAnimationFrame(tick);
     else dots()?.setData(empty());
   }
   function setTimelineYear(year,{instant=false}={}){
