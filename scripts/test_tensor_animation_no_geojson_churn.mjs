@@ -1,69 +1,67 @@
-// London Map v3.22.66 — regression against animation-frame GeoJSON churn.
+// v3.22.68 · Multi-layer gradient animation without per-frame line uploads.
 // Run: node scripts/test_tensor_animation_no_geojson_churn.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {tensorRevealGate} from './hydro_tensor_visual.js';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js';
 const source=fs.readFileSync(new URL('./hydro_tensor_field.js',import.meta.url),'utf8');
-const start=source.indexOf('  function uploadGeometryOnce(){');
-const end=source.indexOf('  function drawParticles(',start);
-assert.ok(start>=0&&end>start,'real renderer paint/reveal section is present');
-const paintSection=source.slice(start,end);
-assert.ok(!paintSection.includes('coordinates:coords.slice('),
-  'streamlines must never be truncated per animation frame');
-const calls=[],paints=[];
+const visual=fs.readFileSync(new URL('./hydro_tensor_visual.js',import.meta.url),'utf8');
+const reveal=source.slice(source.indexOf('  function revealOpacity('),
+  source.indexOf('  function applyStyle(){'));
+assert.ok(!reveal.includes('.setData('),
+  'gradient animation must never upload heavy GeoJSON geometry');
+assert.ok(reveal.includes("'line-gradient'"),'gradient paint is frame-driven');
+assert.ok(visual.includes('rgba(0,0,0,0)'),'unswept parts stay invisible');
+
+const layers=new Map(),sources=new Map(),uploadCounts=new Map();
+const initial=['field','field-glow','ribbon','ribbon-glow','particles'];
+for(const id of initial)layers.set(id,{id,paint:{}});
+for(const id of ['field-src','ribbon-src','particle-src']){
+  uploadCounts.set(id,0);
+  sources.set(id,{setData(){uploadCounts.set(id,uploadCounts.get(id)+1);}});
+}
 const map={
-  getLayer:id=>({id}),
-  setLayoutProperty(){},
-  setPaintProperty:(id,prop,value)=>paints.push({id,prop,value})
+  getLayer:id=>layers.get(id)||null,
+  addLayer(layer){assert.ok(!layers.has(layer.id));layers.set(layer.id,layer);},
+  getSource:id=>sources.get(id)||null,
+  setLayoutProperty(id,key,value){
+    const layer=layers.get(id);assert.ok(layer);(layer.layout||= {})[key]=value;
+  },
+  setPaintProperty(id,key,value){
+    const layer=layers.get(id);assert.ok(layer);(layer.paint||= {})[key]=value;
+  },
+  getPaintProperty(id,key){return layers.get(id)?.paint?.[key];}
 };
-const sourceStub=id=>({setData:fc=>calls.push({
-  id,featureCount:fc.features.length,coordinates:fc.features.map(f=>f.geometry.coordinates)
-})});
-const fieldData=sourceStub('field'),ribbonData=sourceStub('ribbon');
-const makeLine=(index,branch)=>({
-  type:'Feature',
-  properties:{branch,opacity:.67,glowFactor:.5,width:.85,
-    revealOrder:index/100,color:branch==='primary'?'#9DDCFF':'#A9D9FA'},
-  geometry:{type:'LineString',coordinates:[[index,1],[index+1,2]]}
+const renderer=createHydroTensorRenderer({
+  map,sourceId:'field-src',particleSourceId:'particle-src',
+  glowLayerId:'field-glow',lineLayerId:'field',
+  particleLayerId:'particles',ribbonSourceId:'ribbon-src',
+  ribbonLayerId:'ribbon',ribbonGlowLayerId:'ribbon-glow',
+  getBounds:()=>null
 });
-const field=Array.from({length:100},(_,i)=>makeLine(i,i%2?'secondary':'primary'));
-const ribbons=Array.from({length:9},(_,i)=>({
-  ...makeLine(i,'network'),
-  properties:{...makeLine(i,'network').properties,revealOrder:i/9}
-}));
-const inputCoords=JSON.stringify(field.map(f=>f.geometry.coordinates));
-const settings={mode:'analysis',direction:'dual',showRibbon:true,showFilaments:true,
-  opacity:.85,glow:.35,density:55,length:65,trunkEmphasis:75};
-const bind=new Function('map','settings','features','ribbonFeatures','src',
-  'ribbonSource','tensorRevealGate',`
-  const enabled=true;
-  const lineLayerId='field',glowLayerId='field-glow',
-    ribbonLayerId='ribbon',ribbonGlowLayerId='ribbon-glow',particleLayerId='particle';
-  const geometrySnapshot={parameters:{density:55,length:65},scenario:{year:2100}};
-  let uploadedField=null,uploadedRibbon=null,uploadedDirection=null,yearGrowth=.25;
-  let timelineYear=2100,geometryBusy=false,geometryPending=null,
-    controlsGeometryTimer=0,requestTimer=0,geometryTimer=0;
-  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),onProgress=()=>{};
-  ${paintSection}
-  return {drawLines,applyStyle};
-`);
-const test=bind(map,settings,field,ribbons,()=>fieldData,()=>ribbonData,tensorRevealGate);
-test.applyStyle();
-for(let i=0;i<=100;i++)test.drawLines(i/100);
-assert.equal(calls.length,2,
-  '100 animation frames upload each complete geometry source only once');
-assert.deepEqual(calls.map(c=>c.featureCount),[100,9]);
-assert.equal(JSON.stringify(field.map(f=>f.geometry.coordinates)),inputCoords,
-  'visual reveal must not alter any original point coordinates');
-settings.direction='primary';
-test.drawLines(1);
-assert.equal(calls.length,3,'changing direction only updates field once');
-assert.equal(calls.at(-1).featureCount,50);
-settings.glow=0;
-test.applyStyle();
-assert.equal(paints.filter(x=>x.id==='field-glow'&&x.prop==='line-opacity').at(-1)?.value,0);
-assert.equal(paints.filter(x=>x.id==='ribbon-glow'&&x.prop==='line-opacity').at(-1)?.value,0);
-assert.equal(tensorRevealGate(0),0);
-assert.equal(tensorRevealGate(1),1);
-console.log('PASS 100 reveal frames: only 2 source uploads, no geometrical churn');
-console.log('PASS direction-only upload, strict zero glow and preserved coordinates');
+renderer.setEnabled(true);
+for(const branch of ['primary','secondary']){
+  for(let w=0;w<2;w++){
+    const core=layers.get('field-trace-'+branch+'-'+w);
+    const wake=layers.get('field-wake-'+branch+'-'+w);
+    assert.ok(core&&wake,'both core and glow layers are installed');
+    assert.deepEqual(core.filter[1],['==',['get','branch'],branch]);
+  }
+}
+renderer.setTimelineYear(2100,{instant:true});
+const afterFirst={field:uploadCounts.get('field-src'),ribbon:uploadCounts.get('ribbon-src')};
+assert.equal(afterFirst.field,1);
+assert.equal(afterFirst.ribbon,1);
+for(let year=2026;year<=2100;year++){
+  renderer.setTimelineYear(year,{instant:true});
+}
+assert.equal(uploadCounts.get('field-src'),1,
+  '75 visual year updates must not re-upload field source');
+assert.equal(uploadCounts.get('ribbon-src'),1,
+  '75 visual year updates must not re-upload ribbon source');
+assert.ok(map.getPaintProperty('field-trace-primary-0','line-gradient'));
+assert.ok(map.getPaintProperty('ribbon','line-gradient'));
+renderer.setEnabled(false);
+assert.equal(layers.get('field-trace-primary-0').layout.visibility,'none');
+assert.equal(layers.get('particles').layout.visibility,'none');
+console.log('PASS independent blue/purple core+bloom layers created and hidden on disable');
+console.log('PASS 75 gradient year updates without a single repeated GeoJSON line upload');
