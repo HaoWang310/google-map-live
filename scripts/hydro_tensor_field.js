@@ -1,9 +1,10 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-/* v3.22.50-tensor-site-fix · One computed eigenfield in dry and wet states.
-   All-year geometry samples the same symmetric tensor eigenaxes. Source
-   DEM and flood transport are unchanged; existing line/particle styles are
-   retained and are not evidence of measured water velocity. */
+import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial} from './hydro_tensor_visual.js?v=3.22.65-tensor-silk-palette';
+/* v3.22.65-tensor-silk-palette · DISPLAY ONLY. Current computed eigenfield,
+   original streamline geometry, flood physics and particle path/speed logic
+   are unchanged. Blue-violet colours encode artistic visual hierarchy only,
+   not measured rainfall intensity, velocity or calibrated water depth. */
 export function createHydroTensorRenderer(args){
   const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
     ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus,onProgress,onGeometryReady}=args;
@@ -176,11 +177,12 @@ export function createHydroTensorRenderer(args){
         const back=trace(x,y,branch,-1),forward=trace(x,y,branch,1);
         const path=back.slice(1).reverse().concat(forward);
         if(path.length<4)continue;
+        const material=baseTensorMaterial({branch,rank:0,wetSupport:0});
         candidates.push({type:'Feature',properties:{
-          color:branch==='primary'?'#68cce3':'#8c91be',
-          analysisColor:branch==='primary'?'#68cce3':'#8c91be',
-          width:branch==='primary'?1.05:.75,opacity:branch==='primary'?.85:.60,
-          glowFactor:0,family:'base',branch,preview:true
+          color:material.color,analysisColor:material.color,
+          width:branch==='primary'?1.05:.75,
+          opacity:material.opacity,glowFactor:material.glowFactor,
+          family:'base',branch,preview:true
         },geometry:{type:'LineString',coordinates:path.map(toCoordinate)}});
       }
     }
@@ -229,19 +231,17 @@ export function createHydroTensorRenderer(args){
     renderGeo=gridRenderGeometry(packet.grid);
     geometryDiagnostics=packet.diagnostics;
     const generated=unpacked.lines;
-    // Colour/weight are locally computed from the integrated curve's wet
-    // support. This is depth-driven display, not a class label or invented axis.
-    const tint=(dry,wet,t)=>{
-      const a=dry.match(/[a-f0-9]{2}/ig).map(h=>parseInt(h,16));
-      const b=wet.match(/[a-f0-9]{2}/ig).map(h=>parseInt(h,16));
-      return '#'+a.map((v,i)=>Math.round(v+(b[i]-v)*t).toString(16).padStart(2,'0')).join('');
-    };
+    // Visual metadata only. Geometry coordinates and computed tensor rank
+    // are forwarded unchanged; colours are NOT a physical scale.
     baseLines=generated.map((line,index)=>{
       const wet=clamp(Number(line.wetSupport||0),0,1);
-      const primary=line.branch==='primary';
+      const material=baseTensorMaterial({
+        branch:line.branch,rank:line.rank,wetSupport:wet
+      });
       return {...line,index,family:'base',wet,
         coordinates:line.path.map(toGeo),
-        color:tint(primary?'#618a9b':'#686f8e',primary?'#4fe4ef':'#a2c4ff',wet)};
+        color:material.color,visualOpacity:material.opacity,
+        glowFactor:material.glowFactor};
     });
     lines=baseLines;
     wetLines=lines.filter(line=>line.wetSupport>.035).map((line,index)=>({...line,index}));
@@ -249,19 +249,24 @@ export function createHydroTensorRenderer(args){
       color:line.color,analysisColor:line.color,
       width:Math.max(line.branch==='primary'?.85:.65,
         settings.width*(line.branch==='primary'?.7:.5)*(1+.50*line.wet)),
-      opacity:line.branch==='primary'?(.66+.30*line.wet):(.48+.34*line.wet),glowFactor:0,
+      opacity:line.visualOpacity,glowFactor:line.glowFactor,
       family:'base',branch:line.branch,relativeGuidance:line.rank,
       wetSupport:line.wet,lengthM:line.lengthM
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
   }
   function buildRibbons(packet,unpacked){
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
-    ribbons=unpacked.ribbons.map((line,index)=>({...line,index,
-      coordinates:line.path.map(toGeo),color:line.hierarchy==='trunk'?'#8ce7f5':'#54b5dd',
-      width:Math.max(.42,settings.width*(line.hierarchy==='trunk'?.52:.37)),opacity:.82}));
+    ribbons=unpacked.ribbons.map((line,index)=>{
+      const material=ribbonTensorMaterial(line);
+      return {...line,index,coordinates:line.path.map(toGeo),
+        color:material.color,
+        width:Math.max(.42,settings.width*(line.hierarchy==='trunk'?.52:.37)),
+        opacity:material.opacity,glowFactor:material.glowFactor};
+    });
     hydroCorePaths=unpacked.skeleton;
     ribbonFeatures=ribbons.map(line=>({type:'Feature',properties:{
       color:line.color,analysisColor:line.color,width:line.width,opacity:line.opacity,
+      glowFactor:line.glowFactor,
       hierarchy:line.hierarchy,lengthM:line.lengthM,relativeGuidance:line.rank,hydrologyReference:true
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
     geometryStatus();
@@ -362,11 +367,13 @@ export function createHydroTensorRenderer(args){
     if(map.getLayer(glowLayerId)){
       map.setPaintProperty(glowLayerId,'line-color',['get','color']);
       map.setPaintProperty(glowLayerId,'line-width',
-        ['*',['get','width'],1.5+settings.glow*4]);
+        ['*',['get','width'],1.8+settings.glow*.95]);
+      // Glow works in Analysis AND Presentation; 0 means completely OFF.
+      // Core stays visible and the outer halo remains faint at full strength.
       map.setPaintProperty(glowLayerId,'line-opacity',
-        ['*',present?settings.glow*settings.opacity*.27:0,
+        ['*',settings.glow*settings.opacity*.20,
           ['get','opacity'],['get','glowFactor']]);
-      map.setPaintProperty(glowLayerId,'line-blur',1+settings.glow*3);
+      map.setPaintProperty(glowLayerId,'line-blur',.45+settings.glow*.95);
     }
     if(ribbonLayerId&&map.getLayer(ribbonLayerId)){
       map.setPaintProperty(ribbonLayerId,'line-color',
@@ -374,22 +381,21 @@ export function createHydroTensorRenderer(args){
       map.setPaintProperty(ribbonLayerId,'line-width',
         ['*',['get','width'],1+settings.trunkEmphasis/110]);
       map.setPaintProperty(ribbonLayerId,'line-opacity',
-        ['*',settings.opacity*(present?.96:.5),['get','opacity']]);
+        ['*',settings.opacity*(present?.96:.88),['get','opacity']]);
     }
     if(ribbonGlowLayerId&&map.getLayer(ribbonGlowLayerId)){
       map.setPaintProperty(ribbonGlowLayerId,'line-color',['get','color']);
       map.setPaintProperty(ribbonGlowLayerId,'line-width',
-        ['*',['get','width'],2+settings.glow*5+
-          settings.trunkEmphasis/55]);
+        ['*',['get','width'],1.9+settings.glow*.95]);
       map.setPaintProperty(ribbonGlowLayerId,'line-opacity',
-        ['*',present?settings.glow*settings.opacity*.43:0,
-          ['get','opacity']]);
-      map.setPaintProperty(ribbonGlowLayerId,'line-blur',1.4+settings.glow*4);
+        ['*',settings.glow*settings.opacity*.18,
+          ['get','opacity'],['get','glowFactor']]);
+      map.setPaintProperty(ribbonGlowLayerId,'line-blur',.55+settings.glow*.95);
     }
     if(map.getLayer(particleLayerId)){
       map.setLayoutProperty(particleLayerId,'visibility',
         enabled&&present?'visible':'none');
-      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.85);
+      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.72);
     }
   }
   function drawLines(fraction=1){
@@ -438,8 +444,9 @@ export function createHydroTensorRenderer(args){
         i*.61803398875)%1;
       const pos=u*(coords.length-1),j=Math.min(coords.length-2,Math.floor(pos));
       const alpha=pos-j,a=coords[j],b=coords[j+1];
+      const particleMaterial=particleTensorMaterial({index:i,main,rank:line.rank});
       particles.push({type:'Feature',properties:{
-        color:line.color,radius:main?1.35+line.rank:.85+line.rank
+        color:particleMaterial.color,radius:particleMaterial.radius
       },geometry:{type:'Point',coordinates:[
         a[0]+(b[0]-a[0])*alpha,a[1]+(b[1]-a[1])*alpha]}});
     }
@@ -712,7 +719,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.59-tensor-3d-performance',
+    return {schema:'london-tensor-site-v1',version:'3.22.65-tensor-silk-palette',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
