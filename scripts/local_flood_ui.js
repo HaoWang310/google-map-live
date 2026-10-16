@@ -1,7 +1,7 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.65-tensor-silk-palette';
-import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.65-tensor-silk-palette';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.66-tensor-smooth-reveal';
+import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.66-tensor-smooth-reveal';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2497,7 +2497,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.65-tensor-silk-palette</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.66-tensor-smooth-reveal</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2590,14 +2590,14 @@ export function createLocalFloodUI({
       '<label class="site-vector-param"><span>方向平滑<output id="siteHudVectorSmoothnessValue">60</output></span><input id="siteHudVectorSmoothness" type="range" min="0" max="100" step="5" value="60"></label>',
       '<label class="site-vector-param"><span>线条密度<output id="siteHudVectorDensityValue">55</output></span><input id="siteHudVectorDensity" type="range" min="0" max="100" step="1" value="55"></label>',
       '<label class="site-vector-param"><span>线条长度<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
-      '<label class="site-vector-param"><span>发光强度<output id="siteHudVectorGlowValue">0</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0"></label>',
+      '<label class="site-vector-param"><span>发光强度<output id="siteHudVectorGlowValue">0.35</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0.35"></label>',
       '<label class="site-vector-param"><span>动画速度<output id="siteHudVectorSpeedValue">0</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="0"></label>',
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>弱</span><div aria-hidden="true"></div><span>强</span></div>',
       '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">张量场准备中 · 首次计算将先显示真实方向预览</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 回放张量场生成（约4秒）</button>',
-      '<div class="site-hydro-mini" style="font-size:11px">回放与线条生长百分比是可视化进度，不代表真实逐年道路建设；方向仍取当前计算场景。</div>',
+      '<div class="site-hydro-mini" style="font-size:11px">线束生长为流线可视化，沿原始计算几何渐进显示；现在使用静态曲线和图层透明度过渡，粒子速度不代表真实水流速度。</div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
