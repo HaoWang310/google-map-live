@@ -2,13 +2,15 @@ import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-r
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
+import {buildTensorGapDiagnostic} from './hydro_tensor_gap_diagnostic.js?v=3.22.78-tensor-gap-diagnostic';
 /* v3.22.76-tensor-particle-balance · DISPLAY ONLY. Current computed eigenfield,
    original streamline geometry and flood physics are unchanged. Particle
    sampling and visual brightness are spatially balanced. Blue-violet colours encode artistic visual hierarchy only,
    not measured rainfall intensity, velocity or calibrated water depth. */
 export function createHydroTensorRenderer(args){
   const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
-    ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus,onProgress,onGeometryReady}=args;
+    ribbonSourceId,ribbonLayerId,ribbonGlowLayerId,getBounds,onStatus,onProgress,onGeometryReady,
+    gapSourceId,gapWetLayerId,gapCategoryLayerId,onGapDiagnostic}=args;
   const empty=()=>({type:'FeatureCollection',features:[]});
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const presets={
@@ -84,6 +86,39 @@ export function createHydroTensorRenderer(args){
   const src=()=>map.getSource(sourceId),dots=()=>map.getSource(particleSourceId);
   const ribbonSource=()=>ribbonSourceId?map.getSource(ribbonSourceId):null;
   const status=t=>{if(t!==reported){reported=t;onStatus?.(t)}};
+  let gapEnabled=false,gapRevision=0,lastGapRevision=-1,gapSummary=null;
+  const gapSource=()=>gapSourceId?map.getSource(gapSourceId):null;
+  function syncGapDiagnostic(force=false){
+    const visible=enabled&&gapEnabled;
+    for(const id of [gapWetLayerId,gapCategoryLayerId]){
+      if(id&&map.getLayer(id))map.setLayoutProperty(id,'visibility',
+        visible?'visible':'none');
+    }
+    if(!visible)return;
+    if(!result?.fields||!gapSource()){
+      onGapDiagnostic?.(null);return;
+    }
+    if(!force&&lastGapRevision===gapRevision)return;
+    const matched=Boolean(geometrySnapshot&&
+      sameHydroGrid(geometrySnapshot.grid,result.grid)&&
+      geometrySnapshot.scenario?.year===result.scenario?.year&&
+      (features.length||ribbonFeatures.length));
+    const evaluated=buildTensorGapDiagnostic({
+      result:{...result,geometrySpacingM:matched?
+        geometryDiagnostics?.primarySpacingM:null},
+      streamlines:matched?[...features,...ribbonFeatures]:[],
+      geometryMatched:matched
+    });
+    if(!evaluated)return;
+    gapSource().setData(evaluated.geojson);
+    gapSummary=evaluated.stats;lastGapRevision=gapRevision;
+    onGapDiagnostic?.(gapSummary);
+  }
+  function setGapDiagnosticEnabled(value){
+    gapEnabled=Boolean(value);
+    if(!gapEnabled)onGapDiagnostic?.(null);
+    syncGapDiagnostic(true);
+  }
   // Line sources are stable; only GPU gradient paint changes while tracing.
   const traceGroups=['primary','secondary'].flatMap(branch=>
     Array.from({length:TENSOR_TRACE_WAVES},(_,wave)=>({
@@ -223,6 +258,7 @@ export function createHydroTensorRenderer(args){
         }
         if(!submitted||!sameHydroGrid(data.grid,submitted.context.grid))return;
         result={...data,fields,context:submitted.context,depth:submitted.depth,parameters:submitted.parameters};
+        gapRevision++;syncGapDiagnostic();
         if([2026,2100].includes(data.scenario?.year))scenarioSnapshots.set(data.scenario.year,result);
         lastSubmitted=performance.now();
         // Show real eigenvectors immediately while expensive integral curves run.
@@ -455,6 +491,7 @@ export function createHydroTensorRenderer(args){
               geometrySnapshot={grid:packet.grid,scenario:packet.scenario,
                 parameters:packet.parameters};
               buildLines(packet,unpacked);buildRibbons(packet,unpacked);
+              gapRevision++;syncGapDiagnostic();
               provisionalLineCount=0;previewBaseSettings=null;
               lastRenderedYear=packet.scenario?.year??2026;
               // Keep the already-running reveal tween across year packets.
@@ -937,11 +974,13 @@ export function createHydroTensorRenderer(args){
   function setEnabled(on){
     const requested=Boolean(on)&&!disposed;
     if(enabled===requested){
+      syncGapDiagnostic();
       // Repeated visibility refresh must not reset the year's animation
       // or constantly rebuild the same tensor ribbons.
       applyStyle();return;
     }
     enabled=requested;
+    syncGapDiagnostic();
     const state=enabled?'visible':'none';
     for(const id of [lineLayerId,glowLayerId,ribbonLayerId,ribbonGlowLayerId,
       ...traceGroups.flatMap(g=>[g.coreId,g.glowId]),headHaloLayerId,particleLayerId]){
@@ -973,6 +1012,8 @@ export function createHydroTensorRenderer(args){
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     if(controlsGeometryTimer){clearTimeout(controlsGeometryTimer);controlsGeometryTimer=0}
     requestId++;result=null;flow=null;context=null;depth=null;geometryDiagnostics=null;geometrySnapshot=null;
+    gapRevision++;lastGapRevision=-1;gapSummary=null;
+    gapSource()?.setData(empty());onGapDiagnostic?.(null);
     scenarioSnapshots.clear();
     geometryDesired++;geometryPending=null;
     lines=[];baseLines=[];wetLines=[];features=[];particlePaths=[];
@@ -1078,7 +1119,8 @@ export function createHydroTensorRenderer(args){
       pending:{tensor:Boolean(requestTimer)||result.requestId!==requestId,geometry:geometryBusy||Boolean(geometryPending)},
       acceptance:'NOT verified in the user-selected parcel; source data export, not a visual acceptance report'};
   }
-  return {configure,setTimelineYear,replayGrowth,startContinuousPlayback,
+  return {configure,setTimelineYear,replayGrowth,setGapDiagnosticEnabled,syncGapDiagnostic,
+    startContinuousPlayback,
     stopContinuousPlayback,seekContinuousPlayback,pauseContinuousPlayback,resumeContinuousPlayback,
     setPlaybackRate,getPlaybackState,setField,setEnabled,clear,dispose,exportStructuredData,
     exportSiteSnapshot,
