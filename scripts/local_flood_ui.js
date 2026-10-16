@@ -2201,10 +2201,15 @@ export function createLocalFloodUI({
     setSiteRainMode();
   }
   function simYearDisplay(){
+    // futureYear is the authoritative Worker keyframe. Keep UI on the
+    // independently interpolated visual year while automatic solving runs.
     hydroVector?.setTimelineYear(futureYear);
-    setSiteHud('siteHudYearText',String(futureYear));
-    setSiteHud('siteHudTensorYear',String(futureYear));
-    for(const id of ['siteHudYear','siteHudFooterYear'])if(siteHud(id))siteHud(id).value=String(futureYear);
+    const displayYear=tensorSession?.autoSmoothStarted&&!tensorSession.manual?
+      Math.floor(tensorSession.visualYear??2026):futureYear;
+    setSiteHud('siteHudYearText',String(displayYear));
+    setSiteHud('siteHudTensorYear',String(displayYear));
+    for(const id of ['siteHudYear','siteHudFooterYear'])
+      if(siteHud(id))siteHud(id).value=String(displayYear);
     setSiteHud('siteHudFutureFactor',RAIN_PRESETS[rainPreset].label+
       ' · 四历时设计对比（30/60/120/360 min） · '+
       (fehDurationDepthsMm?'使用手动输入的 FEH DDF 雨量':
