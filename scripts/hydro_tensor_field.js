@@ -626,7 +626,7 @@ export function createHydroTensorRenderer(args){
   }
   function stop(){if(animation)cancelAnimationFrame(animation);animation=0}
   function startContinuousPlayback({durationMs=64000}={}){
-    if(!enabled||disposed||!(features.length||ribbonFeatures.length))return false;
+    if(!enabled||disposed)return false; // UI defers start until computed geometry exists.
     const now=performance.now();
     continuousPlayback={startedAt:now,paused:false,
       durationMs:clamp(Number(durationMs)||64000,8000,240000)};
