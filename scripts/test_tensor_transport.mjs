@@ -44,6 +44,10 @@ const geometryCallback=between('      onGeometryReady:({year,token,rainfallCase,
 assert.ok(!geometryCallback.includes('autoSmoothStarted=hydroVector?.startContinuousPlayback'),
   'Preparing geometry must not autoplay before clicking Run');
 assert.ok(renderer.includes('function pauseContinuousPlayback()'));
+const pauseBlock=renderer.slice(renderer.indexOf('  function pauseContinuousPlayback(){'),
+  renderer.indexOf('  function resumeContinuousPlayback(){'));
+assert.ok(!pauseBlock.includes('dots()?.setData(empty())'),
+  'Pause must freeze particle heads where they are, rather than clear them');
 assert.ok(renderer.includes('function startContinuousPlayback('));
 assert.ok(renderer.includes('function resumeContinuousPlayback()'));
 assert.ok(renderer.includes('getPlaybackState,setField,setEnabled'),
