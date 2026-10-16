@@ -14,12 +14,12 @@ export const BASEMAP_THEMES=Object.freeze({
   }),
   dark:Object.freeze({
     id:'dark',name:'黑色科技',
-    background:'#02070d',land:'#07111a',residential:'#0a1621',
-    park:'#081a1d',water:'#03131c',
-    building:'#203243',buildingEdge:'#31485c',
-    motorway:'#8fb6d6',primaryRoad:'#7aa3c5',road:'#597b99',
-    rail:'#5a6f83',boundary:'#31485c',
-    text:'#667b8f',textHalo:'#02070d',poi:'#5f7487'
+    background:'#161616',land:'#1f1f1f',residential:'#242424',
+    park:'#202020',water:'#0f0f10',
+    building:'#2b2f33',buildingEdge:'#3b4045',
+    motorway:'#6e7378',primaryRoad:'#62676c',road:'#555a5f',
+    rail:'#4a4f54',boundary:'#34383c',
+    text:'#9a9a9a',textHalo:'#161616',poi:'#8a8a8a'
   })
 });
 export const normaliseBasemapTheme=value=>
