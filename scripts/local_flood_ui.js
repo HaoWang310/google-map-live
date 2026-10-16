@@ -1,7 +1,7 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.70-tensor-transport';
-import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.70-tensor-transport';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.71-tensor-transport-stable';
+import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
