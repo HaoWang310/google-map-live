@@ -78,3 +78,63 @@ export function tensorRevealGate(progress){
   return ['interpolate',['linear'],['get','revealOrder'],
     start,1,end,0];
 }
+
+
+/* v3.22.68 · GPU-friendly travelling growth.
+ * Display-only interpolation along unchanged computed LineStrings.
+ * MapLibre line-gradient cannot be data-driven, so the renderer assigns
+ * primary/secondary curves to two small display waves, with fixed filters.
+ * No dynamic GeoJSON vertex slicing or water/tensor solver changes. */
+export const TENSOR_TRACE_WAVES=2;
+export function traceGrowthWave(index,rank=0){
+  // The grouping deliberately depends only on visual indexing, not physics.
+  return (Math.floor(Number(index)||0)+Math.floor(clamp01(rank)*5))%TENSOR_TRACE_WAVES;
+}
+export function traceGrowthProgress(total,family='primary',wave=0){
+  const t=clamp01(total),w=Math.max(0,Math.min(TENSOR_TRACE_WAVES-1,Math.floor(wave)));
+  const start=family==='ribbon'?.012:
+    family==='secondary'?.42+.105*w:.12+.105*w;
+  const finish=family==='ribbon'?.35:
+    family==='secondary'?1:.89+.09*w;
+  return clamp01((t-start)/(finish-start));
+}
+const TRACE_RAMPS=Object.freeze({
+  primary:[[0,'#518DCE'],[.23,'#9DDCFF'],[.48,'#518DCE'],
+    [.70,'#A9D9FA'],[.86,'#9DDCFF'],[1,'#E3F4FF']],
+  secondary:[[0,'#A9D9FA'],[.23,'#EDBDF9'],[.48,'#A9D9FA'],
+    [.75,'#9DDCFF'],[.90,'#EDBDF9'],[1,'#E3F4FF']],
+  ribbon:[[0,'#518DCE'],[.16,'#9DDCFF'],[.39,'#E3F4FF'],
+    [.61,'#A9D9FA'],[.83,'#EDBDF9'],[1,'#E3F4FF']]
+});
+export function traceGradient(progress,family='primary',glow=false){
+  const head=clamp01(progress),ramp=TRACE_RAMPS[family]||TRACE_RAMPS.primary;
+  const transparent='rgba(0,0,0,0)';
+  if(head<=.0001)return ['interpolate',['linear'],['line-progress'],
+    0,transparent,1,transparent];
+  const out=['interpolate',['linear'],['line-progress']];
+  // A completed line retains its entire multi-colour path gradient.
+  if(head>=.9999){
+    for(const [at,color] of ramp)out.push(at,color);
+    return out;
+  }
+  const litEnd=Math.max(0,head-(glow?.115:.075));
+  out.push(0,ramp[0][1]);
+  let last=0;
+  for(const [at,color] of ramp){
+    if(at>0&&at<litEnd-1e-5){out.push(at,color);last=at;}
+  }
+  if(litEnd>last+1e-5){
+    let i=1;
+    while(i<ramp.length&&ramp[i][0]<litEnd)i++;
+    const lo=ramp[i-1],hi=ramp[Math.min(i,ramp.length-1)];
+    const weight=(litEnd-lo[0])/Math.max(.00001,hi[0]-lo[0]);
+    out.push(litEnd,mixTensorColor(lo[1],hi[1],weight));
+  }
+  // Moving high-energy head, followed by a luminous decay. The transparent
+  // stop hides the unswept part of each line completely (not opacity fade).
+  out.push(head,glow?'#9DDCFF':'#E3F4FF');
+  const fadeEnd=Math.min(1,head+.012);
+  if(fadeEnd>head+1e-6)out.push(fadeEnd,transparent);
+  if(fadeEnd<1)out.push(1,transparent);
+  return out;
+}
