@@ -649,7 +649,10 @@ export function createHydroTensorRenderer(args){
       yearGrowth=transition; // LINEAR years, no smoothstep/decade jumps.
       timelineYear=2026+74*transition;
       if(transition>=1){
-        continuousPlayback=null;
+        // Keep the guard alive until the whole solver sequence ends. A slow
+        // 2095/2100 Worker result must NEVER snap a finished 2100 display
+        // back to an earlier keyframe.
+        auto.done=true;
         growthTo=1;growthFrom=1;
       }
     }else{
@@ -668,7 +671,7 @@ export function createHydroTensorRenderer(args){
     else if(settings.mode==='presentation'&&settings.speed>0)
       drawParticles(elapsed,yearGrowth);
     else drawGrowthHeads(yearGrowth,false);
-    if(transition>=1&&!continuousPlayback){
+    if(transition>=1&&(!continuousPlayback||continuousPlayback.done)){
       replayGrowthActive=false;
       if(settings.mode!=='presentation'||settings.speed<=0)stop();
     }
@@ -686,7 +689,7 @@ export function createHydroTensorRenderer(args){
     drawLines(yearGrowth);renderedFraction=yearGrowth;
     drawGrowthHeads(yearGrowth,Boolean(continuousPlayback)||
       (preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005));
-    if(continuousPlayback||settings.mode==='presentation'||
+    if((continuousPlayback&&!continuousPlayback.done)||settings.mode==='presentation'||
        (preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005))
       animation=requestAnimationFrame(tick);
     else dots()?.setData(empty());
