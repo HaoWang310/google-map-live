@@ -1,0 +1,33 @@
+name: Tensor visual regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/hydro_tensor_visual.js'
+      - 'scripts/hydro_tensor_field.js'
+      - 'scripts/local_flood_ui.js'
+      - 'scripts/test_tensor_growth.mjs'
+      - 'scripts/test_tensor_visual_palette.mjs'
+      - 'scripts/test_tensor_animation_no_geojson_churn.mjs'
+      - '.github/workflows/tensor-visual-regression.yml'
+  workflow_dispatch:
+jobs:
+  tensor-render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check scripts/hydro_tensor_visual.js
+          node --check scripts/hydro_tensor_field.js
+          node --check scripts/local_flood_ui.js
+      - name: Visual regressions
+        run: |
+          node scripts/test_tensor_growth.mjs
+          node scripts/test_tensor_visual_palette.mjs
+          node scripts/test_tensor_animation_no_geojson_churn.mjs
