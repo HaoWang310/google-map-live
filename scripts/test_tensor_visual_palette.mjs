@@ -65,8 +65,10 @@ assert.ok(!field.includes('coordinates:coords.slice('),
 assert.ok(field.includes('restart({preserveGrowth:true})'),
   'each accepted year preserves running animation instead of snapping');
 assert.ok(field.includes('particleTensorMaterial({index:i,main,rank:line.rank})'));
-assert.ok(field.includes('const u=(elapsed*settings.speed*(.06+.09*line.rank)+'),
-  'particles remain on original trajectory with original speed interpolation');
+assert.ok(field.includes('const u=(particleClockSeconds*(.06+.09*line.rank)+'),
+  'particles remain on the original curves with continuous, rate-scaled travel');
+assert.ok(field.includes('advanceParticleClock(now)'),
+  'changing playback speed must preserve the current particle position');
 assert.ok(field.includes("const pos=u*(coords.length-1)"));
 assert.ok(!field.includes("queueGeometry(); // colour"),'style edits cannot rebuild geometry');
 assert.ok(originalGeometry.includes('export function createTensorGeometry'));
