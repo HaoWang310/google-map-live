@@ -147,7 +147,7 @@ test('anchored physical-scale regularization reduces undirected neighbour roughn
   assert.ok(b.directionContinuity[i]>=0&&b.directionContinuity[i]<=1.000001);
  }
 });
-test('building base does not repel a supported terrain slope',()=>{
+test('wall masking removes building cells while retaining adjacent terrain evidence',()=>{
   const d=fixture();d.config.smoothness=100;
   for(let y=0;y<41;y++)for(let x=0;x<41;x++){
     d.terrain[y*41+x]=30-x*.1;
@@ -155,7 +155,7 @@ test('building base does not repel a supported terrain slope',()=>{
   }
   const f=solve(d).fields;
   assert.equal(f.obstacleConstraint[center],0);
-  assert.equal(f.validMask[20*41+21],1);
+  assert.equal(f.validMask[20*41+21],0);
   assert.ok(Math.abs(f.primaryX[center])>.99);
   const flat=structuredClone(d);flat.terrain.fill(20);const empty=solve(flat).fields;
   assert.equal(empty.primaryY[center],0);assert.equal(empty.tensorYY[center],0);
