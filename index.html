@@ -330,6 +330,20 @@
       background:#101d2def;border:1px solid var(--hborder);border-radius:12px;
       pointer-events:auto;display:flex;align-items:center;gap:14px;padding:10px 14px}
     .site-hydro-timeline{flex:1;min-width:100px}
+    .site-hydro-timeline-heading{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .site-hydro-timeline-heading>strong{white-space:nowrap;font-size:12px}
+    .site-hydro-timeline-heading>#siteHudRunState{margin-left:auto;min-width:80px;text-align:right}
+    .site-hydro-ui .site-hydro-speed{display:inline-flex;align-items:center;gap:6px;
+      padding:3px 6px;border:1px solid #48484d;background:#1d1d20;color:#d7d7dd;
+      font-size:11px;font-weight:650;border-radius:9px;white-space:nowrap}
+    .site-hydro-ui .site-hydro-speed[hidden]{display:none!important}
+    .site-hydro-ui .site-hydro-speed select{min-width:0;width:76px;padding:4px 5px;
+      border-radius:6px;background:#2b2b30;border:1px solid #55555b;
+      color:#f5f5f7;font-size:12px;font-variant-numeric:tabular-nums;cursor:pointer}
+    @media(max-width:850px){
+      .site-hydro-timeline-heading{gap:5px}
+      .site-hydro-timeline-heading>#siteHudRunState{flex-basis:100%;text-align:left;margin-left:0}
+    }
     .site-hydro-track{height:8px;background:#2b4256;border-radius:6px;overflow:hidden;margin:9px 0 4px}
     .site-hydro-progress{height:100%;background:linear-gradient(90deg,#2e9cce,#66d9cf);width:0}
     .site-hydro-chart{height:50px;display:flex;align-items:flex-end;gap:3px}
@@ -887,7 +901,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.72-osm-labels-on</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.73-tensor-speed</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -1274,12 +1288,12 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.72-osm-labels-on';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.72-osm-labels-on';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.73-tensor-speed';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.73-tensor-speed';
   import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.72-osm-labels-on';
+  const APP_VERSION='3.22.73-tensor-speed';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
