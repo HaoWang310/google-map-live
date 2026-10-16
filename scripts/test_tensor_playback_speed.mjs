@@ -1,11 +1,11 @@
-// v3.22.73 · deterministic speed-switch and pause/replay regression.
+// v3.22.74 · deterministic speed-switch and pause/replay regression.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js';
 
 const ui=fs.readFileSync(new URL('./local_flood_ui.js',import.meta.url),'utf8');
 assert.ok(!ui.includes('siteHudVectorSpeed'),'obsolete animation-speed slider must be removed');
-for(const rate of ['0.5','1.25','1.5','2','3'])
+for(const rate of ['0.5','1.25','1.5','2','3','5'])
   assert.ok(ui.includes('<option value="'+rate+'"'),'missing '+rate+'x option');
 assert.ok(ui.includes("speedSelector.onchange=()=>"),'speed change handler is wired');
 assert.ok(ui.includes('hydroVector?.setPlaybackRate(candidate)'),
@@ -64,6 +64,11 @@ const beforeSlow=tensor.getPlaybackState().fraction;
 frames(40);
 const slowDelta=tensor.getPlaybackState().fraction-beforeSlow;
 assert.ok(slowDelta<secondDelta*.4,'0.5x must slow growth');
+assert.equal(tensor.setPlaybackRate(5),true,'5x should be accepted');
+const beforeFive=tensor.getPlaybackState().fraction;
+frames(20);
+const fiveDelta=tensor.getPlaybackState().fraction-beforeFive;
+assert.ok(fiveDelta>slowDelta*3.5,'5x should advance substantially faster than 0.5x');
 assert.equal(tensor.pauseContinuousPlayback(),true);
 const atPause=tensor.getPlaybackState();
 frames(50);
@@ -80,5 +85,5 @@ frames(500);
 assert.ok(tensor.getPlaybackState().finished,'fast playback reaches 2100');
 assert.equal(tensor.getPlaybackState().year,2100);
 tensor.setEnabled(false);
-console.log('PASS 0.5x, 1.25x, 1.5x, 2x, 3x: no jumps, pause/resume, replay to 2100');
+console.log('PASS 0.5x, 1.25x, 1.5x, 2x, 3x, 5x: no jumps, pause/resume, replay to 2100');
 console.log('PASS timeline speed selector replaces left-side animation-speed slider');
