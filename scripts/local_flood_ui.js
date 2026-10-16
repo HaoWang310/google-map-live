@@ -1,7 +1,7 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.68-particle-trace-growth';
-import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.69-continuous-tensor-time';
+import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.69-continuous-tensor-time';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -979,6 +979,9 @@ export function createLocalFloodUI({
     // Manual year-scrub interrupts automatic keyframes, not the tensor layer.
     const manualTensor=hydroDisplay.flow&&tensorSession?tensorSession:null;
     if(manualTensor){
+      // Explicit user seek overrides the automatic presentation clock.
+      hydroVector?.stopContinuousPlayback();
+      manualTensor.autoSmoothStarted=false;
       if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
       manualTensor.completed=true;manualTensor.manual=true;
       manualTensor.awaitingYear=futureYear;
@@ -1049,7 +1052,8 @@ export function createLocalFloodUI({
     if(tensorSession!==session||!hydroDisplay.flow||!isolatedSelection)return;
     if(index>=TENSOR_YEARS.length){
       session.completed=true;
-      setSiteHud('siteHudTensorGrowthStatus','2026–2100 张量场生成完成 · 2100 年最终曲线');
+      setSiteHud('siteHudTensorGrowthStatus',
+        '2026–2100 计算节点完成 · 连续生长画面按独立时间轴播放至 2100 年');
       status('2100 年张量场已完成；关闭开关可回到原雨水画面。');
       return;
     }
@@ -1106,7 +1110,7 @@ export function createLocalFloodUI({
     const session={id:++tensorSessionId,index:-1,awaitingYear:null,
       awaitingToken:null,awaitingPeak:!peak,awaitingPeakToken:null,
       originalYear:futureYear,completed:false,grid:peak?.grid||null,
-      rainfallCase:rainPreset};
+      rainfallCase:rainPreset,autoSmoothStarted:false,visualYear:2026};
     tensorSession=session;
     lastFlowUpdateAt=0;
     hydroVector?.clear();
@@ -3191,6 +3195,14 @@ export function createLocalFloodUI({
           year!==session.awaitingYear||token!==session.awaitingToken||
           rainfallCase!==session.rainfallCase)return;
         if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
+        // The FIRST solved geometry starts a single wall-clock playback.
+        // Subsequent ~10-year solver snapshots update direction evidence in
+        // the background, NEVER restart or snap the visible growth clock.
+        if(session.index===0&&!session.manual&&!session.autoSmoothStarted){
+          session.autoSmoothStarted=hydroVector?.startContinuousPlayback({
+            durationMs:64000
+          })===true;
+        }
         setSiteHud('siteHudTensorGrowthStatus',year+' 年完整流线 '+lineCount+
           ' 条 · '+(session.index+1)+'/'+TENSOR_YEARS.length);
         tensorStageTimer=setTimeout(()=>{
@@ -3200,13 +3212,28 @@ export function createLocalFloodUI({
         },260);
       },
       onProgress:({year,fraction,geometryYear,waitingForGeometry})=>{
-        // Avoid rapid DOM writes during streamline reveal and 3D interaction.
-        const now=performance.now();
-        if(now-lastTensorProgressHudAt<220&&fraction<.999)return;
+        // UI follows the interpolation clock; backend keyframes remain discrete.
+        const now=performance.now(),session=tensorSession;
+        if(now-lastTensorProgressHudAt<90&&fraction<.999)return;
         lastTensorProgressHudAt=now;
-        const exact=geometryYear===year&&!waitingForGeometry;
+        if(session?.autoSmoothStarted&&!session.manual){
+          const visibleYear=Math.max(2026,Math.min(2100,Number(year)||2026));
+          session.visualYear=visibleYear;
+          const label=String(Math.floor(visibleYear));
+          setSiteHud('siteHudYearText',label);
+          setSiteHud('siteHudTensorYear',label);
+          for(const id of ['siteHudYear','siteHudFooterYear']){
+            const slider=siteHud(id);if(slider)slider.value=label;
+          }
+          setSiteHud('siteHudTensorGrowthStatus',
+            '连续生长 '+visibleYear.toFixed(1)+' / 2100 年 · '+
+            Math.round(fraction*100)+'% · 真实水文计算节点 '+(geometryYear??'—')+
+            (waitingForGeometry?'（后台更新中）':'（已就绪）'));
+          return;
+        }
+        const exact=Math.abs((geometryYear??-1)-Number(year))<.05&&!waitingForGeometry;
         setSiteHud('siteHudTensorGrowthStatus','线条生长 '+Math.round(fraction*100)+
-          '% · '+year+' 年'+(exact?' · 年份数据匹配':
+          '% · '+Math.floor(Number(year)||2026)+' 年'+(exact?' · 年份数据匹配':
             ' · 显示预览，真实方向重算中'));
       }
     });
