@@ -887,7 +887,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.59-tensor-3d-performance</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.60-dual-map-style</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -911,12 +911,23 @@
         <span>OpenStreetMap / OpenFreeMap</span>
         <span style="font-size:9px;color:#9fb0c4">开发模式</span>
       </div>
+      <label class="layerRow" title="只修改地图颜色，不替换原始地图样式，不重载分析图层">
+        <span class="layerName">
+          <strong>地图风格</strong>
+          <small>仅视觉配色 · 不改变真实坐标和分析结果</small>
+        </span>
+        <select id="osmVisualStyle" aria-label="OpenStreetMap 底图风格"
+          style="min-width:132px;width:132px;background:#26292c;color:#f4f5f6;border:1px solid #565b63;border-radius:8px;padding:7px 5px;font-size:11px">
+          <option value="planning" selected>03 · 建筑规划</option>
+          <option value="dark">02 · 黑色科技</option>
+        </select>
+      </label>
       <label class="layerRow" title="隐藏 OpenStreetMap / OpenFreeMap 的道路名称、地点名称、POI 名称与图标、地铁站和公交站等标注；保留道路与建筑实体、3D 灰色建筑及分析图层">
         <span class="layerName">
           <strong>隐藏 OSM 名称 / POI 标注</strong>
           <small>仅隐藏 OSM 文字 / POI；保留道路、建筑、红框、锚点、尺寸与分析图层</small>
         </span>
-        <input id="osmStructureToggle" type="checkbox" autocomplete="off" disabled>
+        <input id="osmStructureToggle" type="checkbox" autocomplete="off" checked disabled>
       </label>
 
       <label class="layerRow" title="独立控制街道车辆显示；不再受“隐藏 OSM 名称 / POI 标注”开关影响">
@@ -1263,11 +1274,12 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.59-tensor-3d-performance';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.60-dual-map-style';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.60-dual-map-style';
   import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.59-tensor-3d-performance';
+  const APP_VERSION='3.22.60-dual-map-style';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1549,6 +1561,8 @@
   let googleMap=null;
   let osmMap=null;
   let osmStyleReady=false;
+  let basemapTheme='planning'; // 03 is the default on every first load.
+  let basemapThemeController=null;
   let googleMarker=null;
   let osmMarker=null;
   let googleLoading=false;
@@ -1628,8 +1642,25 @@
   let lastCityBuildingLodSource=null;
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
-  let osmStructuresHidden=false;
+  let osmStructuresHidden=true; // planning mode initially hides OSM names/POI.
   const osmBaseLayerVisibility=new Map();
+  function setBasemapTheme(mode){
+    const next=normaliseBasemapTheme(mode);
+    if(basemapTheme===next&&basemapThemeController?.getMode()===next)return;
+    basemapTheme=next;
+    const select=$('osmVisualStyle');
+    if(select)select.value=next;
+    if(osmMap&&osmStyleReady){
+      // Paint-only; never setStyle() or lose EA/DEM/tensor/site layers.
+      basemapThemeController?.apply(next);
+      const building=next==='dark'?'#30485c':'#bbc5cb';
+      if(osmMap.getLayer(CITY_BUILDINGS_LAYER))
+        osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',building);
+      if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL))
+        osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-color',building);
+    }
+    localFloodUI?.setBasemapTheme?.(next);
+  }
   let searchMarker=null;
   let searchController=null;
   let searchRequestId=0;
@@ -2965,25 +2996,23 @@
   function syncOsmStructureVisibility(){
     if(!osmMap||!osmStyleReady)return;
     const layers=osmMap.getStyle()?.layers||[];
+    let changed=false;
     for(const layer of layers){
-      if(!isOsmBuildingRoadLayer(layer))continue;
-      if(!osmBaseLayerVisibility.has(layer.id)){
-        osmBaseLayerVisibility.set(
-          layer.id,
-          osmMap.getLayoutProperty(layer.id,'visibility')||'visible'
-        );
+      // Control only original Liberty label IDs; never hide custom analysis
+      // text, contour labels or editable parcel measurements.
+      if(!basemapThemeController?.isBaseLayer(layer.id)||
+         !isOsmBuildingRoadLayer(layer))continue;
+      if(!osmBaseLayerVisibility.has(layer.id))
+        osmBaseLayerVisibility.set(layer.id,
+          osmMap.getLayoutProperty(layer.id,'visibility')||'visible');
+      const desired=osmStructuresHidden?'none':(osmBaseLayerVisibility.get(layer.id)||'visible');
+      if(osmMap.getLayoutProperty(layer.id,'visibility')!==desired){
+        osmMap.setLayoutProperty(layer.id,'visibility',desired);
+        changed=true;
       }
-      osmMap.setLayoutProperty(
-        layer.id,
-        'visibility',
-        osmStructuresHidden?'none':(osmBaseLayerVisibility.get(layer.id)||'visible')
-      );
     }
-
-    // This switch controls only OSM labels / POIs / transit annotations.
-    // Vehicle visibility is independent and controlled by streetVehicleToggle.
-    // Road/building geometry, grey 3D buildings and all analysis layers remain visible.
-    syncCityView();
+    // sourcedata fires repeatedly; don't re-style buildings on every tile.
+    if(changed)syncCityView();
   }
 
   function streetVehicleDistanceM(a,b){
@@ -7683,7 +7712,7 @@
      */
     const nativeHeight=height;
     const nativeBase=base;
-    const nativeColour='#c6ced5';
+    const nativeColour=basemapTheme==='dark'?'#30485c':'#bbc5cb';
 
     /*
      * Transparent driver layer: keep the dedicated building source requesting
@@ -7736,7 +7765,7 @@
         filter:baseFilter,
         layout:{visibility:'none'},
         paint:{
-          'fill-color':'#c6ced5',
+          'fill-color':nativeColour,
           'fill-opacity':0.96
         }
       },getFirstSymbolLayerId());
@@ -7817,13 +7846,13 @@
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_LAYER)){
-      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color','#c6ced5');
+      osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',basemapTheme==='dark'?'#30485c':'#bbc5cb');
       osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-height',visibleHeight);
       osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-base',visibleBase);
     }
 
     if(osmMap.getLayer(CITY_BUILDINGS_BACKGROUND_FILL)){
-      osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-color','#c6ced5');
+      osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-color',basemapTheme==='dark'?'#30485c':'#bbc5cb');
       osmMap.setPaintProperty(CITY_BUILDINGS_BACKGROUND_FILL,'fill-opacity',fillOpacity);
     }
 
@@ -8146,6 +8175,10 @@
     });
     osmMap.on('load',()=>{
       osmStyleReady=true;
+      // Capture the pristine OpenFreeMap layer IDs before project overlays.
+      basemapThemeController=createBasemapThemeController(osmMap);
+      basemapThemeController.capture();
+      basemapThemeController.apply(basemapTheme);
       ensureCityBuildings();
       tuneCityBuildingFarField();
       syncCityView();
@@ -8167,6 +8200,8 @@
           }),
           getFocusReferenceTile:(type,request,controller)=>
             type==='ea'?detailLoader(request,controller):hydrologyLoader(request,controller),
+          getBasemapTheme:()=>basemapTheme,
+          setBasemapTheme,
           onOpenParcelGenerator:({polygon})=>{
             if(!parcelGenerator)parcelGenerator=createParcelGenerator({
               maplibregl,assetUrl,demBounds:DRAINAGE_3857,
@@ -8518,6 +8553,9 @@
     }
   });
 
+  $('osmVisualStyle').addEventListener('change',e=>{
+    setBasemapTheme(e.target.value);
+  });
   $('osmStructureToggle').addEventListener('change',e=>{
     osmStructuresHidden=e.target.checked;
     syncOsmStructureVisibility();
