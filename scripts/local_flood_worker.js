@@ -1141,6 +1141,15 @@ onmessage=async({data})=>{
       running=false;clearTimeout(timer);timer=null;
       const year=clamp(Math.round(Number(data.year)||2026),2026,2100);
       const designTotalMm=clamp(Number(data.eventTotalMm??((Number(data.eventRainMmH)||0)*2)),0,500);
+      // Location-specific allowance must be provided explicitly after the
+      // EA management catchment and storm AEP are known. Missing != zero risk.
+      const designProgress=(year-2026)/74;
+      const providedAllowance=data.climateAllowancePercent!==null&&
+        data.climateAllowancePercent!==undefined&&
+        Number.isFinite(Number(data.climateAllowancePercent));
+      const climateAllowancePercent=providedAllowance?
+        clamp(Number(data.climateAllowancePercent),0,100):0;
+      const climateFactor=1+designProgress*climateAllowancePercent/100;
       const eventIntensity=clamp(Number(data.eventRainMmH)||0,0,250);
       const durations=[30,60,120,360];
       const customDepths=Array.isArray(data.fehDurationDepthsMm)&&
@@ -1150,7 +1159,8 @@ onmessage=async({data})=>{
       // FEH22 DDF is licensed location-specific data. Never fabricate FEH totals.
       // Until four user-supplied DDF values exist, compare equal storm TOTALS:
       // duration sensitivity only, NOT equal return-period storm comparisons.
-      const depths=customDepths||durations.map(()=>designTotalMm);
+      const depths=(customDepths||durations.map(()=>designTotalMm))
+        .map(mm=>mm*climateFactor);
       const infiltration=clamp(Number(data.infiltrationMmH??0.5),0,100);
       const assumedUrbanDrainage=clamp(Number(data.assumedUrbanDrainageMmH??0),0,100);
       const drainage=data.drainageGuide!==false;
@@ -1188,6 +1198,7 @@ onmessage=async({data})=>{
             applySpongeInterventions();
             sim.water.fill(0);sim.delta.fill(0);
             sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
+            resetWaterBalance();
             const steps=Math.ceil(duration*60/30);
             const frameCount=25;
             const snapshots=[new Float32Array(sim.water)];
@@ -1219,12 +1230,12 @@ onmessage=async({data})=>{
               const target=Math.floor(step*(frameCount-1)/steps)+1;
               while(snapshots.length<target)snapshots.push(new Float32Array(sim.water));
             }
-            const areaM2=peakAreaCells*sim.cell*sim.cell;
+            const areaM2=peakAreaCells*sim.groundAreaM2;
             const comparison={durationMin:duration,rainTotalMm:depth,
               meanRainMmH:rate,peakMinute,peakAreaM2:areaM2,peakMaxDepthM:peakMaxDepth,
-              officialOverlapM2:peakOfficialOverlap*sim.cell*sim.cell,
-              simulatedOutsideEaM2:peakOutside*sim.cell*sim.cell,
-              officialMissingM2:peakMissing*sim.cell*sim.cell};
+              officialOverlapM2:peakOfficialOverlap*sim.groundAreaM2,
+              simulatedOutsideEaM2:peakOutside*sim.groundAreaM2,
+              officialMissingM2:peakMissing*sim.groundAreaM2};
             comparisons.push(comparison);
             if(!critical||areaM2>critical.areaM2||
                (areaM2===critical.areaM2&&peakMaxDepth>critical.peakMaxDepth)){
@@ -1248,7 +1259,7 @@ onmessage=async({data})=>{
       const forecast=annualRiskForecast,progress=(year-2026)/74;
       const displayMode=data.displayMode==='event'?'event':'year';
       sim.water.fill(0);sim.delta.fill(0);
-      let selectedTimeMin=0,stagingFactor=progress;
+      let selectedTimeMin=0,stagingFactor=1;
       if(displayMode==='event'){
         // Separate physical clock: snapshots are actual solver states for the
         // critical single storm, INCLUDING physically solved recession.
@@ -1260,13 +1271,10 @@ onmessage=async({data})=>{
         for(let i=0;i<sim.water.length;i++)sim.water[i]=a[i]*(1-t)+b[i]*t;
         sim.timeSec=selectedTimeMin*60;
       }else{
-        // 2026 is a zero-additional-water PRESENTATION BASELINE.
-        // Scaling the union envelope is solely a design staging convention,
-        // not a climate forecast or a physical transient of a single event.
-        stagingFactor=progress*progress*(3-2*progress);
-        for(let i=0;i<sim.water.length;i++)
-          sim.water[i]=forecast.envelope[i]*stagingFactor;
-        sim.timeSec=0;
+        // The displayed water and tensor share the same single-event peak
+        // snapshot. Multi-event maxima remain a separate planning statistic.
+        sim.water.set(forecast.critical.peakFrame);
+        sim.timeSec=forecast.critical.peakMinute*60;
       }
       let displayedWet=0;
       for(let i=0;i<sim.water.length;i++)
@@ -1285,9 +1293,12 @@ onmessage=async({data})=>{
         baseRainMmH:displayMode==='event'?forecast.critical.rate:0,
         designRainMmH:forecast.critical.rate,
         baselineWetAreaM2:0,
-        finalWetAreaM2:forecast.finalWetCount*sim.cell*sim.cell,
-        targetWetAreaM2:displayedWet*sim.cell*sim.cell,
-        zeroWaterAt2026:true,areaStaging:displayMode==='year',
+        finalWetAreaM2:forecast.critical.areaM2,
+        targetWetAreaM2:displayedWet*sim.groundAreaM2,
+        zeroWaterAt2026:false,areaStaging:false,
+        climateFactor,climateAllowancePercent,
+        climateAllowanceSource:providedAllowance?
+          'user-supplied design uplift':'not provided; baseline storm',
         riskAvailable:forecast.riskAvailable,
         stormComparisons:forecast.comparisons,
         depthDataSource:forecast.source,
@@ -1295,13 +1306,13 @@ onmessage=async({data})=>{
         criticalPeakMinute:forecast.critical.peakMinute,
         criticalRainTotalMm:forecast.critical.depth,
         criticalPeakAreaM2:forecast.critical.areaM2,
-        envelopeWetAreaM2:forecast.finalWetCount*sim.cell*sim.cell,
+        envelopeWetAreaM2:forecast.finalWetCount*sim.groundAreaM2,
         solverPathModel:'dem-passable-building-footprints-drainage-v3.22.51',
         eaReferenceOnly:true,
         riskReference:'EA present-day RoFSW risk + 2070s Upper End 0.1% AEP future depth: independent post-simulation comparison; never a hydrodynamic input',
         methodologicalNote:displayMode==='event'
           ?'Single critical-duration event: physically solved 30-second runoff steps. FEH DDF only if entered by user.'
-          :'2026–2100 shows a MONOTONIC DESIGN STAGING of the MULTI-EVENT MAXIMUM depth envelope, not a single storm or a year-by-year flood forecast. FEH DDF is user-provided only; fallback equal-total durations are sensitivity tests.'
+          :'Each design year re-solves all storm durations after its explicitly sourced percentage uplift; the displayed depth is one controlling event peak, not a physically impossible multi-event maximum envelope. Without an allowance, use unchanged baseline rainfall.'
       };
       sendFrame();
       annualFrameYear=null;annualFrameToken=null;annualAreaStage=null;
@@ -1313,6 +1324,7 @@ onmessage=async({data})=>{
       annualStorageStep(data);annualFrameYear=null;return;
     }
     if(data.type==='start'){
+      resetWaterBalance();
       params={...params,...data.params};
       if(!sim)throw new Error('请先圈选并准备模拟区域');
       applySpongeInterventions();
@@ -1333,6 +1345,7 @@ onmessage=async({data})=>{
       annualRiskForecast=null;
       annualFrameYear=null;annualAreaStage=null;
       if(sim){
+        resetWaterBalance();
         sim.water.fill(0);
         sim.delta.fill(0);
         sim.timeSec=0;sim.visualPhase=0;sim.spongeInfilM3=0;
@@ -1351,6 +1364,7 @@ onmessage=async({data})=>{
       annualFrameYear=null;
       running=false;clearTimeout(timer);timer=null;
       if(sim){
+        resetWaterBalance();
         sim.water.fill(0);sim.timeSec=0;sim.visualPhase=0;
         sim.spongeInfilM3=0;
         if(!data.silent)sendFrame();
