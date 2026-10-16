@@ -1,4 +1,4 @@
-/* London Map tensor display palette, v3.22.66.
+/* London Map tensor display palette, v3.22.67.
  * VISUAL MATERIALS ONLY. Do not use these values for flood depth, solver
  * weights, tensor directions, particle speed or engineering thresholds. */
 export const HYDRO_TENSOR_PALETTE=Object.freeze({
@@ -21,49 +21,41 @@ export function mixTensorColor(a,b,weight){
 export function baseTensorMaterial({branch='primary',rank=0,wetSupport=0}={}){
   const strength=clamp01(.60*clamp01(rank)+.40*clamp01(wetSupport));
   if(branch==='secondary')return {
-    // Lavender and a restrained pink lift distinguish the cross-axis even
-    // where physical drainage evidence is weak and rank is near zero.
-    color:mixTensorColor(
-      mixTensorColor(HYDRO_TENSOR_PALETTE.flowBlue,
-        HYDRO_TENSOR_PALETTE.lavender,.62+.33*strength),
-      HYDRO_TENSOR_PALETTE.softPink,.13+.13*strength),
-    opacity:.44+.22*strength,glowFactor:.26+.20*strength
+    // Pink-violet is a true separate visual family, not a pale-blue blend.
+    color:mixTensorColor(HYDRO_TENSOR_PALETTE.lavender,
+      HYDRO_TENSOR_PALETTE.softPink,.84+.14*strength),
+    opacity:.66+.17*strength,glowFactor:.28+.17*strength
   };
-  const cold=mixTensorColor(HYDRO_TENSOR_PALETTE.flowBlue,
-    HYDRO_TENSOR_PALETTE.iceBlue,.77+.23*strength);
   return {
-    color:mixTensorColor(cold,HYDRO_TENSOR_PALETTE.iceWhite,
-      .12+.28*strength),
-    // Compensate for both global opacity and a black analysis canvas.
-    // This remains a fine line: NO increase in geometric stroke width.
-    opacity:.57+.26*strength,glowFactor:.38+.28*strength
+    // Keep the primary family visibly BLUE, even at high rank.
+    // Do not mix toward iceWhite here: that previously washed both axes out.
+    color:mixTensorColor(HYDRO_TENSOR_PALETTE.flowBlue,
+      HYDRO_TENSOR_PALETTE.iceBlue,.15+.64*strength),
+    opacity:.68+.16*strength,glowFactor:.42+.22*strength
   };
 }
 export function ribbonTensorMaterial({hierarchy='tributary',rank=0}={}){
   const strength=clamp01(rank),trunk=hierarchy==='trunk';
-  // An occasional pink highlight belongs to a high-rank network strand,
-  // not a velocity/depth scale. Core palette gradient is separate below.
-  const pink=trunk&&strength>.90?clamp01((strength-.90)/.10)*.22:0;
   return {
-    color:mixTensorColor(
+    color:trunk?
       mixTensorColor(HYDRO_TENSOR_PALETTE.iceBlue,
-        HYDRO_TENSOR_PALETTE.lavender,trunk?.62:.26),
-      HYDRO_TENSOR_PALETTE.softPink,pink),
-    opacity:trunk?.88:.72,glowFactor:trunk?.98:.66
+        HYDRO_TENSOR_PALETTE.iceWhite,.54+.30*strength):
+      mixTensorColor(HYDRO_TENSOR_PALETTE.flowBlue,
+        HYDRO_TENSOR_PALETTE.lavender,.30+.17*strength),
+    opacity:trunk?.90:.79,glowFactor:trunk?.86:.48
   };
 }
 // MapLibre line-gradient works with the EXISTING ribbon source lineMetrics:true.
 // This is a silk-like colour transition along the computed curve, NOT flow speed.
 export const HYDRO_TENSOR_RIBBON_GRADIENT=Object.freeze([
   'interpolate',['linear'],['line-progress'],
-  0,'#E3F4FF',
-  .19,'#9DDCFF',
-  .47,'#518DCE',
-  .79,'#A9D9FA',
-  .87,'#A9D9FA',
-  .94,'#D1C8FA',
-  .97,'#EDBDF9',
-  1,'#A9D9FA'
+  0,'#518DCE',
+  .16,'#9DDCFF',
+  .35,'#E3F4FF',
+  .53,'#EDBDF9',
+  .72,'#A9D9FA',
+  .88,'#518DCE',
+  1,'#E3F4FF'
 ]);
 export function particleTensorMaterial({index=0,main=false,rank=0}={}){
   const palette=HYDRO_TENSOR_PALETTE;
