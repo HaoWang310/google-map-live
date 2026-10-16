@@ -56,7 +56,7 @@ export function createHydroTensorRenderer(args){
       glowId:lineLayerId+'-wake-'+branch+'-'+wave
     })));
   const headHaloLayerId=particleLayerId+'-halo';
-  let lastTraceHeads=new Map(),particlePaths=[],headsActive=false;
+  let lastTraceHeads=new Map(),particlePaths=[],headsActive=false,lastStaticPaintKey='';
   function ensureTraceLayers(){
     if(!map.getLayer(lineLayerId)||!map.getLayer(ribbonGlowLayerId))return;
     for(const group of traceGroups){
@@ -485,10 +485,21 @@ export function createHydroTensorRenderer(args){
     // Static mesh remains faint; travelling blue/purple traces carry the image.
     const fractionClamped=clamp(fraction,0,1);
     ensureTraceLayers();
-    if(map.getLayer(lineLayerId))
-      map.setPaintProperty(lineLayerId,'line-opacity',
-        ['*',.13*settings.opacity,['get','opacity']]);
-    if(map.getLayer(glowLayerId))map.setPaintProperty(glowLayerId,'line-opacity',0);
+    const paintKey=settings.opacity+'|'+settings.glow;
+    if(paintKey!==lastStaticPaintKey){
+      if(map.getLayer(lineLayerId))
+        map.setPaintProperty(lineLayerId,'line-opacity',
+          ['*',.13*settings.opacity,['get','opacity']]);
+      if(map.getLayer(glowLayerId))
+        map.setPaintProperty(glowLayerId,'line-opacity',0);
+      for(const [id,glow] of [[ribbonLayerId,false],[ribbonGlowLayerId,true]]){
+        if(!id||!map.getLayer(id))continue;
+        map.setPaintProperty(id,'line-opacity',['*',
+          settings.opacity*(glow?settings.glow*.80:.96),
+          ['get',glow?'glowFactor':'opacity']]);
+      }
+      lastStaticPaintKey=paintKey;
+    }
     for(const group of traceGroups){
       const progress=traceGrowthProgress(fractionClamped,group.branch,group.wave);
       for(const glow of [true,false]){
@@ -515,9 +526,6 @@ export function createHydroTensorRenderer(args){
           traceGradient(ribbonProgress,'ribbon',glow));
         lastTraceHeads.set(id,ribbonProgress);
       }
-      map.setPaintProperty(id,'line-opacity',['*',
-        settings.opacity*(glow?settings.glow*.80:.96),
-        ['get',glow?'glowFactor':'opacity']]);
     }
   }
   function applyStyle(){
@@ -788,7 +796,7 @@ export function createHydroTensorRenderer(args){
       worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
       geometryWorker?.terminate();geometryWorker=null;geometryBusy=false;geometryActiveId=0;
       stop();src()?.setData(empty());ribbonSource()?.setData(empty());
-      dots()?.setData(empty());headsActive=false;lastTraceHeads.clear();
+      dots()?.setData(empty());headsActive=false;lastTraceHeads.clear();lastStaticPaintKey='';
       invalidateUploaded();return;
     }
     // A layer toggle is a visibility change, not a reason to throw away the
@@ -807,7 +815,7 @@ export function createHydroTensorRenderer(args){
     scenarioSnapshots.clear();
     geometryDesired++;geometryPending=null;
     lines=[];baseLines=[];wetLines=[];features=[];particlePaths=[];
-    headsActive=false;lastTraceHeads.clear();
+    headsActive=false;lastTraceHeads.clear();lastStaticPaintKey='';
     provisionalLineCount=0;previewBaseSettings=null;
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
     replayGrowthActive=false;
@@ -868,7 +876,7 @@ export function createHydroTensorRenderer(args){
     worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
     src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());particlePaths=[];headsActive=false;
-    lastTraceHeads.clear();invalidateUploaded();
+    lastTraceHeads.clear();lastStaticPaintKey='';invalidateUploaded();
   }
   function exportSiteSnapshot(){
     if(!result)return null;
