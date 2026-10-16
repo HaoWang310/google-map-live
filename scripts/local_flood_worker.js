@@ -230,7 +230,10 @@ async function setup(data){
   const box=bboxOfRings(selectionRings);
   const width=box.right-box.left,height=box.top-box.bottom;
   if(!(width>0&&height>0))throw new Error('圈选范围无效');
-  if(width>12000||height>12000)throw new Error('圈选范围过大；请控制在约 12 km × 12 km 内');
+  const centreLatitude=lngLat((box.left+box.right)/2,(box.top+box.bottom)/2)[1];
+  const groundScale=Math.cos(centreLatitude*Math.PI/180);
+  if(width*groundScale>12000||height*groundScale>12000)
+    throw new Error('选区真实地面跨度超过 12 km，请分区模拟。');
 
   const cell=chooseCellSize(width,height);
   const cols=Math.max(1,Math.ceil(width/cell));
@@ -239,7 +242,7 @@ async function setup(data){
 
   const terrain=new Float32Array(cols*rows);
   const inside=new Uint8Array(cols*rows);
-  // Buildings are affected assets, never impermeable solver obstacles.
+  // Track assets and physical obstructions separately.
   const obstacle=new Uint8Array(cols*rows);
   const buildingFootprint=new Uint8Array(cols*rows);
   const buildingIds=new Uint32Array(cols*rows);
@@ -266,8 +269,10 @@ async function setup(data){
 
   // Do not silently extrapolate the London 50 m DEM to unrelated locations.
   // An incomplete/missing DEM would falsely suggest zero hazard.
-  if(!siteGridCells||validTerrainCells/siteGridCells<0.9){
-    throw new Error('所选区域缺少足够的真实 OS Terrain 50 高程数据。目前计算范围限于伦敦研究区有效 DEM 覆盖，不生成虚假洪水结果。');
+  // Unmapped cells are not zero-risk cells. Refuse to solve partial terrain.
+  if(!siteGridCells||validTerrainCells!==siteGridCells){
+    throw new Error('选区地形覆盖不完整：'+validTerrainCells+'/'+siteGridCells+
+      ' 格有真实高程。请调整选区；无法把缺测格解释为无洪涝。');
   }
 
   sim={
@@ -289,13 +294,20 @@ async function setup(data){
 
   // Metadata only: preserve the existing solver's projected cell and ceil
   // padding exactly. Tensor derivatives use local ground metres at site centre.
-  const centreLat=lngLat((box.left+box.right)/2,(box.top+box.bottom)/2)[1];
   sim.grid={id:++gridGeneration,crs:'EPSG:3857',cols,rows,
     left:box.left,top:box.top,cellProjectedM:cell,
-    groundScale:Math.cos(centreLat*Math.PI/180),
+    groundScale,
     axisX:'east',axisY:'south',groundMetric:'local Mercator scale at site centre'};
-  // Preserve real building footprints for impact stats without blocking water.
+  // Building footprints are barriers to ground runoff. Rainfall landing on
+  // their roofs is routed into the nearest accessible ground cell, conserving
+  // the equivalent plan-area volume. This is conceptual drainage, not pipes.
   for(const building of sim.buildings)rasterizeBuilding(sim,building);
+  for(let i=0;i<sim.inside.length;i++)
+    if(sim.inside[i]&&sim.buildingFootprint[i])sim.obstacle[i]=1;
+  buildRoofDrainage(sim);
+  sim.groundCellM=cell*groundScale;
+  sim.groundAreaM2=sim.groundCellM*sim.groundCellM;
+  resetWaterBalance();
   applySpongeInterventions();
 
   for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
@@ -331,8 +343,10 @@ async function setup(data){
   postMessage({
     type:'setup-complete',
     requestId:data.requestId,
-    cols,rows,cellSizeM:cell,grid:sim.grid,
-    widthM:width,heightM:height,
+    cols,rows,cellSizeM:sim.groundCellM,grid:sim.grid,
+    widthM:width*groundScale,heightM:height*groundScale,
+    validTerrainFraction:validTerrainCells/siteGridCells,
+    roofCells:sim.roofCellCount,roofRoutedCells:sim.roofRoutedCells,
     insideCells:insideCount,buildingCells,
     buildingCount:sim.buildings.length,
     terrainMinM:Number.isFinite(minZ)?minZ:null,
@@ -562,10 +576,38 @@ function applySpongeInterventions(){
   sim.spongeFacilityCount=applied;
 }
 
+// Multi-source BFS of 4-neighbour surface cells; no roof disappears.
+function buildRoofDrainage(s){
+  const {cols,rows,inside,obstacle}=s,n=cols*rows;
+  const receiver=new Int32Array(n).fill(-1),queue=new Int32Array(n);
+  let head=0,tail=0,roofs=0,routed=0;
+  for(let i=0;i<n;i++){
+    if(inside[i]&&obstacle[i])roofs++;
+    else if(inside[i]){receiver[i]=i;queue[tail++]=i;}
+  }
+  while(head<tail){
+    const i=queue[head++],r=(i/cols)|0,c=i%cols;
+    for(const j of [c?i-1:-1,c+1<cols?i+1:-1,
+      r?i-cols:-1,r+1<rows?i+cols:-1]){
+      if(j<0||!inside[j]||receiver[j]!==-1)continue;
+      receiver[j]=receiver[i];queue[tail++]=j;
+    }
+  }
+  s.roofDrainCounts=new Int32Array(n);
+  for(let i=0;i<n;i++)if(inside[i]&&obstacle[i]&&receiver[i]>=0){
+    s.roofDrainCounts[receiver[i]]++;routed++;
+  }
+  if(roofs!==routed)throw new Error('建筑占地没有可达的室外排水格，请扩大选区。');
+  s.roofCellCount=roofs;s.roofRoutedCells=routed;
+}
+function resetWaterBalance(){
+  if(sim)sim.balance={rainM3:0,infiltrationM3:0,boundaryOutM3:0,externalInM3:0};
+}
 function simulationStep(dt=5){
   if(!sim)return;
   const {cols,rows,cell,terrain,inside,obstacle,water,delta,boundary,accumulation,
     svCapacity,svInfilMmH}=sim;
+  const groundArea=sim.groundAreaM2||cell*cell,balance=sim.balance;
   const useDrainage=Boolean(params.drainageGuide&&sim.drainageAvailable);
   const threshold=accumulationCode(params.drainageThreshold);
   // EA tipping-bucket readings are accumulated mm per quarter hour.
@@ -592,11 +634,15 @@ function simulationStep(dt=5){
     Math.max(0,Number(params.assumedUrbanDrainageMmH)||0))/1000/3600*dt;
 
   for(let i=0;i<water.length;i++){
-    if(!inside[i]||obstacle[i])continue;
-    const gross=Math.max(0,water[i]+rain-infil);
+    if(!inside[i])continue;
+    if(balance)balance.rainM3+=rain*groundArea;
+    if(obstacle[i])continue;
+    const before=water[i]+rain,gross=Math.max(0,before-infil);
     const spongeLoss=Math.min(gross,svInfilMmH[i]/1000/3600*dt);
-    water[i]=gross-spongeLoss;
-    sim.spongeInfilM3+=spongeLoss*cell*cell;
+    water[i]=gross-spongeLoss+rain*(sim.roofDrainCounts?.[i]||0);
+    const spongeVolume=spongeLoss*groundArea;
+    sim.spongeInfilM3+=spongeVolume;
+    if(balance)balance.infiltrationM3+=(before-gross)*groundArea+spongeVolume;
   }
 
   // Manually supplied external stage is an exploratory boundary condition,
@@ -616,7 +662,8 @@ function simulationStep(dt=5){
       if(!inside[i]||obstacle[i]||!boundary[i])continue;
       if(boundarySelection&&!boundarySelection.includes(i))continue;
       const target=Math.max(0,stage-terrain[i])*stageFraction;
-      water[i]+=Math.min(Math.max(0,target-water[i]),0.025*dt);
+      const inflow=Math.min(Math.max(0,target-water[i]),0.025*dt);
+      water[i]+=inflow;if(balance)balance.externalInM3+=inflow*groundArea;
     }
   }
   delta.fill(0);
@@ -673,7 +720,8 @@ function simulationStep(dt=5){
 
       if(params.openBoundary&&boundary[i]&&
          (params.floodMode==='rain'||params.floodMode==='rain-risk')){
-        delta[i]-=Math.min(Math.max(0,h+delta[i]),h*0.035);
+        const out=Math.min(Math.max(0,h+delta[i]),h*0.035);
+        delta[i]-=out;if(balance)balance.boundaryOutM3+=out*groundArea;
       }
     }
   }
@@ -768,6 +816,7 @@ function flowVisual(simulation,row,col,i){
 function buildHydroFlowField(force=false){
   if(!sim||(!force&&params.showFlow===false))return null;
   const {cols,rows,cell,terrain,inside,obstacle,water,svCapacity}=sim;
+  const groundCell=sim.groundCellM||cell;
   const length=cols*rows;
   const vx=new Int8Array(length),vy=new Int8Array(length);
   const intensity=new Uint8Array(length);
@@ -795,7 +844,7 @@ function buildHydroFlowField(force=false){
       }
       const neighbourHead=terrain[j]+Math.max(0,water[j]-svCapacity[j]);
       const distance=Math.hypot(dx,dy);
-      const slope=Math.max(0,(head-neighbourHead)/(cell*distance));
+      const slope=Math.max(0,(head-neighbourHead)/(groundCell*distance));
       if(slope<1e-7)continue;
       const weight=Math.sqrt(slope);
       sumX+=dx/distance*weight;
@@ -818,6 +867,7 @@ function buildHydroFlowField(force=false){
 function sendFrame(){
   if(!sim)return;
   const {cols,rows,inside,obstacle,buildingFootprint,buildingIds,water,cell,svCapacity}=sim;
+  const groundArea=sim.groundAreaM2||cell*cell;
   const pixels=new Uint8ClampedArray(cols*rows*4);
   // Visual 3D water uses the SAME ground-passable solver depths. Quantized
   // millimetres avoid a second high-bandwidth float field per frame.
@@ -857,7 +907,7 @@ function sendFrame(){
         (col>0&&buildingFootprint[i-1]);
       if(touchesBuilding)contactMask[i]=1;
     }
-    retainedM3+=Math.min(water[i],svCapacity[i])*cell*cell;
+    retainedM3+=Math.min(water[i],svCapacity[i])*groundArea;
     if(h>maxDepth)maxDepth=h;
     if(h>=0.001)shallowCells++; // >=1 mm wet surface, NOT >2 cm flooding
     const depthBand=depthBandIndex(h);
@@ -877,7 +927,7 @@ function sendFrame(){
           if(h>=minDepth&&h<=maxDepth)eaDepthConsistent++;
         }else eaOutside++;
       }
-      wetCells++;volume+=h*cell*cell;
+      wetCells++;volume+=h*groundArea;
       if(buildingFootprint[i])floodedFootprintCells++;
       if(sim.riskRank?.[i]>0&&sim.riskRank[i]<5)riskOverlapCells++;
     }
@@ -942,27 +992,39 @@ function sendFrame(){
       currentRainMmH,
       timeMin:sim.timeSec/60,
       depthCells:Array.from(depthCells),
-      depthAreaM2:Array.from(depthCells,n=>n*cell*cell),
+      depthAreaM2:Array.from(depthCells,n=>n*groundArea),
       maxDepthM:maxDepth,
-      wetAreaM2:wetCells*cell*cell,
-      shallowWetAreaM2:shallowCells*cell*cell, // distinct from flooded-area threshold
+      wetAreaM2:wetCells*groundArea,
+      shallowWetAreaM2:shallowCells*groundArea, // distinct from flooded-area threshold
       volumeM3:volume,
       retainedM3,
       spongeInfiltrationM3:sim.spongeInfilM3,
+      waterBalance:(sim.balance&&sim.timeSec>0&&!annualAreaStage)?(()=>{
+        let stored=0;
+        for(let i=0;i<water.length;i++)
+          if(inside[i]&&!obstacle[i])stored+=water[i]*groundArea;
+        const b=sim.balance,expected=b.rainM3+b.externalInM3-
+          b.infiltrationM3-b.boundaryOutM3;
+        return {inputM3:b.rainM3,externalInM3:b.externalInM3,
+          infiltrationM3:b.infiltrationM3,boundaryOutM3:b.boundaryOutM3,
+          storedM3:stored,residualM3:expected-stored,
+          relativeError:Math.abs(expected-stored)/
+            Math.max(1,Math.abs(b.rainM3+b.externalInM3))};
+      })():null,
       spongeCells:sim.spongeCellCount,
       spongeFacilities:sim.spongeFacilityCount,
       impactedCount:impacted.size,
-      floodedBuildingFootprintAreaM2:floodedFootprintCells*cell*cell,
+      floodedBuildingFootprintAreaM2:floodedFootprintCells*groundArea,
       eaRiskOverlapPercent:wetCells>0?100*riskOverlapCells/wetCells:0,
       eaRiskMappedCells:riskKnownCells,
       eaRiskAvailable:Boolean(sim.riskAvailable),
       officialDepthAvailable:Boolean(sim.eaDepthAvailable),
       officialAepPercent:0.1,
       officialEpoch:'2070s Upper End (2061–2125)',
-      officialReferenceAreaM2:eaRefCells*cell*cell,
-      officialOverlapAreaM2:eaOverlap*cell*cell,
-      simulatedOutsideOfficialM2:eaOutside*cell*cell,
-      officialNotSimulatedM2:eaMissing*cell*cell,
+      officialReferenceAreaM2:eaRefCells*groundArea,
+      officialOverlapAreaM2:eaOverlap*groundArea,
+      simulatedOutsideOfficialM2:eaOutside*groundArea,
+      officialNotSimulatedM2:eaMissing*groundArea,
       officialIoU:eaRefCells+eaOutside>0?eaOverlap/(eaRefCells+eaOutside):null,
       officialBandAgreement:eaDepthCompared>0?eaDepthConsistent/eaDepthCompared:null
     },
