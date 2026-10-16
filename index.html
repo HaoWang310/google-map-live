@@ -887,7 +887,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.71-tensor-transport-stable</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.72-osm-labels-on</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -927,7 +927,7 @@
           <strong>隐藏 OSM 名称 / POI 标注</strong>
           <small>仅隐藏 OSM 文字 / POI；保留道路、建筑、红框、锚点、尺寸与分析图层</small>
         </span>
-        <input id="osmStructureToggle" type="checkbox" autocomplete="off" checked disabled>
+        <input id="osmStructureToggle" type="checkbox" autocomplete="off" disabled>
       </label>
 
       <label class="layerRow" title="独立控制街道车辆显示；不再受“隐藏 OSM 名称 / POI 标注”开关影响">
@@ -1274,12 +1274,12 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.71-tensor-transport-stable';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.71-tensor-transport-stable';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.72-osm-labels-on';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.72-osm-labels-on';
   import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.71-tensor-transport-stable';
+  const APP_VERSION='3.22.72-osm-labels-on';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
@@ -1642,7 +1642,7 @@
   let lastCityBuildingLodSource=null;
   // Historical variable name retained for compatibility: it now means
   // "OSM labels / POIs hidden", not road/building geometry hidden.
-  let osmStructuresHidden=true; // planning mode initially hides OSM names/POI.
+  let osmStructuresHidden=false; // OSM road/place/POI labels are visible by default.
   const osmBaseLayerVisibility=new Map();
   function setBasemapTheme(mode){
     const next=normaliseBasemapTheme(mode);
@@ -8214,6 +8214,7 @@
       }
       $('localFloodDraw').disabled=false;
       $('localFloodClear').disabled=false;
+      $('osmStructureToggle').checked=osmStructuresHidden;
       $('osmStructureToggle').disabled=false;
       $('view2D').disabled=false;$('view3D').disabled=false;
       $('streetVehicleToggle').disabled=false;
@@ -8840,6 +8841,7 @@
   }
   $('googleMap').style.display='none';
   $('osmMap').style.display='block';
+  $('osmStructureToggle').checked=osmStructuresHidden;
   initOSM();
 </script>
 </body>
