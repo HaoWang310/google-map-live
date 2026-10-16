@@ -1,5 +1,5 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.81-general-hydrology';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.23.0-buildingbase-yearly';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.78-tensor-gap-diagnostic';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
@@ -2396,16 +2396,17 @@ export function createLocalFloodUI({
           (v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
         :'EA 风险覆盖缺失（仍可计算地表积水）';
       setSiteHud('siteHudAreaProgress',
-        futureYear+' 年 / 设计年份 '+pct+'% · 临界事件积水 '+nowHa.toFixed(2)+
-        ' ha（控制历时峰值 '+finalHa.toFixed(2)+
-        ' ha） · 雨强倍率 '+(stage.climateFactor||1).toFixed(3)+'× · '+riskText);
+        futureYear+' 年 / 连续积水演变 '+(100*(stage.designStageFactor??0)).toFixed(1)+
+        '% · 当前积水 '+nowHa.toFixed(2)+
+        ' ha（设计峰值 '+finalHa.toFixed(2)+' ha） · 已输入雨量倍率 '+
+        (stage.climateFactor||1).toFixed(3)+'× · '+riskText);
     }else{
       setSiteHud('siteHudAreaProgress',longTermMode
         ?'等待该年份的淹没面积快照':'');
     }
     setSiteHud('siteHudFloodPhase',longTermMode?
       (displayMode==='year'?
-        futureYear+' 年 · 控制历时暴雨峰值快照（设计情景，不是官方逐年洪灾预报）':
+        futureYear+' 年 · 2026–2100 连续水深展示（真实暴雨峰值按设计阶段平滑生长；非逐年洪涝预测）':
         '临界单场暴雨 · '+Math.round(eventTimeMin)+' min · 可能涨水或退水，与年份无关'):annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
@@ -2757,7 +2758,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
-      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 单场雨水峰值 · 建筑阻水<br>设计雨强按年份计算；张量线及粒子不代表实测流速。</div>',
+      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 平滑设计水深 · 建筑底面连贯显示<br>地面径流计算保留建筑阻水，张量方向允许跨越建筑占地用于场地分区；不代表实测水流穿墙。</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -2802,7 +2803,7 @@ export function createLocalFloodUI({
       '<div id="siteHudDrainStatus" class="site-hydro-mini">地形网络：等待瓦片</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">DATA PROVENANCE</div>',
       '<div class="site-hydro-mini">EA 风险等级 = 长期概率，不是水深；地形网络 = 汇水路径，不是地下管网；',
-      '动态水深 = 设计降雨、地形与建筑阻水的概念模拟。场外上游洪水来水尚未建模，不能替代工程级洪涝分析。</div></div></aside>',
+      '真实径流仍绕开建筑，建筑底面水面和连续张量方向属于场地规划展示；上游区外径流尚未完整建模，不能替代工程级洪涝分析。</div></div></aside>',
       '<div class="site-hydro-zoom">独立地块 3D · 拖动平移 / 右键旋转 / 滚轮缩放</div>',
       '<footer class="site-hydro-footer">',
       '<button id="siteHudRun" class="site-hydro-btn primary" style="flex:0 0 85px" type="button">▶ 运行</button>',
@@ -2817,7 +2818,7 @@ export function createLocalFloodUI({
       '</select></label>',
       '<span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
-      '<div class="site-hydro-mini" id="siteHudNotice">分年份降雨强度在水文求解前调整；峰值水深来自同一设计事件。其它事件的最大包络只作风险统计，不能当作同一时刻水流。未提供当地气候增幅则运行基准暴雨。</div></div></footer>'
+      '<div class="site-hydro-mini" id="siteHudNotice">2026 由干燥起点连续过渡至 2100 设计峰值。每个年份先根据已输入的气候降雨增幅运行水文求解，再平滑展示临界暴雨水深；年度增长属于设计演示，不是逐年物理洪水预测。建筑基底被水体连续覆盖仅为可视化，不增加真实积水量。</div></div></footer>'
     ].join('');
     container.appendChild(shell);
     const bounds=bboxLngLat(polygon[0]);
@@ -2897,7 +2898,7 @@ export function createLocalFloodUI({
       updateFocusAnalysisLayers();
       setSiteHud('siteHudFutureNote',longTermMode?
         (floodMode==='rain-risk'
-          ?'四种暴雨历时采用同一 DEM/建筑/汇水网络模型，EA 仅进行独立校核。2026–2100 是最大水深设计包络的展示插值，2100 为规划峰值，不是官方逐年预报。'
+          ?'四种暴雨历时采用同一 DEM/建筑/汇水网络模型，EA 仅进行独立校核。2026–2100 逐年展示同一临界暴雨的平滑设计水深，2100为规划峰值；不是官方逐年预报。'
           :'本演示以2026年零新增积水画面为起点（不表示现实中2026年无洪水风险），以设计降雨、DEM、建筑和假设排水计算得到的2100年水深为终点。未来淹没范围与水深随年份渐进显示，EA现状风险仅用于空间校核和展示顺序。中间年份为视觉分期，不是逐年真实洪水预报。'):
         (floodMode==='rain'?
         '2026—2100 为研究设计包络展示刻度，2100 达到最大规划情景；不是年度气象预测，也不等于单场暴雨持续74年。':
@@ -3286,7 +3287,7 @@ export function createLocalFloodUI({
           futureYear=2026;
           clearRiskEnvelope();clearYearFrames();simYearDisplay();
           if(requestYear(2026))
-            status('正在计算四种历时的最大水深设计包络，逐步展示到2100年峰值。');
+            status('正在从 2026 低水位开始逐年平滑生长至 2100 设计洪水峰值。');
         }
         return;
       }
@@ -4330,10 +4331,9 @@ export function createLocalFloodUI({
     if(hydroDisplay.flow&&tensorSession?.awaitingPeak&&
        data.scenarioToken===tensorSession.awaitingPeakToken&&
        validTensorPeak(data))requestTensorContext(tensorSession,data);
-    // In the 2026–2100 baseline playback, show the maximum inundation
-    // envelope observed up to the selected year. Never clear risk patches
-    // when a new representative storm starts. This is a design-risk envelope,
-    // NOT 74 years of continuously retained physical floodwater.
+    // Legacy short-event annual preview may display a separate running
+    // maximum, but the main 2026–2100 mode displays a smoothly staged
+    // single controlling storm and never merges maxima across storm types.
     if(annualPlaying&&!longTermMode&&data.depthMm){
       const current=new Uint16Array(data.depthMm);
       const rgba=new Uint8ClampedArray(data.pixels);
@@ -4399,7 +4399,7 @@ export function createLocalFloodUI({
     const paintBlend=()=>{
       if(!canvasContext||!canvas)return;
       const alpha=Math.min(1,(performance.now()-waterBlendStart)/
-        (['rainfall-risk-scenario','storm-event'].includes(data.annualAreaStage?.kind)?125:WATER_BLEND_MS));
+        (['rainfall-risk-scenario','storm-event'].includes(data.annualAreaStage?.kind)?235:WATER_BLEND_MS));
       canvasContext.clearRect(0,0,outWidth,outHeight);
       const blend=alpha*alpha*(3-2*alpha);
       canvasContext.globalAlpha=1-blend;
@@ -4474,10 +4474,10 @@ export function createLocalFloodUI({
             futureYear++;
             simYearDisplay();
             requestYear(futureYear);
-          },165);
+          },245);
         }else{
           stopAnnual();
-          status('2100 年最大设计包络展示完成 · 该范围为多个独立暴雨事件的并集，不是单场水面。');
+          status('2026–2100 连续积水演变完成 · 当前为 2100 设计临界暴雨峰值；建筑底面的水面是规划展示，不加入积水体积。');
         }
       }else if(displayMode==='event'&&data.annualAreaStage?.kind==='storm-event'){
         clearTimeout(annualAdvanceTimer);
