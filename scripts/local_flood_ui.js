@@ -1,7 +1,7 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.66-tensor-smooth-reveal';
-import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.66-tensor-smooth-reveal';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.67-blue-purple-separation';
+import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.67-blue-purple-separation';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -296,15 +296,15 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
   const image=context.createImageData(outWidth,outHeight);
   const dest=image.data;
   const palette=[
-    // v3.22.33-apple-ui: user swatch, shallow light blue and deepest navy.
-    [0.001,180,206,255],
-    [0.030,132,177,254],
-    [0.050,74,146,255],
-    [0.150,34,113,255],
-    [0.300,28,90,223],
-    [0.600,21,69,183],
-    [0.900,10,50,123],
-    [1.200,4,28,75]
+    // Display-only water colours. Depth thresholds remain in real metres.
+    [0.001,208,231,255],
+    [0.020,156,204,255],
+    [0.050,81,141,206],
+    [0.150,45,104,171],
+    [0.300,29,76,139],
+    [0.600,19,52,103],
+    [0.900,12,34,74],
+    [1.200,6,22,50]
   ];
   const index=(x,y)=>Math.max(0,Math.min(height-1,y))*width+
     Math.max(0,Math.min(width-1,x));
@@ -358,8 +358,8 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
         lerp(lo[2],hi[2],t)+light+foam,
         lerp(lo[3],hi[3],t)+light+foam*.3];
       let alpha=shallow
-        ?((avg?.39:.31)+.18*smooth(.001,.020,depth))
-        :(.51+.29*smooth(.020,.60,depth));
+        ?((avg?.48:.52)+.18*smooth(.001,.020,depth))
+        :(.66+.26*smooth(.020,.60,depth));
       // Continuous visual shoreline: low-alpha fringe only in valid, dry
       // neighbouring pixels. Invalid and building pixels stay transparent.
       alpha*=smooth(.16,.85,occupancy)*(nearestIsWet?1:.38);
@@ -449,14 +449,14 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'out vec4 fragColor;',
           'void main(){',
           'float depth=max(v_meta.z,0.0);',
-          'vec3 water=vec3(0.70588,0.80784,1.00000);',
-          'water=mix(water,vec3(0.51765,0.69412,0.99608),smoothstep(0.001,0.030,depth));',
-          'water=mix(water,vec3(0.29020,0.57255,1.00000),smoothstep(0.030,0.050,depth));',
-          'water=mix(water,vec3(0.13333,0.44314,1.00000),smoothstep(0.050,0.150,depth));',
-          'water=mix(water,vec3(0.10980,0.35294,0.87451),smoothstep(0.150,0.300,depth));',
-          'water=mix(water,vec3(0.08235,0.27059,0.71765),smoothstep(0.300,0.600,depth));',
-          'water=mix(water,vec3(0.03922,0.19608,0.48235),smoothstep(0.600,0.900,depth));',
-          'water=mix(water,vec3(0.01569,0.10980,0.29412),smoothstep(0.900,1.200,depth));',
+          'vec3 water=vec3(0.81569,0.90588,1.00000);',
+          'water=mix(water,vec3(0.61176,0.80000,1.00000),smoothstep(0.001,0.020,depth));',
+          'water=mix(water,vec3(0.31765,0.55294,0.80784),smoothstep(0.020,0.050,depth));',
+          'water=mix(water,vec3(0.17647,0.40784,0.67059),smoothstep(0.050,0.150,depth));',
+          'water=mix(water,vec3(0.11373,0.29804,0.54510),smoothstep(0.150,0.300,depth));',
+          'water=mix(water,vec3(0.07451,0.20392,0.40392),smoothstep(0.300,0.600,depth));',
+          'water=mix(water,vec3(0.04706,0.13333,0.29020),smoothstep(0.600,0.900,depth));',
+          'water=mix(water,vec3(0.02353,0.08627,0.19608),smoothstep(0.900,1.200,depth));',
           'float deep=smoothstep(0.04,0.85,depth);',
           'float ripple=sin(v_meta.x*1.15+v_meta.y*0.35-u_time*1.8)*0.52+',
           '  sin(v_meta.y*0.62-v_meta.x*0.46+u_time*1.3)*0.32+',
@@ -471,8 +471,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
           '// pixel-adaptive antialiasing for 3D water silhouettes',
           'float edgeWidth=max(0.006,2.0*fwidth(depth));',
           'float edge=smoothstep(max(0.0,threshold-0.0012),threshold+edgeWidth,depth);',
-          'float alpha=(0.55+0.43*smoothstep(0.020,0.60,depth))*edge;',
-          'if(depth<0.020){alpha=(0.34+0.18*smoothstep(0.001,0.02,depth))*edge;}',
+          'float alpha=(0.66+0.26*smoothstep(0.020,0.60,depth))*edge;',
+          'if(depth<0.020){alpha=(0.50+0.18*smoothstep(0.001,0.02,depth))*edge;}',
           '// mask feather is a display-only, subcell coverage alpha.',
           '// Invalid native building/site cells still contain no geometry.',
           'float maskFeather=max(0.03,1.5*fwidth(v_mask));',
@@ -2609,12 +2609,12 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section-title">动态积水水深分级 · SIMULATED DEPTH</div>',
       '<div class="site-hydro-mini" id="siteHudDepthLegendNote">地图默认显示 ≥1 mm 的浅湿润；1–20 mm 仅增强可见性，不计入 ≥2 cm 的积水面积。右侧颜色与地图一致，分级面积来自原始模拟网格。</div>',
       '<div class="site-hydro-depth-legend">',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:linear-gradient(90deg,#b4ceff,#4a92ff)"></i><span>0.001–0.05m（含浅湿润）<strong id="siteDepthArea0">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:linear-gradient(90deg,#4a92ff,#2271ff)"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:linear-gradient(90deg,#2271ff,#1c5adf)"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:linear-gradient(90deg,#1c5adf,#1545b7)"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:linear-gradient(90deg,#1545b7,#041c4b)"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
-      '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:linear-gradient(90deg,#041c4b,#041c4b)"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin0" data-wet="false"><i style="background:linear-gradient(90deg,#d0e7ff,#518dce)"></i><span>0.001–0.05m（含浅湿润）<strong id="siteDepthArea0">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin1" data-wet="false"><i style="background:linear-gradient(90deg,#518dce,#2d68ab)"></i><span>0.05–0.15m <strong id="siteDepthArea1">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin2" data-wet="false"><i style="background:linear-gradient(90deg,#2d68ab,#1d4c8b)"></i><span>0.15–0.30m <strong id="siteDepthArea2">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin3" data-wet="false"><i style="background:linear-gradient(90deg,#1d4c8b,#133467)"></i><span>0.30–0.60m <strong id="siteDepthArea3">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin4" data-wet="false"><i style="background:linear-gradient(90deg,#133467,#0c224a)"></i><span>0.60–1.20m <strong id="siteDepthArea4">0.00 ha</strong></span></div>',
+      '<div class="site-hydro-depth-bin" id="siteDepthBin5" data-wet="false"><i style="background:linear-gradient(90deg,#0c224a,#061632)"></i><span>≥1.20m <strong id="siteDepthArea5">0.00 ha</strong></span></div>',
       '</div><div class="site-hydro-depth-note" id="siteHudFloodPhase">尚未运行 · 无动态积水</div></div>',
       '<div class="site-hydro-metric"><small>MAX DEPTH · 最大地表水深</small><b id="siteHudDepth">0.000 m</b></div>',
       '<div class="site-hydro-metric"><small>WET AREA · 积水面积 ≥ 0.02 m</small><b id="siteHudArea">0.00 ha</b></div>',
