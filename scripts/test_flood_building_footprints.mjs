@@ -37,7 +37,11 @@ const result=vm.runInContext(`(()=>{
   params={...params,rainfall:0};
   sim.water[11]+=.20;sim.balance.externalInM3+=.20*sim.groundAreaM2;sim.timeSec=5;
   simulationStep(5);sendFrame();
-  return {total,balance,roofWet,roofTargetCount,roofCellCount:sim.roofCellCount,
+  const renderedBuildingMm=new Uint16Array(frame.depthMm)[mid];
+  sim.water.fill(0);
+  const dryFootprintMm=presentationDepth()[mid];
+  return {total,balance,roofWet,renderedBuildingMm,dryFootprintMm,
+    roofTargetCount,roofCellCount:sim.roofCellCount,
     building:sim.water[mid],validCells:sim.inside.reduce((a,v)=>a+v,0),
     waterBalanceError:sim.balance.rainM3-sim.balance.infiltrationM3-
       sim.balance.boundaryOutM3-
@@ -48,6 +52,8 @@ assert.equal(result.roofTargetCount,1,'the roof must have an outdoor discharge t
 assert.equal(result.roofWet,0,'ground water must not enter solid buildings');
 assert.ok(Math.abs(result.total-result.balance)<1e-5,'rain on roofs is conserved');
 assert.equal(result.building,0,'runoff cannot penetrate a solid building footprint');
+assert.ok(result.renderedBuildingMm>0,'wet outside water visually covers the building base');
+assert.equal(result.dryFootprintMm,0,'isolated dry buildings must never be flooded by presentation');
 assert.ok(frame,'must produce a render frame');
 assert.ok(new Uint16Array(frame.depthMm)[12]>=1,
   'building base must display a continuous wet area when exterior water touches it');
@@ -61,6 +67,15 @@ assert.ok(frame.impactedIds.includes(0),'water near building must flag damage');
 assert.ok(frame.stats.wetAreaM2>0,'wet area must be in real m²');
 assert.ok(frame.stats.waterBalance!==null);
 assert.ok(frame.stats.waterBalance.relativeError<1e-5,'closed-domain water budget conserved');
+const reveal=vm.runInContext('designYearRevealFactor',scope);
+assert.equal(reveal(2026),0,'2026 design rainfall visual starts dry');
+assert.equal(reveal(2100),1,'2100 displays entire simulated peak');
+assert.ok(reveal(2050)>0&&reveal(2050)<reveal(2075));
+for(let year=2027;year<=2100;year++)
+  assert.ok(reveal(year)>=reveal(year-1),'yearly flood reveal must be monotonic');
+const basePeak=[0,.1,.5,1.3].map(x=>x);
+assert.deepEqual(basePeak.map(x=>x*reveal(2026)),[0,0,0,0]);
+assert.deepEqual(basePeak.map(x=>x*reveal(2100)),basePeak);
 
 const tScope=vm.createContext({self:{},postMessage:()=>{},console});
 vm.runInContext(read('./hydro_tensor_worker.js'),tScope);
