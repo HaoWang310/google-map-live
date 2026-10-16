@@ -1,7 +1,7 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.67-blue-purple-separation';
-import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.67-blue-purple-separation';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.68-particle-trace-growth';
+import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2596,8 +2596,8 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>主方向 · 蓝</span><div aria-hidden="true"></div><span>次方向 · 粉紫</span></div>',
       '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">张量场准备中 · 首次计算将先显示真实方向预览</div>',
-      '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 回放张量场生成（约4秒）</button>',
-      '<div class="site-hydro-mini" style="font-size:11px">线束生长为流线可视化，沿原始计算几何渐进显示；现在使用静态曲线和图层透明度过渡，粒子速度不代表真实水流速度。</div>',
+      '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 回放粒子路径生长（约6秒）</button>',
+      '<div class="site-hydro-mini" style="font-size:11px">主干先亮起，蓝紫粒子沿真实张量曲线生长并留下渐变尾迹；未生长路径隐藏。路径与粒子仅表示设计方向，不代表实测水流速度。</div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
