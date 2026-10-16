@@ -37,7 +37,7 @@ globalThis.Worker=class{
 globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
 const map={getLayer:()=>false,getSource:id=>({setData:data=>drawn.set(id,data)})};
 const renderer=createHydroTensorRenderer({map,sourceId:'axes',particleSourceId:'particles',ribbonSourceId:'ribbons',
- getBounds:()=>[[0,1],[1,1],[1,0],[0,0]],onStatus:message=>{if(message.includes(' 条'))done(message)}});
+ getBounds:()=>[[0,1],[1,1],[1,0],[0,0]],onStatus:message=>{if(message.includes(' lines'))done(message)}});
 renderer.configure({mode:'analysis'});renderer.setEnabled(true);
 const n=r.cols*r.rows,grid=r.grid;
 renderer.setField({cols:r.cols,rows:r.rows,vx:new Int8Array(n),vy:new Int8Array(n),intensity:new Uint8Array(n)},

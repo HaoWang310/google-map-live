@@ -18,7 +18,7 @@ async function loadBitmap(){
   if(!bitmapPromise){
     bitmapPromise=(async()=>{
       const response=await fetch(config.imageUrl,{cache:'force-cache'});
-      if(!response.ok)throw new Error('本地地形总览资源加载失败: HTTP '+response.status);
+      if(!response.ok)throw new Error('Local terrain overview failed to load: HTTP '+response.status);
       const blob=await response.blob();
       return createImageBitmap(blob);
     })();
@@ -47,7 +47,7 @@ async function renderTile(z,x,y){
   const bitmap=await loadBitmap();
   const canvas=new OffscreenCanvas(size,size);
   const ctx=canvas.getContext('2d',{alpha:true});
-  if(!ctx)throw new Error('浏览器不支持本地地形瓦片渲染');
+  if(!ctx)throw new Error('This browser cannot render local terrain tiles');
 
   ctx.clearRect(0,0,size,size);
   ctx.imageSmoothingEnabled=true;

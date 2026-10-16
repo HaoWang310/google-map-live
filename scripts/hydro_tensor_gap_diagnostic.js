@@ -9,11 +9,11 @@ const clamp=(n,lo,hi)=>Math.max(lo,Math.min(hi,n));
 const merc=([lng,lat])=>[R*lng*TO_RAD,R*Math.log(Math.tan(Math.PI/4+clamp(lat,-85,85)*TO_RAD/2))];
 const geo=(x,y)=>[x/R*TO_DEG,(2*Math.atan(Math.exp(y/R))-Math.PI/2)*TO_DEG];
 export const TENSOR_GAP_CATEGORIES=Object.freeze([
-  {code:'missing',label:'无有效数据 / 掩膜缺口',color:'#FA6379'},
-  {code:'low',label:'方向置信度不足（<0.075）',color:'#F59E78'},
-  {code:'isotropic',label:'方向不唯一（各向异性≤0.02）',color:'#E9B85B'},
-  {code:'axis',label:'主轴缺失',color:'#B79BFA'},
-  {code:'uncovered',label:'方向有效但流线未覆盖（原因待查）',color:'#37BDF2'}
+  {code:'missing',label:'No valid data / mask gap',color:'#FA6379'},
+  {code:'low',label:'Low direction confidence (<0.075)',color:'#F59E78'},
+  {code:'isotropic',label:'Direction not unique (anisotropy ≤0.02)',color:'#E9B85B'},
+  {code:'axis',label:'Main axis missing',color:'#B79BFA'},
+  {code:'uncovered',label:'Direction valid but no streamline (cause unknown)',color:'#37BDF2'}
 ]);
 export function classifyTensorEvidence(f,i,inside=true){
   if(!inside)return 'outside';

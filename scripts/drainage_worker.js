@@ -294,10 +294,10 @@ if(typeof WorkerGlobalScope!=='undefined'&&globalThis instanceof WorkerGlobalSco
       let bitmap;
       try{
         const response=await fetch(config.sourceUrl,{cache:'force-cache',signal:controller.signal});
-        if(!response.ok)throw new Error('50 m 汇水源数据加载失败（'+response.status+'）');
+        if(!response.ok)throw new Error('50 m catchment source data failed to load ('+response.status+')');
         bitmap=await createImageBitmap(await response.blob());
         const {width,height}=bitmap;
-        if(width!==config.width||height!==config.height)throw new Error('汇水源数据尺寸不匹配');
+        if(width!==config.width||height!==config.height)throw new Error('Catchment source data size mismatch');
 
         const canvas=new OffscreenCanvas(width,height);
         const ctx=canvas.getContext('2d',{willReadFrequently:true});

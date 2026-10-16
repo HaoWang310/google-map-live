@@ -29,7 +29,7 @@ export function tileBounds(z,x,y){
 export function decodeRank(pixels,i){
   if(pixels[i+3]===0)return 0;
   const rank=FILL_RANKS.get((pixels[i]<<16)|(pixels[i+1]<<8)|pixels[i+2]);
-  if(pixels[i+3]!==255||rank===undefined)throw new Error('官方精细图返回未知的风险颜色');
+  if(pixels[i+3]!==255||rank===undefined)throw new Error('Official detail image returned an unknown risk colour');
   return rank;
 }
 
@@ -65,10 +65,10 @@ export function createFloodDetailLoader({center,radius,bounds,assetUrl}){
     if(!stylesPromise){
       stylesPromise=Promise.all(SOURCES.map(async source=>{
         const r=await fetch(assetUrl('assets/flood_risk/'+source.style),{cache:'force-cache'});
-        if(!r.ok)throw new Error('官方风险图样式加载失败（'+r.status+'）');
+        if(!r.ok)throw new Error('Official risk map style failed to load ('+r.status+')');
         const text=await r.text();
         if(!text.includes('<sld:StyledLayerDescriptor')||!text.includes(source.layer)){
-          throw new Error('官方风险图样式不匹配');
+          throw new Error('Official risk map style mismatch');
         }
         return text;
       })).catch(error=>{stylesPromise=null;throw error;});
@@ -92,10 +92,10 @@ export function createFloodDetailLoader({center,radius,bounds,assetUrl}){
             FORMAT:'image/png',TRANSPARENT:'TRUE',FORMAT_OPTIONS:'antialias:none',SLD_BODY:sld});
           if(attempt)p.set('_retry',String(Date.now()));
           const response=await fetch(source.urls[attempt%2]+'?'+p,{signal:controller.signal});
-          if(!response.ok)throw new Error('EA 精细服务暂不可用（'+response.status+'）');
+          if(!response.ok)throw new Error('EA detailed service unavailable ('+response.status+')');
           bitmap=await createImageBitmap(await response.blob());
           if(bitmap.width!==DETAIL_TILE_SIZE||bitmap.height!==DETAIL_TILE_SIZE){
-            throw new Error('官方精细图尺寸不匹配');
+            throw new Error('Official detail image size mismatch');
           }
           if(signal.aborted)throw aborted();
           const canvas=new OffscreenCanvas(DETAIL_TILE_SIZE,DETAIL_TILE_SIZE);

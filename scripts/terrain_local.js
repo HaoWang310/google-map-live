@@ -8,7 +8,7 @@ export function createTerrainLocalLoader(config){
 
   function start(){
     if(worker)return;
-    worker=new Worker(new URL('./terrain_worker.js?v=3.15.0',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./terrain_worker.js?v=3.23.2-english',import.meta.url),{type:'module'});
     worker.postMessage({type:'init',config});
     worker.onmessage=({data})=>{
       const request=pending.get(data.id);
@@ -19,7 +19,7 @@ export function createTerrainLocalLoader(config){
       else request.resolve({data:data.data,cacheControl:'max-age=31536000'});
     };
     worker.onerror=(event)=>{
-      const error=new Error(event?.message||'本地地形瓦片加载失败');
+      const error=new Error(event?.message||'Local terrain tiles failed to load');
       for(const request of pending.values()){
         request.cleanup();
         request.reject(error);

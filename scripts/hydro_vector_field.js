@@ -285,8 +285,8 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
         }
       }
     }
-    setStatus(traces.length?traces.length+' 条地形汇流／雨水流线 · 2026–2100 设计情景 · 相对强度，非 m/s':
-      '当前情景没有达到流场显示阈值的有效水流，请选择较晚年份并运行');
+    setStatus(traces.length?traces.length+' lines of terrain flow / rainwater · 2026–2100 design scenario · relative strength, not m/s':
+      'No flow in this scenario reaches the flow-field display threshold; choose a later year and run');
   }
   function applyStyle(){
     if(!map.getLayer(lineLayerId))return;
@@ -425,7 +425,7 @@ export function createHydroVectorRenderer({map,sourceId,particleSourceId,glowLay
     stop();field=null;context=null;terrainGuide=null;
     modeledDepthMm=null;traces=[];segments=[];
     lineSource()?.setData(empty());dotSource()?.setData(empty());
-    setStatus('等待水文流场数据 · 先运行降雨模拟');
+    setStatus('Waiting for hydrology flow-field data · run the rainfall simulation first');
   }
   function demSlopes(){
     const n=field.cols*field.rows,x=new Float32Array(n),y=new Float32Array(n);
