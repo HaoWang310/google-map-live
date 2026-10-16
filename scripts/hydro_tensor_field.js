@@ -43,7 +43,7 @@ export function createHydroTensorRenderer(args){
   let yearGrowth=revealForYear(timelineYear),growthFrom=yearGrowth,growthTo=yearGrowth,growthChangeAt=0;
   let lastRenderedYear=2026,replayGrowthActive=false;
   let continuousPlayback=null; // presentation clock, independent of 9 physical solve keyframes
-  const TENSOR_PLAYBACK_RATES=Object.freeze([.5,1.25,1.5,2,3]);
+  const TENSOR_PLAYBACK_RATES=Object.freeze([.5,1.25,1.5,2,3,5]);
   let playbackRate=1.25;
   let particleClockSeconds=0,particleClockAt=null;
   function advanceParticleClock(time){
