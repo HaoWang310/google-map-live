@@ -15,7 +15,7 @@ export function createHydroTensorRenderer(args){
     terrainWeight:35,drainageWeight:45,avoidance:70,
     smoothness:60,crossStrength:60,
     density:55,length:65,width:1.4,opacity:.85,glow:.35,
-    speed:1,growth:1,mode:'analysis',direction:'dual',
+    speed:1,growth:1,mode:'presentation',direction:'dual',
     showRibbon:true,showFilaments:true,ribbonConcentration:68,
     ribbonWidth:42,trunkEmphasis:75,curvatureSmoothing:65
   };
