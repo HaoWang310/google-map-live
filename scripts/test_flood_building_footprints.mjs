@@ -49,7 +49,14 @@ assert.equal(result.roofWet,0,'ground water must not enter solid buildings');
 assert.ok(Math.abs(result.total-result.balance)<1e-5,'rain on roofs is conserved');
 assert.equal(result.building,0,'runoff cannot penetrate a solid building footprint');
 assert.ok(frame,'must produce a render frame');
-assert.equal(new Uint16Array(frame.depthMm)[12],0);
+assert.ok(new Uint16Array(frame.depthMm)[12]>=1,
+  'building base must display a continuous wet area when exterior water touches it');
+assert.equal(new Uint8Array(frame.validMask)[12],1,
+  'display mask must permit water across the connected building base');
+assert.equal(frame.stats.floodedBuildingFootprintAreaM2,0,
+  'visual infill must not be counted as true ground flood volume');
+assert.ok(frame.stats.visualFloodedBuildingFootprintAreaM2>0,
+  'report the building-base visual fill separately');
 assert.ok(frame.impactedIds.includes(0),'water near building must flag damage');
 assert.ok(frame.stats.wetAreaM2>0,'wet area must be in real m²');
 assert.ok(frame.stats.waterBalance!==null);
@@ -72,9 +79,10 @@ const data={type:'solve',requestId:1,cols,rows,cellX:6.25,cellY:6.25,
   drainageThresholdKm2:1,scenario:{year:2100},
   config:{terrainWeight:100,drainageWeight:0,avoidance:0,smoothness:60}};
 const tensor=solve(data);
-assert.equal(tensor.fields.validMask[20*cols+21],0,
-  'building cannot be a valid tensor integration cell');
-assert.equal(tensor.diagnostics.buildingFootprintsPassable,false);
+assert.equal(tensor.fields.validMask[20*cols+21],1,
+  'the design tensor may cross building footprints while physical runoff remains obstructed');
+assert.equal(tensor.diagnostics.buildingFootprintsPassable,true);
+assert.equal(tensor.diagnostics.physicalRunoffBuildingsImpermeable,true);
 assert.equal(tensor.diagnostics.obstacleCells,41);
 const ui=read('./local_flood_ui.js');
 assert.ok(ui.includes('geodesicRingAreaM2(ring)'),
@@ -82,4 +90,4 @@ assert.ok(ui.includes('geodesicRingAreaM2(ring)'),
 assert.ok(ui.includes('按 0 栋建筑的开放地块继续运行'),
   'zero-building rural plots must remain valid');
 console.log('PASS conservative roof runoff, ground-metre statistics and building impact');
-console.log('PASS tensor barrier masks, empty rural plots and real area selection');
+console.log('PASS continuous tensor design axes, non-physical base fill, rural plots and real area selection');
