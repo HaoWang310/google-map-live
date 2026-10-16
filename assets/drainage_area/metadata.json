@@ -40,11 +40,11 @@
     "upstream_domain_bounds_m": [
       300000.0,
       100000.0,
-      600000.0,
+      625000.0,
       300000.0
     ],
     "upstream_domain_size": [
-      6000,
+      6500,
       4000
     ],
     "cell_size_m": 50.0,
@@ -53,9 +53,9 @@
     "flow_direction": "D8",
     "flow_accumulation": "upstream area in km² computed once on the complete upstream analysis domain before the London crop",
     "mosaic_stats": {
-      "tiles_used": 597,
-      "valid_cells": 23880000,
-      "valid_fraction": 0.995,
+      "tiles_used": 646,
+      "valid_cells": 25560000,
+      "valid_fraction": 0.9830769230769231,
       "min_elevation_m": -134.89999389648438,
       "max_elevation_m": 883.5999755859375
     }
@@ -95,12 +95,12 @@
     "display_mask": "70 km radius around Charing Cross is applied by the shared browser worker"
   },
   "asset": "assets/drainage_area/area_log16.webp",
-  "asset_sha256": "f8942f0547fad1233bd2dcb9028bb43e4ef9677a19caf346300c5dbbab0bb0d7",
-  "asset_size_bytes": 4320390,
+  "asset_sha256": "2efa511f3e7b5599c42144f17b0c263e39efd777ddc45118edabd530826095ae",
+  "asset_size_bytes": 4428074,
   "terrain_dem_asset": {
     "path": "assets/drainage_area/dem50_log16.webp",
-    "sha256": "1d5979fb9b4a3cb7f1ca33089007c410eb683b0100bab668647c4502b285abaf",
-    "size_bytes": 5154506,
+    "sha256": "2a02b9fb006d3a2304bce9609d63be068570ed25711e1b7fc7b9b2e6f24d19bb",
+    "size_bytes": 5214836,
     "source_resolution_m": 50,
     "web_grid": "same EPSG:3857 bounds and dimensions as the accumulation field",
     "reprojection": "bilinear from native OS Terrain 50 elevations",
@@ -111,7 +111,7 @@
       "decode": "minimum_elevation_m + (code - 1) * step_m"
     },
     "purpose": "Local browser flood-routing simulation terrain. It remains a 50 m terrain model even when the visual simulation grid is finer.",
-    "valid_cells": 8087327,
+    "valid_cells": 8245494,
     "min_elevation_m": -4.8305344581604,
     "max_elevation_m": 289.3976745605469,
     "encoding_min_m": -100.0,
@@ -126,9 +126,9 @@
   "display": {
     "area_layer": "B-spline visual resampling of the stored 50 m accumulation field; display smoothing does not increase analytical resolution.",
     "network_layer": "Dynamic browser threshold A >= user-selected minimum contributing area using the SAME encoded 50 m field; no independent network raster.",
-    "display_valid_cells": 8087327,
+    "display_valid_cells": 8245494,
     "display_min_km2": 0.0024999999441206455,
-    "display_max_km2": 16128.330078125
+    "display_max_km2": 16420.982421875
   },
   "provenance_note": "The hydrology solve occurs before the London 70 km crop so upstream contributions from the full Thames catchment are retained.",
   "references": [
