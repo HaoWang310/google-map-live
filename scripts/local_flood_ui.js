@@ -2594,7 +2594,7 @@ export function createLocalFloodUI({
       '<label class="site-vector-param"><span>动画速度<output id="siteHudVectorSpeedValue">0</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="0"></label>',
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
-      '<div class="site-vector-scale"><span>弱</span><div aria-hidden="true"></div><span>强</span></div>',
+      '<div class="site-vector-scale"><span>主方向 · 蓝</span><div aria-hidden="true"></div><span>次方向 · 粉紫</span></div>',
       '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">张量场准备中 · 首次计算将先显示真实方向预览</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 回放张量场生成（约4秒）</button>',
       '<div class="site-hydro-mini" style="font-size:11px">线束生长为流线可视化，沿原始计算几何渐进显示；现在使用静态曲线和图层透明度过渡，粒子速度不代表真实水流速度。</div>',
