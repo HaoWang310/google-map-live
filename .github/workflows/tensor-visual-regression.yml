@@ -7,6 +7,7 @@ on:
       - 'scripts/hydro_tensor_field.js'
       - 'scripts/local_flood_ui.js'
       - 'scripts/test_tensor_growth.mjs'
+      - 'scripts/test_tensor_continuous_clock.mjs'
       - 'scripts/test_tensor_visual_palette.mjs'
       - 'scripts/test_tensor_animation_no_geojson_churn.mjs'
       - '.github/workflows/tensor-visual-regression.yml'
@@ -29,5 +30,6 @@ jobs:
       - name: Visual regressions
         run: |
           node scripts/test_tensor_growth.mjs
+          node scripts/test_tensor_continuous_clock.mjs
           node scripts/test_tensor_visual_palette.mjs
           node scripts/test_tensor_animation_no_geojson_churn.mjs
