@@ -849,6 +849,7 @@ export function createLocalFloodUI({
   ensureCityBuildings,setCityView,getFirstSymbolLayerId,cityBuildingsLayerId,
   setCityBuildingFloodSelection,setCityIsolateMode,
   getFocusAnalysisSettings,getFocusReferenceTile,
+  getBasemapTheme=()=> 'planning',setBasemapTheme=()=>{},
   onOpenParcelGenerator
 }){
   let drawing=false;
@@ -1877,6 +1878,17 @@ export function createLocalFloodUI({
         viewer.setLayoutProperty(FOCUS_RAIN_LAYER,'visibility',visibility);
     }
   }
+  const focusThemePalette=()=>{
+    // Same two OSM styles, only for the independent model's local ground.
+    // Do not change flood water/depth/risk or tensor overlay coloration.
+    return getBasemapTheme()==='dark'?{
+      ground:'#101d29',green:'#1b3636',water:'#19445d',
+      roadCasing:'#233c52',roadMajor:'#4a708a',roadPedestrian:'#2a4b60',roadMinor:'#34566c'
+    }:{
+      ground:'#f1f3f2',green:'#e1ebe2',water:'#dbeaf0',
+      roadCasing:'#c9d2d5',roadMajor:'#e2e8e8',roadPedestrian:'#edf0ed',roadMinor:'#f9faf9'
+    };
+  };
   function updateHydroLayerVisibility(){
     const viewer=isolateViewer;
     if(!viewer)return;
@@ -1889,15 +1901,18 @@ export function createLocalFloodUI({
     // Never override a displayed earlier year with a stale 2100 worker state.
     // No stale frame is reattached on a display-only switch.
     // Dark academic scene is applied only while the independent flow layer is on.
-    const ground=hydroDisplay.flow?'#000000':'#e8e7e2';
-    const green=hydroDisplay.flow?'#000000':'#bfd9b1';
-    const road=hydroDisplay.flow?'#000000':'#c4c2bd';
+    const palette=focusThemePalette();
+    const ground=hydroDisplay.flow?'#000000':palette.ground;
+    const green=hydroDisplay.flow?'#000000':palette.green;
+    const road=hydroDisplay.flow?'#000000':palette.roadCasing;
     for(const [id,property,color] of [
       ['focus-parcel-ground','fill-color',ground],
       ['focus-green-ground','fill-color',green],
-      ['focus-water-ground','fill-color',hydroDisplay.flow?'#000000':'#a8d5ec'],
+      ['focus-water-ground','fill-color',hydroDisplay.flow?'#000000':palette.water],
       ['focus-road-casing','fill-color',road],
-      ['focus-road-surface','fill-color',hydroDisplay.flow?'#000000':['match',['get','kind'],'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff']]
+      ['focus-road-surface','fill-color',hydroDisplay.flow?'#000000':
+        ['match',['get','kind'],'major',palette.roadMajor,
+          'pedestrian',palette.roadPedestrian,palette.roadMinor]]
     ])if(viewer.getLayer(id))viewer.setPaintProperty(id,property,color);
     setFocusPitchMode();
     syncFocusFootprintVisibility(); // only when mode state changes
@@ -1915,6 +1930,7 @@ export function createLocalFloodUI({
 
   function focusStyle(details){
     const analysis=focusContextSettings();
+    const palette=focusThemePalette();
     const parcel={
       type:'FeatureCollection',
       features:[{
@@ -1958,22 +1974,22 @@ export function createLocalFloodUI({
         {id:'focus-background',type:'background',
           paint:{'background-color':'#000000'}},
         {id:'focus-parcel-ground',type:'fill',source:FOCUS_SITE,
-          paint:{'fill-color':'#e8e7e2','fill-opacity':1}},
+          paint:{'fill-color':palette.ground,'fill-opacity':1}},
         {id:'focus-green-ground',type:'fill',source:FOCUS_GREEN,
-          paint:{'fill-color':'#bfd9b1','fill-opacity':0.95}},
+          paint:{'fill-color':palette.green,'fill-opacity':0.95}},
         {id:'focus-water-ground',type:'fill',source:FOCUS_WATER,
-          paint:{'fill-color':'#a8d5ec','fill-opacity':0.95}},
+          paint:{'fill-color':palette.water,'fill-opacity':0.95}},
         {id:'focus-road-casing',type:'fill',source:FOCUS_ROADS,
           filter:['==',['get','part'],'casing'],
           paint:{
-            'fill-color':'#c4c2bd',
+            'fill-color':palette.roadCasing,
             'fill-opacity':0.92
           }},
         {id:'focus-road-surface',type:'fill',source:FOCUS_ROADS,
           filter:['==',['get','part'],'surface'],
           paint:{
             'fill-color':['match',['get','kind'],
-              'major','#f8f5f0','pedestrian','#e8e2d1','#ffffff'],
+              'major',palette.roadMajor,'pedestrian',palette.roadPedestrian,palette.roadMinor],
             'fill-opacity':1
           }},
         {id:FOCUS_SPONGE_FILL,type:'fill',source:FOCUS_SPONGE_SOURCE,
@@ -2485,6 +2501,8 @@ export function createLocalFloodUI({
       '<section class="site-hydro-side site-hydro-left">',
       '<div class="site-hydro-eyebrow">SCENARIO BUILDER</div>',
       '<div class="site-hydro-title">真实场地洪涝模拟</div>',
+      '<label class="site-hydro-row">地图风格 <select id="siteHudBasemapTheme" aria-label="场地底图风格" style="background:#23262b;color:#f4f4f6;border:1px solid #565b65;border-radius:7px;padding:6px;min-width:138px">',
+      '<option value="planning" selected>03 · 建筑规划</option><option value="dark">02 · 黑色科技</option></select></label>',
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 长期设计包络（2100峰值）</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
@@ -2640,6 +2658,11 @@ export function createLocalFloodUI({
     setSiteHud('siteHudLocation','Lat '+((bounds.south+bounds.north)/2).toFixed(5)+
       ' · Lon '+((bounds.west+bounds.east)/2).toFixed(5));
     syncSiteControls();
+    const themeSelect=siteHud('siteHudBasemapTheme');
+    if(themeSelect){
+      themeSelect.value=getBasemapTheme()==='dark'?'dark':'planning';
+      themeSelect.onchange=e=>setBasemapTheme(e.target.value);
+    }
     siteHud('siteHudShowBuildings').checked=!hideSelectedBuildings;
     siteHud('siteHudShowBuildings').onchange=event=>{
       hideSelectedBuildings=!event.target.checked;
@@ -4615,6 +4638,13 @@ export function createLocalFloodUI({
 
   return {
     clear:()=>clearSimulation(false),
+    setBasemapTheme(mode){
+      const select=siteHud('siteHudBasemapTheme');
+      if(select)select.value=mode==='dark'?'dark':'planning';
+      // Only change local background/roads. Keep current simulation state,
+      // uploaded textures, site camera and all tensor Worker jobs untouched.
+      if(isolatedSelection&&isolateViewer)updateHydroLayerVisibility();
+    },
     setFocusView(is3D){
       if(!isolatedSelection||!isolateViewer)return false;
       isolateViewer.easeTo(is3D?{
