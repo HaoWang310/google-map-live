@@ -45,6 +45,12 @@ export function createHydroTensorRenderer(args){
   let continuousPlayback=null; // presentation clock, independent of 9 physical solve keyframes
   const TENSOR_PLAYBACK_RATES=Object.freeze([.5,1.25,1.5,2,3]);
   let playbackRate=1.25;
+  let particleClockSeconds=0,particleClockAt=null;
+  function advanceParticleClock(time){
+    if(particleClockAt===null){particleClockAt=time;return;}
+    particleClockSeconds+=Math.max(0,time-particleClockAt)/1000*playbackRate;
+    particleClockAt=time;
+  }
   // Move the presentation time base rather than restarting its animation.
   // Clock references use requestAnimationFrame timestamps / performance.now.
   function advancePlaybackClock(clock,time){
@@ -56,7 +62,10 @@ export function createHydroTensorRenderer(args){
   function setPlaybackRate(value){
     const rate=Number(value);
     if(!TENSOR_PLAYBACK_RATES.includes(rate))return false;
-    if(continuousPlayback)advancePlaybackClock(continuousPlayback,performance.now());
+    const now=performance.now();
+    if(particleClockAt!==null&&!continuousPlayback?.paused)
+      advanceParticleClock(now);
+    if(continuousPlayback)advancePlaybackClock(continuousPlayback,now);
     playbackRate=rate;
     if(continuousPlayback)continuousPlayback.rate=rate;
     return true;
@@ -630,7 +639,7 @@ export function createHydroTensorRenderer(args){
       const coords=line.coordinates;
       if(coords.length<2)continue;
       // Time is purely a display timeline; no true metres-per-second claim.
-      const u=(elapsed*playbackRate*(.06+.09*line.rank)+
+      const u=(particleClockSeconds*(.06+.09*line.rank)+
         i*.61803398875)%1;
       const pos=u*(coords.length-1),j=Math.min(coords.length-2,Math.floor(pos));
       const alpha=pos-j,a=coords[j],b=coords[j+1];
@@ -649,6 +658,7 @@ export function createHydroTensorRenderer(args){
     continuousPlayback={clockAt:now,positionMs:0,rate:playbackRate,
       paused:false,durationMs:clamp(Number(durationMs)||64000,8000,240000)};
     replayGrowthActive=false;
+    particleClockSeconds=0;particleClockAt=now;
     timelineYear=2026;growthFrom=0;growthTo=1;growthChangeAt=now;
     yearGrowth=0;renderedFraction=-1;
     stop();animationOrigin=now;lastAnimationDraw=0;
@@ -657,14 +667,17 @@ export function createHydroTensorRenderer(args){
     return true;
   }
   function stopContinuousPlayback(){
-    continuousPlayback=null;
+    continuousPlayback=null;particleClockAt=null;
     stop();
     dots()?.setData(empty());headsActive=false;
   }
   function pauseContinuousPlayback(){
     const playback=continuousPlayback;
     if(!playback||playback.done||playback.paused)return false;
-    advancePlaybackClock(playback,performance.now());
+    const now=performance.now();
+    advancePlaybackClock(playback,now);
+    if(particleClockAt!==null)advanceParticleClock(now);
+    particleClockAt=null;
     playback.paused=true;
     stop();
     // Freeze the existing particle-head source in place, like pausing a film.
@@ -675,6 +688,7 @@ export function createHydroTensorRenderer(args){
     const playback=continuousPlayback;
     if(!enabled||!playback||!playback.paused||playback.done)return false;
     playback.clockAt=performance.now();
+    particleClockAt=playback.clockAt;
     playback.paused=false;
     lastAnimationDraw=0;
     if(!animation)animation=requestAnimationFrame(tick);
@@ -683,6 +697,7 @@ export function createHydroTensorRenderer(args){
   function tick(time){
     if(!enabled||continuousPlayback?.paused){stop();return}
     animation=requestAnimationFrame(tick);
+    advanceParticleClock(time);
     // 30-40 Hz GPU gradient updates. The elapsed-clock itself stays linear
     // even if an individual animation frame takes longer to draw.
     if(time-lastAnimationDraw<26)return;
@@ -889,7 +904,7 @@ export function createHydroTensorRenderer(args){
       geometryWorker?.terminate();geometryWorker=null;geometryBusy=false;geometryActiveId=0;
       stop();src()?.setData(empty());ribbonSource()?.setData(empty());
       dots()?.setData(empty());headsActive=false;lastTraceHeads.clear();lastStaticPaintKey='';
-      continuousPlayback=null;invalidateUploaded();return;
+      continuousPlayback=null;particleClockAt=null;invalidateUploaded();return;
     }
     // A layer toggle is a visibility change, not a reason to throw away the
     // previously displayed provisional or completed geometry.
@@ -911,6 +926,7 @@ export function createHydroTensorRenderer(args){
     provisionalLineCount=0;previewBaseSettings=null;
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
     replayGrowthActive=false;continuousPlayback=null;
+    particleClockSeconds=0;particleClockAt=null;
     lastRenderedYear=2026;yearGrowth=revealForYear(timelineYear);growthFrom=yearGrowth;growthTo=yearGrowth;
     stop();src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());invalidateUploaded();
