@@ -3390,6 +3390,24 @@ export function createLocalFloodUI({
       ribbonLayerId:FOCUS_TENSOR_RIBBON_LAYER,
       ribbonGlowLayerId:FOCUS_TENSOR_RIBBON_GLOW,
       particleLayerId:FOCUS_FLOW_PARTICLE_LAYER,
+      gapSourceId:FOCUS_TENSOR_GAP_SOURCE,
+      gapWetLayerId:FOCUS_TENSOR_GAP_WET,
+      gapCategoryLayerId:FOCUS_TENSOR_GAP_REASONS,
+      onGapDiagnostic:stats=>{
+        const node=siteHud('siteHudTensorGapStatus');
+        if(!node||!siteHud('siteHudTensorGapToggle')?.checked)return;
+        if(!stats){node.textContent='等待张量方向结果…';return}
+        const total=stats.site||1,pct=v=>(100*(v||0)/total).toFixed(1)+'%';
+        node.textContent='当前水文计算节点 '+(stats.year??'—')+' 年 · 有效场地格 '+stats.site+
+          '\n无有效数据 '+pct(stats.missing)+' · 低置信度 '+pct(stats.low)+
+          ' · 各向同性 '+pct(stats.isotropic)+' · 缺主轴 '+pct(stats.axis)+
+          '\n方向有效未覆盖 '+pct(stats.uncovered)+
+          (stats.geometryMatched?'（已比对真实流线）':'（流线还在计算，暂不判断）')+
+          '\n积水 ≥2 cm：'+pct(stats.wet)+
+          ' · 湿区诊断缺口占湿区 '+(stats.wet?(100*stats.wetGap/stats.wet).toFixed(1):'0.0')+'%'+
+          '\n显示类别属于诊断证据，不代表逐点曲率/间距终止原因。'+
+          (stats.visualStride>1?'（图面聚合倍数 '+stats.visualStride+'）':'');
+      },
       getBounds:()=>focusWaterBounds,
       onStatus:message=>setSiteHud('siteHudVectorStatus',message),
       onGeometryReady:({year,token,rainfallCase,lineCount})=>{
