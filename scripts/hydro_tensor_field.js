@@ -44,7 +44,7 @@ export function createHydroTensorRenderer(args){
   let lastRenderedYear=2026,replayGrowthActive=false;
   let continuousPlayback=null; // presentation clock, independent of 9 physical solve keyframes
   const getPlaybackState=()=>({
-    ready:features.length>0||ribbonFeatures.length>0,
+    ready:Boolean(geometrySnapshot&&(features.length>0||ribbonFeatures.length>0)),
     running:Boolean(continuousPlayback&&!continuousPlayback.done&&!continuousPlayback.paused),
     paused:Boolean(continuousPlayback?.paused),
     finished:Boolean(continuousPlayback?.done),
