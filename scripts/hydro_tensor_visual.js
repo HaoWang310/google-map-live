@@ -100,7 +100,7 @@ export function traceGrowthProgress(total,family='primary',wave=0){
 }
 const TRACE_RAMPS=Object.freeze({
   primary:[[0,'#518DCE'],[.23,'#9DDCFF'],[.48,'#518DCE'],
-    [.70,'#A9D9FA'],[.86,'#9DDCFF'],[1,'#E3F4FF']],
+    [.70,'#A9D9FA'],[.83,'#EDBDF9'],[.92,'#9DDCFF'],[1,'#E3F4FF']],
   secondary:[[0,'#A9D9FA'],[.23,'#EDBDF9'],[.48,'#A9D9FA'],
     [.75,'#9DDCFF'],[.90,'#EDBDF9'],[1,'#E3F4FF']],
   ribbon:[[0,'#518DCE'],[.16,'#9DDCFF'],[.39,'#E3F4FF'],
