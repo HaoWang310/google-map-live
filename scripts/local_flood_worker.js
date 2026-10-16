@@ -873,19 +873,49 @@ function buildHydroFlowField(force=false){
   return {cols,rows,vx,vy,intensity,units:'relative'};
 }
 
+// Draw-only inundation under buildings: carry neighbouring outside water
+// surface elevation into the connected footprint. Hydrological obstacles and
+// their stored water remain untouched; no visual water contributes to volume.
+function presentationDepth(){
+  const {cols,rows,inside,obstacle,terrain,water,svCapacity}=sim,n=cols*rows;
+  const depth=new Uint16Array(n),head=new Float32Array(n);
+  const queue=new Int32Array(n);let first=0,last=0;
+  for(let i=0;i<n;i++)if(inside[i]&&!obstacle[i])
+    depth[i]=Math.min(65535,Math.round(Math.max(0,water[i]-svCapacity[i])*1000));
+  for(let row=0;row<rows;row++)for(let col=0;col<cols;col++){
+    const i=row*cols+col;if(!inside[i]||!obstacle[i])continue;
+    const ns=[col?i-1:-1,col+1<cols?i+1:-1,row?i-cols:-1,row+1<rows?i+cols:-1];
+    let level=-Infinity;
+    for(const j of ns)if(j>=0&&inside[j]&&!obstacle[j]&&depth[j]>=1)
+      level=Math.max(level,terrain[j]+depth[j]/1000);
+    if(!Number.isFinite(level))continue;
+    // A minimum 1 mm continuity fringe helps prevent an apparent gap at a
+    // building base; it is not reported as physical water depth or volume.
+    head[i]=level;depth[i]=Math.max(1,Math.min(65535,
+      Math.round(Math.max(0,level-terrain[i])*1000)));
+    queue[last++]=i;
+  }
+  while(first<last){
+    const i=queue[first++],row=(i/cols)|0,col=i%cols;
+    for(const j of [col?i-1:-1,col+1<cols?i+1:-1,
+      row?i-cols:-1,row+1<rows?i+cols:-1]){
+      if(j<0||!inside[j]||!obstacle[j]||head[j]!==0)continue;
+      head[j]=head[i];
+      depth[j]=Math.max(1,Math.min(65535,Math.round(
+        Math.max(0,head[j]-terrain[j])*1000)));
+      queue[last++]=j;
+    }
+  }
+  return depth;
+}
 function sendFrame(){
   if(!sim)return;
   const {cols,rows,inside,obstacle,buildingFootprint,buildingIds,water,cell,svCapacity}=sim;
   const groundArea=sim.groundAreaM2||cell*cell;
   const pixels=new Uint8ClampedArray(cols*rows*4);
-  // Visual 3D water uses the SAME ground-passable solver depths. Quantized
-  // millimetres avoid a second high-bandwidth float field per frame.
-  const depthMm=new Uint16Array(cols*rows);
-  // Exact solver-cell visibility mask for antialiased rendering: prevent
-  // water softness from bleeding beyond the parcel.
-  const validMask=new Uint8Array(cols*rows);
-  for(let i=0;i<validMask.length;i++)
-    validMask[i]=inside[i]&&!obstacle[i]?1:0;
+  // Display and tensor-guidance depth is separate from physical runoff.
+  const depthMm=presentationDepth();
+  const validMask=new Uint8Array(inside);
   const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,shallowCells=0,volume=0,retainedM3=0;
   let floodedFootprintCells=0;
@@ -908,7 +938,6 @@ function sendFrame(){
     if(!inside[i]||obstacle[i])continue;
     const h=Math.max(0,water[i]-svCapacity[i]);
     if(h>=0.001){
-      depthMm[i]=Math.min(65535,Math.round(h*1000));
       const touchesBuilding=
         (row>0&&buildingFootprint[i-cols])||
         (col<cols-1&&buildingFootprint[i+1])||
@@ -960,6 +989,17 @@ function sendFrame(){
     }
   }
 
+  let visualFootprintWetCells=0;
+  for(let i=0;i<depthMm.length;i++){
+    if(!inside[i]||!obstacle[i])continue;
+    const h=depthMm[i]/1000;
+    if(h>=.02)visualFootprintWetCells++;
+    if(h>=.05)markCollidingBuilding(i);
+    if(h<=0)continue;
+    const c=depthColour(h,0,0),p=i*4;
+    pixels[p]=c[0];pixels[p+1]=c[1];pixels[p+2]=c[2];pixels[p+3]=c[3];
+    contactMask[i]=1;
+  }
   const activeSeries=Array.isArray(params.rainSeriesMm15)&&params.rainSeriesMm15.length===16?
     params.rainSeriesMm15:null;
   const seriesSlot=Math.max(0,Math.min(15,Math.floor(Math.max(0,sim.timeSec-0.01)/900)));
@@ -1024,6 +1064,8 @@ function sendFrame(){
       spongeFacilities:sim.spongeFacilityCount,
       impactedCount:impacted.size,
       floodedBuildingFootprintAreaM2:floodedFootprintCells*groundArea,
+      visualFloodedBuildingFootprintAreaM2:visualFootprintWetCells*groundArea,
+      buildingBaseContinuityIsPresentationOnly:true,
       eaRiskOverlapPercent:wetCells>0?100*riskOverlapCells/wetCells:0,
       eaRiskMappedCells:riskKnownCells,
       eaRiskAvailable:Boolean(sim.riskAvailable),
@@ -1280,9 +1322,12 @@ onmessage=async({data})=>{
         for(let i=0;i<sim.water.length;i++)sim.water[i]=a[i]*(1-t)+b[i]*t;
         sim.timeSec=selectedTimeMin*60;
       }else{
-        // The displayed water and tensor share the same single-event peak
-        // snapshot. Multi-event maxima remain a separate planning statistic.
-        sim.water.set(forecast.critical.peakFrame);
+        // Physically solve the year-specific design rain BEFORE displaying a
+        // continuous 2026->2100 reveal of its controlling storm peak. The
+        // smooth interpolation is presentation staging, not an annual forecast.
+        stagingFactor=progress*progress*(3-2*progress);
+        for(let i=0;i<sim.water.length;i++)
+          sim.water[i]=forecast.critical.peakFrame[i]*stagingFactor;
         sim.timeSec=forecast.critical.peakMinute*60;
       }
       let displayedWet=0;
@@ -1304,7 +1349,8 @@ onmessage=async({data})=>{
         baselineWetAreaM2:0,
         finalWetAreaM2:forecast.critical.areaM2,
         targetWetAreaM2:displayedWet*sim.groundAreaM2,
-        zeroWaterAt2026:false,areaStaging:false,
+        zeroWaterAt2026:true,areaStaging:displayMode==='year',
+        presentationOnlyStaging:displayMode==='year',
         climateFactor,climateAllowancePercent,
         climateAllowanceSource:providedAllowance?
           'user-supplied design uplift':'not provided; baseline storm',
@@ -1316,12 +1362,13 @@ onmessage=async({data})=>{
         criticalRainTotalMm:forecast.critical.depth,
         criticalPeakAreaM2:forecast.critical.areaM2,
         envelopeWetAreaM2:forecast.finalWetCount*sim.groundAreaM2,
-        solverPathModel:'dem-passable-building-footprints-drainage-v3.22.51',
+        solverPathModel:'dem-building-barriers-roof-discharge-v3.23',
+        visualBuildingFill:'neighbouring-water head; not physical indoor inundation',
         eaReferenceOnly:true,
         riskReference:'EA present-day RoFSW risk + 2070s Upper End 0.1% AEP future depth: independent post-simulation comparison; never a hydrodynamic input',
         methodologicalNote:displayMode==='event'
           ?'Single critical-duration event: physically solved 30-second runoff steps. FEH DDF only if entered by user.'
-          :'Each design year re-solves all storm durations after its explicitly sourced percentage uplift; the displayed depth is one controlling event peak, not a physically impossible multi-event maximum envelope. Without an allowance, use unchanged baseline rainfall.'
+          :'Physically solved location-specific design rain is shown as a smooth 2026–2100 architectural reveal of the controlling-event peak, not a year-by-year flood forecast. Visual building-base water is excluded from physical volumes; the multi-event envelope is never used as a single physical water surface.'
       };
       sendFrame();
       annualFrameYear=null;annualFrameToken=null;annualAreaStage=null;
