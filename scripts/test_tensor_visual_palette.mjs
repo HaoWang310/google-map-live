@@ -1,4 +1,4 @@
-// v3.22.67 separated blue/violet silk field and smooth reveal regression.
+// v3.22.68 travelling gradients and arc-length particle visual regression.
 // Run: node scripts/test_tensor_visual_palette.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -57,8 +57,8 @@ assert.deepEqual(tensorRevealGate(.5).slice(0,3),['interpolate',['linear'],['get
 assert.ok(ui.includes('[FOCUS_TENSOR_RIBBON_SOURCE]:{type:\'geojson\',lineMetrics:true'),
   'gradient GeoJSON source must have lineMetrics:true');
 assert.ok(ui.includes("'line-gradient':HYDRO_TENSOR_RIBBON_GRADIENT"));
-assert.ok(field.includes('paint(glowLayerId,.36,true)'));
-assert.ok(field.includes('paint(ribbonGlowLayerId,.31,true)'));
+assert.ok(field.includes('ensureTraceLayers()'), 'per-axis GPU trace layers installed');
+assert.ok(field.includes('traceGradient(ribbonProgress'), 'ribbon gradient is dynamically revealed');
 assert.ok(field.includes('uploadGeometryOnce()'));
 assert.ok(!field.includes('coordinates:coords.slice('),
   'animation must not reconstruct LineString coordinates per frame');
@@ -73,5 +73,5 @@ assert.ok(originalGeometry.includes('export function createTensorGeometry'));
 assert.ok(originalTensorWorker.includes('function solve('));
 assert.ok(originalFloodWorker.includes('sendFrame('));
 console.log('PASS exact five-colour palette, line opacity tiers and sparse highlights');
-console.log('PASS gradient and shader-style reveal, core/glow zero, and on-trajectory particles');
+console.log('PASS GPU gradient traces, real-line heads and no per-frame line chopping');
 console.log('NOTE solver/geometry/flood file SHAs are verified separately against pre-change commit');
