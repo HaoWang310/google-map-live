@@ -236,7 +236,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.54-rainfall-responsive-tensor',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.22.81-general-hydrology',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
