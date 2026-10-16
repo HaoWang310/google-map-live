@@ -624,7 +624,8 @@ export function createHydroTensorRenderer(args){
     }
     if(map.getLayer(particleLayerId)){
       map.setLayoutProperty(particleLayerId,'visibility',enabled?'visible':'none');
-      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.94);
+      map.setPaintProperty(particleLayerId,'circle-opacity',
+        ['*',settings.opacity*.70,['coalesce',['get','opacity'],1]]);
       map.setPaintProperty(particleLayerId,'circle-blur',.18);
     }
     revealOpacity(yearGrowth);
