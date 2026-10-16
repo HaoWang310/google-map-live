@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.75-tensor-scrub';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.76-tensor-particle-balance';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -2167,9 +2167,9 @@ export function createLocalFloodUI({
           paint:{
             'circle-color':['get','color'],
             'circle-radius':['get','radius'],
-            'circle-opacity':.72,
-            'circle-blur':.10,
-            'circle-stroke-width':.16,
+            'circle-opacity':['*',.64,['coalesce',['get','opacity'],1]],
+            'circle-blur':.16,
+            'circle-stroke-width':0,
             'circle-stroke-color':'#E3F4FF'
           }},
         // The dashed red boundary is a ground-level graphic, not an overlay
