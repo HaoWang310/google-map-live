@@ -43,6 +43,13 @@ export function createHydroTensorRenderer(args){
   let yearGrowth=revealForYear(timelineYear),growthFrom=yearGrowth,growthTo=yearGrowth,growthChangeAt=0;
   let lastRenderedYear=2026,replayGrowthActive=false;
   let continuousPlayback=null; // presentation clock, independent of 9 physical solve keyframes
+  const getPlaybackState=()=>({
+    ready:features.length>0||ribbonFeatures.length>0,
+    running:Boolean(continuousPlayback&&!continuousPlayback.done&&!continuousPlayback.paused),
+    paused:Boolean(continuousPlayback?.paused),
+    finished:Boolean(continuousPlayback?.done),
+    fraction:clamp(yearGrowth,0,1),year:timelineYear
+  });
   const R=6378137;
   const toMerc=([lng,lat])=>[R*lng*Math.PI/180,R*Math.log(Math.tan(Math.PI/4+clamp(lat,-85,85)*Math.PI/180/2))];
   const fromMerc=(x,y)=>[x/R*180/Math.PI,(2*Math.atan(Math.exp(y/R))-Math.PI/2)*180/Math.PI];
@@ -619,9 +626,9 @@ export function createHydroTensorRenderer(args){
   }
   function stop(){if(animation)cancelAnimationFrame(animation);animation=0}
   function startContinuousPlayback({durationMs=64000}={}){
-    if(!enabled||disposed)return false;
+    if(!enabled||disposed||!(features.length||ribbonFeatures.length))return false;
     const now=performance.now();
-    continuousPlayback={startedAt:now,
+    continuousPlayback={startedAt:now,paused:false,
       durationMs:clamp(Number(durationMs)||64000,8000,240000)};
     replayGrowthActive=false;
     timelineYear=2026;growthFrom=0;growthTo=1;growthChangeAt=now;
@@ -633,9 +640,29 @@ export function createHydroTensorRenderer(args){
   }
   function stopContinuousPlayback(){
     continuousPlayback=null;
+    stop();
+    dots()?.setData(empty());headsActive=false;
+  }
+  function pauseContinuousPlayback(){
+    const playback=continuousPlayback;
+    if(!playback||playback.done||playback.paused)return false;
+    playback.elapsedMs=clamp(performance.now()-playback.startedAt,0,playback.durationMs);
+    playback.paused=true;
+    stop();
+    dots()?.setData(empty());headsActive=false;
+    return true;
+  }
+  function resumeContinuousPlayback(){
+    const playback=continuousPlayback;
+    if(!enabled||!playback||!playback.paused||playback.done)return false;
+    playback.startedAt=performance.now()-playback.elapsedMs;
+    playback.paused=false;
+    lastAnimationDraw=0;
+    if(!animation)animation=requestAnimationFrame(tick);
+    return true;
   }
   function tick(time){
-    if(!enabled){stop();return}
+    if(!enabled||continuousPlayback?.paused){stop();return}
     animation=requestAnimationFrame(tick);
     // 30-40 Hz GPU gradient updates. The elapsed-clock itself stays linear
     // even if an individual animation frame takes longer to draw.
@@ -687,9 +714,10 @@ export function createHydroTensorRenderer(args){
       yearGrowth=growthTo;growthFrom=growthTo;growthChangeAt=performance.now();
     }
     drawLines(yearGrowth);renderedFraction=yearGrowth;
-    drawGrowthHeads(yearGrowth,Boolean(continuousPlayback)||
+    drawGrowthHeads(yearGrowth,Boolean(continuousPlayback&&!continuousPlayback.paused&&!continuousPlayback.done)||
       (preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005));
-    if((continuousPlayback&&!continuousPlayback.done)||settings.mode==='presentation'||
+    if((continuousPlayback&&!continuousPlayback.done&&!continuousPlayback.paused)||settings.mode==='presentation'&&
+       !continuousPlayback?.paused||
        (preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005))
       animation=requestAnimationFrame(tick);
     else dots()?.setData(empty());
@@ -958,7 +986,8 @@ export function createHydroTensorRenderer(args){
       acceptance:'NOT verified in the user-selected parcel; source data export, not a visual acceptance report'};
   }
   return {configure,setTimelineYear,replayGrowth,startContinuousPlayback,
-    stopContinuousPlayback,setField,setEnabled,clear,dispose,exportStructuredData,
+    stopContinuousPlayback,pauseContinuousPlayback,resumeContinuousPlayback,
+    getPlaybackState,setField,setEnabled,clear,dispose,exportStructuredData,
     exportSiteSnapshot,
     exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
     exportGeometry:()=>geometrySnapshot?{grid:{...geometrySnapshot.grid},scenario:{...geometrySnapshot.scenario},
