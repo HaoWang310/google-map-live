@@ -1031,7 +1031,7 @@ export function createHydroTensorRenderer(args){
     if(!result)return null;
     const f=result.fields,c=result.context;
     const out={
-      source:'OS Terrain 50 DEM, DEM-derived contributing area, modeled 2026–2100 depth/hydraulic-head direction; passable building bases',
+      source:'OS Terrain 50 DEM, DEM-derived contributing area, staged 2026–2100 flood depth guidance under buildings; surface runoff uses solid walls',
       tensorSemantics:'hydrological orientation axes (principal/orthogonal), NOT future road lines or true m/s velocity',
       scenarioYear:result.scenario?.year??2026,
       stage:{...result.scenario},crs:'EPSG:4326',localBasis:'east/south in local ground metres',
