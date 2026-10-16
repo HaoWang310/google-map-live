@@ -65,19 +65,20 @@ test('same-frame water head rotates the wet tensor; stale vx/vy have no influenc
  const dry=fixture();dry.vy.fill(127);dry.intensity.fill(255);
  assert.equal(solve(dry).fields.rainfallInfluence[center],0);
 });
-test('building footprints are passable but parcel or NoData gaps stay invalid',()=>{
+test('building footprint barriers stop tensor integration and NoData stays invalid',()=>{
   const d=fixture(3,3,50,50);d.depthMm[4]=500;
   d.obstacle[5]=1;d.obstacle[7]=1;d.inside[3]=0;d.inside[1]=0;
   const f=solve(d).fields;
-  assert.equal(f.validMask[5],1);assert.equal(f.validMask[7],1);
+  assert.equal(f.validMask[5],0);assert.equal(f.validMask[7],0);
   assert.equal(f.validMask[3],0);assert.equal(f.validMask[1],0);
   const a=structuredClone(ridge);a.config.smoothness=100;
   for(let y=0;y<41;y++)a.obstacle[y*41+21]=1;
   const b=structuredClone(a);b.obstacle.fill(0);
   const x=solve(a).fields,z=solve(b).fields;
-  assert.deepEqual(x.primaryX,z.primaryX);
-  assert.deepEqual(x.tensorXX,z.tensorXX);
-  assert.deepEqual(x.validMask,z.validMask);
+  assert.equal(x.validMask[20*41+21],0);
+  assert.equal(z.validMask[20*41+21],1);
+  assert.equal(x.tensorXX[20*41+21],0);
+  assert.ok(z.tensorXX[20*41+21]>0);
 });
 test('true ordered eigenvalues, orthogonality and matrix residuals after smoothing',()=>{
  const d=structuredClone(ridge);d.config.smoothness=100;d.depthMm.fill(200);
