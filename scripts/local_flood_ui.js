@@ -1037,6 +1037,10 @@ export function createLocalFloodUI({
       pause.textContent='Ⅱ 暂停';
       pause.title='仅暂停张量动画，不返回雨水';
     }
+    const visualYear=Math.max(2026,Math.min(2100,session.visualYear??2026));
+    setSiteHud('siteHudClock',Math.floor(visualYear)+' 年 / 2100 年');
+    const progress=siteHud('siteHudProgress');
+    if(progress)progress.style.width=((visualYear-2026)/74*100).toFixed(2)+'%';
     setSiteHud('siteHudRunState',({
       waiting:'等待真实张量流线…',
       playing:'张量场连续生长中',
@@ -1095,9 +1099,10 @@ export function createLocalFloodUI({
     if(tensorSession!==session||!hydroDisplay.flow||!isolatedSelection)return;
     if(index>=TENSOR_YEARS.length){
       session.completed=true;
-      setSiteHud('siteHudTensorGrowthStatus',
-        '2026–2100 计算节点完成 · 连续生长画面按独立时间轴播放至 2100 年');
-      status('2100 年张量场已完成；关闭开关可回到原雨水画面。');
+      if(!session.autoSmoothStarted)
+        setSiteHud('siteHudTensorGrowthStatus',
+          '2026–2100 真实张量计算已准备好 · 点击「运行」开始或重播');
+      status('张量计算节点已完成；「运行」可以反复从2026播放，「重置」返回雨水。');
       return;
     }
     session.index=index;session.awaitingYear=TENSOR_YEARS[index];
@@ -1106,8 +1111,9 @@ export function createLocalFloodUI({
       status('无法读取 '+futureYear+' 年水文情景');return;
     }
     session.awaitingToken=lastRequestedScenarioToken;
-    setSiteHud('siteHudTensorGrowthStatus','自动生成 '+futureYear+
-      ' 年 · '+(index+1)+'/'+TENSOR_YEARS.length+' · 等待当年流线');
+    if(!session.autoSmoothStarted&&!session.playRequested)
+      setSiteHud('siteHudTensorGrowthStatus','张量场后台准备 '+futureYear+
+        ' 年（'+(index+1)+'/'+TENSOR_YEARS.length+'）· 点击「运行」从2026播放');
     if(tensorStageTimer)clearTimeout(tensorStageTimer);
     tensorStageTimer=setTimeout(()=>{
       tensorStageTimer=0;
@@ -2249,7 +2255,7 @@ export function createLocalFloodUI({
     // futureYear is the authoritative Worker keyframe. Keep UI on the
     // independently interpolated visual year while automatic solving runs.
     hydroVector?.setTimelineYear(futureYear);
-    const displayYear=tensorSession?.autoSmoothStarted&&!tensorSession.manual?
+    const displayYear=tensorSession&&hydroDisplay.flow?
       Math.floor(tensorSession.visualYear??2026):futureYear;
     setSiteHud('siteHudYearText',String(displayYear));
     setSiteHud('siteHudTensorYear',String(displayYear));
