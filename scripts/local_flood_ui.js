@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.73-tensor-speed';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.74-tensor-speed-5x';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -2731,7 +2731,7 @@ export function createLocalFloodUI({
       '<label id="siteHudTensorSpeedControl" class="site-hydro-speed" hidden>倍速',
       '<select id="siteHudTensorSpeed" aria-label="张量场播放倍速" title="调整2026–2100张量生长及粒子移动速度">',
       '<option value="0.5">0.5×</option><option value="1.25" selected>1.25×</option>',
-      '<option value="1.5">1.5×</option><option value="2">2.0×</option><option value="3">3.0×</option>',
+      '<option value="1.5">1.5×</option><option value="2">2.0×</option><option value="3">3.0×</option><option value="5">5.0×</option>',
       '</select></label>',
       '<span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
@@ -3097,7 +3097,7 @@ export function createLocalFloodUI({
       speedSelector.value=String(tensorPlaybackRate);
       speedSelector.onchange=()=>{
         const candidate=Number(speedSelector.value);
-        if(![.5,1.25,1.5,2,3].includes(candidate)){
+        if(![.5,1.25,1.5,2,3,5].includes(candidate)){
           speedSelector.value=String(tensorPlaybackRate);return;
         }
         tensorPlaybackRate=candidate;
