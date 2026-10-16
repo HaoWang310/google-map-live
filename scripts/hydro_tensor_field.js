@@ -14,7 +14,7 @@ export function createHydroTensorRenderer(args){
     terrainWeight:35,drainageWeight:45,avoidance:70,
     smoothness:60,crossStrength:60,
     density:55,length:65,width:1.4,opacity:.85,glow:.35,
-    speed:0,growth:1,mode:'analysis',direction:'dual',
+    speed:1,growth:1,mode:'analysis',direction:'dual',
     showRibbon:true,showFilaments:true,ribbonConcentration:68,
     ribbonWidth:42,trunkEmphasis:75,curvatureSmoothing:65
   };
@@ -43,12 +43,30 @@ export function createHydroTensorRenderer(args){
   let yearGrowth=revealForYear(timelineYear),growthFrom=yearGrowth,growthTo=yearGrowth,growthChangeAt=0;
   let lastRenderedYear=2026,replayGrowthActive=false;
   let continuousPlayback=null; // presentation clock, independent of 9 physical solve keyframes
+  const TENSOR_PLAYBACK_RATES=Object.freeze([.5,1.25,1.5,2,3]);
+  let playbackRate=1.25;
+  // Move the presentation time base rather than restarting its animation.
+  // Clock references use requestAnimationFrame timestamps / performance.now.
+  function advancePlaybackClock(clock,time){
+    if(!clock||clock.paused||clock.done)return;
+    const delta=Math.max(0,time-clock.clockAt);
+    clock.positionMs=clamp(clock.positionMs+delta*clock.rate,0,clock.durationMs);
+    clock.clockAt=time;
+  }
+  function setPlaybackRate(value){
+    const rate=Number(value);
+    if(!TENSOR_PLAYBACK_RATES.includes(rate))return false;
+    if(continuousPlayback)advancePlaybackClock(continuousPlayback,performance.now());
+    playbackRate=rate;
+    if(continuousPlayback)continuousPlayback.rate=rate;
+    return true;
+  }
   const getPlaybackState=()=>({
     ready:Boolean(geometrySnapshot&&(features.length>0||ribbonFeatures.length>0)),
     running:Boolean(continuousPlayback&&!continuousPlayback.done&&!continuousPlayback.paused),
     paused:Boolean(continuousPlayback?.paused),
     finished:Boolean(continuousPlayback?.done),
-    fraction:clamp(yearGrowth,0,1),year:timelineYear
+    fraction:clamp(yearGrowth,0,1),year:timelineYear,rate:playbackRate
   });
   const R=6378137;
   const toMerc=([lng,lat])=>[R*lng*Math.PI/180,R*Math.log(Math.tan(Math.PI/4+clamp(lat,-85,85)*Math.PI/180/2))];
@@ -612,7 +630,7 @@ export function createHydroTensorRenderer(args){
       const coords=line.coordinates;
       if(coords.length<2)continue;
       // Time is purely a display timeline; no true metres-per-second claim.
-      const u=(elapsed*settings.speed*(.06+.09*line.rank)+
+      const u=(elapsed*playbackRate*(.06+.09*line.rank)+
         i*.61803398875)%1;
       const pos=u*(coords.length-1),j=Math.min(coords.length-2,Math.floor(pos));
       const alpha=pos-j,a=coords[j],b=coords[j+1];
@@ -628,8 +646,8 @@ export function createHydroTensorRenderer(args){
   function startContinuousPlayback({durationMs=64000}={}){
     if(!enabled||disposed)return false; // UI defers start until computed geometry exists.
     const now=performance.now();
-    continuousPlayback={startedAt:now,paused:false,
-      durationMs:clamp(Number(durationMs)||64000,8000,240000)};
+    continuousPlayback={clockAt:now,positionMs:0,rate:playbackRate,
+      paused:false,durationMs:clamp(Number(durationMs)||64000,8000,240000)};
     replayGrowthActive=false;
     timelineYear=2026;growthFrom=0;growthTo=1;growthChangeAt=now;
     yearGrowth=0;renderedFraction=-1;
@@ -646,7 +664,7 @@ export function createHydroTensorRenderer(args){
   function pauseContinuousPlayback(){
     const playback=continuousPlayback;
     if(!playback||playback.done||playback.paused)return false;
-    playback.elapsedMs=clamp(performance.now()-playback.startedAt,0,playback.durationMs);
+    advancePlaybackClock(playback,performance.now());
     playback.paused=true;
     stop();
     // Freeze the existing particle-head source in place, like pausing a film.
@@ -656,7 +674,7 @@ export function createHydroTensorRenderer(args){
   function resumeContinuousPlayback(){
     const playback=continuousPlayback;
     if(!enabled||!playback||!playback.paused||playback.done)return false;
-    playback.startedAt=performance.now()-playback.elapsedMs;
+    playback.clockAt=performance.now();
     playback.paused=false;
     lastAnimationDraw=0;
     if(!animation)animation=requestAnimationFrame(tick);
@@ -673,7 +691,8 @@ export function createHydroTensorRenderer(args){
     let transition;
     const auto=continuousPlayback;
     if(auto){
-      transition=clamp((time-auto.startedAt)/auto.durationMs,0,1);
+      advancePlaybackClock(auto,time);
+      transition=clamp(auto.positionMs/auto.durationMs,0,1);
       yearGrowth=transition; // LINEAR years, no smoothstep/decade jumps.
       timelineYear=2026+74*transition;
       if(transition>=1){
@@ -685,7 +704,7 @@ export function createHydroTensorRenderer(args){
       }
     }else{
       const duration=replayGrowthActive?
-        Math.max(2500,5900/Math.max(.8,settings.speed||1)):
+        Math.max(2500,5900/playbackRate):
         Math.max(220,360/settings.growth);
       transition=clamp((time-growthChangeAt)/duration,0,1);
       const eased=transition*transition*(3-2*transition);
@@ -769,6 +788,8 @@ export function createHydroTensorRenderer(args){
     next.width=clamp(Number(next.width),.5,3.5);
     next.opacity=clamp(Number(next.opacity),.1,1);
     next.glow=clamp(Number(next.glow),0,1);
+    // Internal legacy speed remains accepted for imported settings, but the
+    // removed slider no longer controls timeline or travelling particles.
     next.speed=clamp(Number(next.speed),0,3);
     next.growth=clamp(Number(next.growth),.5,3);
     next.mode=next.mode==='presentation'?'presentation':'analysis';
@@ -989,7 +1010,7 @@ export function createHydroTensorRenderer(args){
   }
   return {configure,setTimelineYear,replayGrowth,startContinuousPlayback,
     stopContinuousPlayback,pauseContinuousPlayback,resumeContinuousPlayback,
-    getPlaybackState,setField,setEnabled,clear,dispose,exportStructuredData,
+    setPlaybackRate,getPlaybackState,setField,setEnabled,clear,dispose,exportStructuredData,
     exportSiteSnapshot,
     exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
     exportGeometry:()=>geometrySnapshot?{grid:{...geometrySnapshot.grid},scenario:{...geometrySnapshot.scenario},
