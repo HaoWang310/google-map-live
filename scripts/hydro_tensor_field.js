@@ -671,6 +671,39 @@ export function createHydroTensorRenderer(args){
     stop();
     dots()?.setData(empty());headsActive=false;
   }
+  function seekContinuousPlayback(year,{resume=false}={}){
+    if(disposed||!enabled)return false;
+    // A manual slider seek is a PRESENTATION-ONLY operation: no solver runs,
+    // geometry reconstruction, worker requests or rainfall-frame queries.
+    const targetYear=clamp(Number(year)||2026,2026,2100);
+    const progress=clamp((targetYear-2026)/74,0,1);
+    const now=performance.now();
+    let clock=continuousPlayback;
+    if(!clock){
+      clock={clockAt:now,positionMs:0,rate:playbackRate,paused:true,
+        durationMs:64000};
+      continuousPlayback=clock;
+    }
+    stop();
+    clock.positionMs=progress*clock.durationMs;
+    clock.clockAt=now;
+    clock.rate=playbackRate;
+    clock.done=progress>=1;
+    clock.paused=!resume||clock.done;
+    timelineYear=targetYear;
+    yearGrowth=progress;growthFrom=progress;growthTo=progress;
+    growthChangeAt=now;renderedFraction=-1;
+    replayGrowthActive=false;
+    // Match path-tracing particles to the selected time rather than keeping
+    // the old location from before seeking backwards.
+    particleClockSeconds=clock.positionMs/1000;
+    particleClockAt=clock.paused?null:now;
+    drawLines(progress);
+    renderedFraction=progress;
+    drawGrowthHeads(progress,progress>.001&&progress<1);
+    if(!clock.paused){lastAnimationDraw=0;animation=requestAnimationFrame(tick)}
+    return true;
+  }
   function pauseContinuousPlayback(){
     const playback=continuousPlayback;
     if(!playback||playback.done||playback.paused)return false;
@@ -1025,7 +1058,7 @@ export function createHydroTensorRenderer(args){
       acceptance:'NOT verified in the user-selected parcel; source data export, not a visual acceptance report'};
   }
   return {configure,setTimelineYear,replayGrowth,startContinuousPlayback,
-    stopContinuousPlayback,pauseContinuousPlayback,resumeContinuousPlayback,
+    stopContinuousPlayback,seekContinuousPlayback,pauseContinuousPlayback,resumeContinuousPlayback,
     setPlaybackRate,getPlaybackState,setField,setEnabled,clear,dispose,exportStructuredData,
     exportSiteSnapshot,
     exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
