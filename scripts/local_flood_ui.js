@@ -1023,6 +1023,49 @@ export function createLocalFloodUI({
   let lastTensorProgressHudAt=0;
   let tensorSessionRestoreFrame=null;
   const TENSOR_YEARS=[2026,2035,2045,2055,2065,2075,2085,2095,2100];
+  function syncTensorTransport(){
+    if(!hydroDisplay.flow||!tensorSession)return;
+    const session=tensorSession,state=hydroVector?.getPlaybackState?.();
+    const run=siteHud('siteHudRun'),pause=siteHud('siteHudPause');
+    if(run){
+      run.disabled=!prepared;
+      run.textContent=session.playbackState==='playing'?'▶ 从2026重播':'▶ 运行';
+      run.title='每次点击都从2026年重新连续播放到2100年，不退出张量场';
+    }
+    if(pause){
+      pause.disabled=!session.playRequested&&!state?.running;
+      pause.textContent='Ⅱ 暂停';
+      pause.title='仅暂停张量动画，不返回雨水';
+    }
+    setSiteHud('siteHudRunState',({
+      waiting:'等待真实张量流线…',
+      playing:'张量场连续生长中',
+      paused:'张量场已暂停',
+      completed:'张量场已到达2100年 · 可重播',
+      ready:'张量场就绪 · 点击运行'
+    })[session.playbackState]||'等待张量场');
+  }
+  function requestTensorPlayback(){
+    if(!prepared||!hydroDisplay.flow||!tensorSession)return false;
+    const session=tensorSession;
+    session.manual=false;
+    session.playRequested=true;
+    session.autoSmoothStarted=false;
+    session.visualYear=2026;
+    const started=hydroVector?.startContinuousPlayback({durationMs:64000})===true;
+    if(started){
+      session.playRequested=false;
+      session.autoSmoothStarted=true;
+      session.playbackState='playing';
+      setSiteHud('siteHudTensorGrowthStatus','开始从2026连续生长至2100年 · 再次运行可重播');
+    }else{
+      session.playbackState='waiting';
+      setSiteHud('siteHudTensorGrowthStatus',
+        '已请求运行 · 等待第一批真实张量曲线就绪，随后从2026年开始');
+    }
+    syncTensorTransport();
+    return true;
+  }
   const validTensorPeak=frame=>Boolean(
     frame?.scenarioYear===2100&&
     frame?.annualAreaStage?.kind==='rainfall-risk-scenario'&&
@@ -1110,12 +1153,14 @@ export function createLocalFloodUI({
     const session={id:++tensorSessionId,index:-1,awaitingYear:null,
       awaitingToken:null,awaitingPeak:!peak,awaitingPeakToken:null,
       originalYear:futureYear,completed:false,grid:peak?.grid||null,
-      rainfallCase:rainPreset,autoSmoothStarted:false,visualYear:2026};
+      rainfallCase:rainPreset,autoSmoothStarted:false,visualYear:2026,
+      playRequested:false,playbackState:'ready'};
     tensorSession=session;
     lastFlowUpdateAt=0;
     hydroVector?.clear();
     hydroVector?.setEnabled(true);
     hydroVector?.setTimelineYear(2026,{instant:true});
+    syncTensorTransport();
     if(peak){
       // Deferred because the checkbox handler sets hydroDisplay.flow=true
       // immediately after this function returns.
@@ -2586,8 +2631,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini">3D水面显示高度按水深约放大1.45倍（最大显示3m）；颜色及浅水开关只影响渲染。面积、水深、建筑影响统计始终使用未放大的计算值。</div>',
       '</div>', // Close 03 only; keep the left sidebar section open through 04.
       '<div class="site-hydro-section site-vector-panel" id="siteHudVectorPanel"><div class="site-hydro-section-title">04 · 水文张量场</div>',
-      '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 雨水完成后生成张量场（2026–2100）</label>',
-      '<div class="site-hydro-mini site-tensor-caption">雨水模拟到2100年完成后，开启此项自动依次计算2026–2100年张量场；关闭恢复原雨水画面。</div>',
+      '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 雨水完成后进入张量场（2026–2100）</label>',
+      '<div class="site-hydro-mini site-tensor-caption">勾选后准备真实张量场，不自动播放。点击下方「运行」从2026连续模拟到2100；再次点击从2026重播。「暂停」停留在当前画面，只有「重置」返回已完成的雨水模拟。</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode active" data-vector-mode="analysis" aria-pressed="true">分析模式</button><button type="button" class="site-vector-mode" data-vector-mode="presentation" aria-pressed="false">演示模式</button></div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
@@ -2605,7 +2650,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>主方向 · 蓝</span><div aria-hidden="true"></div><span>次方向 · 粉紫</span></div>',
       '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">张量场准备中 · 首次计算将先显示真实方向预览</div>',
-      '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 回放粒子路径生长（约6秒）</button>',
+      '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 从2026重新播放张量场</button>',
       '<div class="site-hydro-mini" style="font-size:11px">主干先亮起，蓝紫粒子沿真实张量曲线生长并留下渐变尾迹；未生长路径隐藏。路径与粒子仅表示设计方向，不代表实测水流速度。</div>',
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
@@ -2985,11 +3030,15 @@ export function createLocalFloodUI({
         if(e.target.checked){
           if(startTensorSequence())hydroDisplay.flow=true;
           else{hydroDisplay.flow=false;e.target.checked=false;}
-        }else{
-          hydroDisplay.flow=false;stopTensorSequence({restoreRain:true});
+        }else if(hydroDisplay.flow){
+          // Tensor exits only by the footer Reset button, never by Pause,
+          // Run or accidental checkbox re-toggle.
+          e.target.checked=true;
+          setSiteHud('siteHudTensorGrowthStatus','请点击底部「重置」返回雨水模拟。');
         }
       }else hydroDisplay[flag]=e.target.checked;
       updateHydroLayerVisibility();
+      syncTensorTransport();
     };
     const tensorControls=[
       ['TerrainWeight','terrainWeight'],['DrainageWeight','drainageWeight'],
@@ -3017,7 +3066,7 @@ export function createLocalFloodUI({
       number.oninput=()=>{if(number.value!==''&&Number.isFinite(Number(number.value)))update(number.value)};
       number.onchange=()=>update(number.value===''?slider.value:number.value);
     }
-    siteHud('siteHudTensorReplay').onclick=()=>hydroVector?.replayGrowth();
+    siteHud('siteHudTensorReplay').onclick=()=>requestTensorPlayback();
     for(const button of container.querySelectorAll('[data-vector-mode]')){
       button.onclick=()=>{
         const mode=button.dataset.vectorMode;
