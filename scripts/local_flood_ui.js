@@ -1885,8 +1885,8 @@ export function createLocalFloodUI({
       ground:'#1f1f1f',green:'#202020',water:'#0f0f10',
       roadCasing:'#3b4045',roadMajor:'#6e7378',roadPedestrian:'#5b6065',roadMinor:'#555a5f'
     }:{
-      ground:'#f1f3f2',green:'#e1ebe2',water:'#dbeaf0',
-      roadCasing:'#c9d2d5',roadMajor:'#e2e8e8',roadPedestrian:'#edf0ed',roadMinor:'#f9faf9'
+      ground:'#f9f9f9',green:'#f6f6f6',water:'#f4f4f4',
+      roadCasing:'#e5e5e5',roadMajor:'#eaeaea',roadPedestrian:'#f1f1f1',roadMinor:'#eeeeee'
     };
   };
   function updateHydroLayerVisibility(){
@@ -2493,7 +2493,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.63-dark-texture-cleanup</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.64-planning-grayscale</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
