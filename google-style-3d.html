@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#141b24">
+<title>London Map · 免费精细 3D 建筑预览</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css">
+<style>
+  :root{color-scheme:dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+  *{box-sizing:border-box}
+  html,body,#map{height:100%;width:100%;margin:0}
+  body{background:#d9dee3;overflow:hidden}
+  .panel{position:absolute;z-index:6;top:18px;left:18px;width:min(355px,calc(100vw - 36px));padding:17px 17px 15px;border:1px solid rgba(255,255,255,.12);border-radius:17px;color:#e9f0f7;background:rgba(16,24,34,.92);box-shadow:0 15px 38px #09132155;backdrop-filter:blur(16px)}
+  .eyebrow{font-size:9px;letter-spacing:2px;color:#9bb6c8;font-weight:800}
+  h1{font-size:20px;margin:8px 0 7px;line-height:1.3}
+  p{font-size:11px;line-height:1.7;color:#a9b9c7;margin:0 0 11px}
+  .pill{font-size:9px;display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border-radius:30px;color:#a4f2d1;background:#164b3f;margin-bottom:11px}
+  .pill:before{content:"";width:6px;height:6px;border-radius:100%;background:#64dfb2}
+  label{font-size:10px;color:#c9d6df;font-weight:700;display:block;margin-bottom:6px}
+  select,button,a.back{font:inherit;border-radius:9px;color:white;border:1px solid #465364;cursor:pointer}
+  select{width:100%;padding:10px;background:#263444;font-size:12px}
+  .row{display:flex;gap:7px;margin-top:10px}
+  button{background:#304052;min-height:37px;padding:8px 12px;flex:1;font-size:11px}
+  button.active{background:#326eae;border-color:#71aff2}
+  button:hover,a.back:hover{filter:brightness(1.15)}
+  .divider{height:1px;background:#ffffff21;margin:13px 0}
+  .switchrow{display:flex;justify-content:space-between;gap:12px;align-items:center}
+  .switchrow label{margin:0;cursor:pointer}
+  input[type=checkbox]{width:17px;height:17px;accent-color:#57a9f2;cursor:pointer}
+  .subline{font-size:10px;color:#9aabba;margin:7px 0 0;line-height:1.5}
+  .status{color:#a4dfd4;font-size:10px;margin-top:10px;min-height:14px;line-height:1.5}
+  a.back{display:block;text-decoration:none;background:#243344;font-size:11px;text-align:center;padding:10px;margin-top:12px}
+  .hint{position:absolute;z-index:3;right:18px;top:18px;border-radius:12px;background:#121c28cc;color:#dce5ef;padding:10px 12px;font-size:10px;line-height:1.6;max-width:260px;pointer-events:none}
+  .maplibregl-ctrl-bottom-left{z-index:1}
+  @media(max-width:720px){.panel{top:9px;left:9px;width:min(308px,calc(100vw - 18px));padding:12px}h1{font-size:16px}.hint{right:8px;bottom:28px;top:auto;max-width:180px}.panel p{font-size:10px}}
+</style>
+</head>
+<body>
+<div id="map" aria-label="伦敦免费建筑三维预览"></div>
+<section class="panel">
+  <div class="eyebrow">LONDON MAP / 3D CITY LAB</div>
+  <h1>精细建筑 · 免费预览</h1>
+  <p>真实 OSM 建筑轮廓与高度 + 程序化立面窗格。无 Mapbox / Google 付费 API；无辅助线或建筑线框。</p>
+  <span class="pill">MapLibre / OpenFreeMap · 无需密钥</span>
+  <label for="place">伦敦预览地点</label>
+  <select id="place">
+    <option value="stpauls">St Paul's · 圣保罗大教堂</option>
+    <option value="city">City of London · 金融城</option>
+    <option value="canary">Canary Wharf · 金丝雀码头</option>
+    <option value="kings">King's Cross · 国王十字</option>
+    <option value="southbank">South Bank · 南岸</option>
+  </select>
+  <div class="row">
+    <button id="day" class="active" type="button">日间光照</button>
+    <button id="night" type="button">夜间光照</button>
+    <button id="view" class="active" type="button">3D 视角</button>
+  </div>
+  <div class="divider"></div>
+  <div class="switchrow">
+    <label for="facades">建筑立面窗格（程序生成）</label>
+    <input id="facades" type="checkbox" checked>
+  </div>
+  <p class="subline">窗户与材质仅为视觉表达，不代表真实建筑窗户位置。地图不显示开发辅助线、网格线或建筑线框。</p>
+  <div id="status" class="status" role="status">加载伦敦地图和建筑数据…</div>
+  <a class="back" href="./">← 返回 London Map 主程序</a>
+</section>
+<div class="hint">拖动旋转视角：右键拖动或 Ctrl + 拖动。滚轮缩放。近距离建筑展示效果最佳。</div>
+<script src="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.js"></script>
+<script>
+(()=>{
+'use strict';
+const coords={
+  stpauls:[-0.0984,51.5137],
+  city:[-0.0820,51.5155],
+  canary:[-0.0197,51.5049],
+  kings:[-0.1230,51.5340],
+  southbank:[-0.1114,51.5065]
+};
+const currentURL=new URL(location.href);
+const userLng=Number(currentURL.searchParams.get('lng'));
+const userLat=Number(currentURL.searchParams.get('lat'));
+const initialCenter=Number.isFinite(userLng)&&Number.isFinite(userLat)&&
+ currentURL.searchParams.has('lng')&&currentURL.searchParams.has('lat')&&
+ Math.abs(userLng)<=180&&Math.abs(userLat)<=85?[userLng,userLat]:coords.stpauls;
+const state={facades:true,night:false,view3d:true,buildings:0,windows:0};
+const source='preview-city-buildings',facadeSource='preview-window-geometry';
+const status=document.getElementById('status');
+const map=new maplibregl.Map({
+ container:'map',style:'https://tiles.openfreemap.org/styles/liberty',
+ center:initialCenter,zoom:16.7,bearing:-27,pitch:65,maxPitch:75,
+ canvasContextAttributes:{antialias:true},attributionControl:true
+});
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
+function setStatus(message){status.textContent=message;}
+function firstSymbol(){return map.getStyle().layers.find(layer=>layer.type==='symbol')?.id;}
+function setView(value){
+ state.view3d=value;document.getElementById('view').textContent=value?'3D 视角':'2D 视角';
+ document.getElementById('view').classList.toggle('active',value);
+ map.easeTo({pitch:value?64:0,bearing:value?-27:0,duration:680});
+ ['preview-buildings','preview-roofs','preview-facades'].forEach(id=>{
+  if(map.getLayer(id))map.setLayoutProperty(id,'visibility',value?'visible':'none');
+ });
+}
+function setLight(night){
+ state.night=night;
+ document.getElementById('day').classList.toggle('active',!night);
+ document.getElementById('night').classList.toggle('active',night);
+ if(map.getLayer('preview-buildings')){
+  map.setPaintProperty('preview-buildings','fill-extrusion-color',night?'#73818d':'#e0e4e3');
+ }
+ if(map.getLayer('preview-roofs')){
+  map.setPaintProperty('preview-roofs','fill-extrusion-color',night?'#7a8591':'#c4cccf');
+ }
+ if(map.getLayer('preview-facades')){
+  map.setPaintProperty('preview-facades','fill-extrusion-color',
+   ['match',['get','tone'],0,night?'#f3d89d':'#43617a',1,night?'#b4d8ea':'#83a8b9',2,night?'#2e455a':'#253f50',night?'#eac482':'#5a8199']);
+ }
+ try{map.setLight?.({anchor:'viewport',color:night?'#9da9c9':'#fff4df',intensity:night?.35:.65,position:night?[1.5,210,35]:[1.5,155,62]});}catch(e){}
+}
+const toNumber=(v,def)=>Number.isFinite(Number(v))?Number(v):def;
+const height=['max',2,['to-number',['get','render_height'],6]];
+const base=['max',0,['to-number',['get','render_min_height'],0]];
+const filter=['!=',['get','hide_3d'],true];
+function initLayers(){
+ // Existing basemap geometry stays intact, but disable any built-in 3D extrusions.
+ // Only one authoritative building source is visible; no wireframe/line layers added.
+ for(const layer of map.getStyle().layers){
+  if(layer.type==='fill-extrusion')map.setLayoutProperty(layer.id,'visibility','none');
+ }
+ map.addSource(source,{
+  type:'vector',tiles:['https://tiles.openfreemap.org/planet/latest/{z}/{x}/{y}.pbf'],
+  minzoom:13,maxzoom:14,
+  attribution:'© OpenStreetMap contributors · OpenFreeMap · OpenMapTiles'
+ });
+ map.addSource(facadeSource,{
+  type:'geojson',data:{type:'FeatureCollection',features:[]}
+ });
+ const before=firstSymbol();
+ map.addLayer({
+  id:'preview-buildings',type:'fill-extrusion',source,'source-layer':'building',
+  minzoom:13,filter,
+  paint:{'fill-extrusion-color':'#e0e4e3','fill-extrusion-height':height,
+   'fill-extrusion-base':base,'fill-extrusion-opacity':1,
+   'fill-extrusion-vertical-gradient':true}
+ },before);
+ map.addLayer({
+  id:'preview-facades',type:'fill-extrusion',source:facadeSource,minzoom:15.7,
+  paint:{'fill-extrusion-color':['match',['get','tone'],0,'#43617a',1,'#83a8b9',2,'#253f50','#5a8199'],
+   'fill-extrusion-height':['get','top'],'fill-extrusion-base':['get','bottom'],
+   'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':false}
+ },before);
+ // Thin cap is a solid, subtle parapet to distinguish roofs from walls and conceal top-plane seams.
+ map.addLayer({
+  id:'preview-roofs',type:'fill-extrusion',source,'source-layer':'building',
+  minzoom:13,filter,
+  paint:{'fill-extrusion-color':'#c4cccf',
+   'fill-extrusion-base':['max',0,['-',height,0.33]],
+   'fill-extrusion-height':height,
+   'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':false}
+ },before);
+}
+const EARTH=6378137;
+function merc(lng,lat){
+ const lon=lng*Math.PI/180;const phi=Math.max(-1.484,Math.min(1.484,lat*Math.PI/180));
+ return [EARTH*lon,EARTH*Math.log(Math.tan(Math.PI/4+phi/2))];
+}
+function unmerc(x,y){return [x/EARTH*180/Math.PI,(2*Math.atan(Math.exp(y/EARTH))-Math.PI/2)*180/Math.PI];}
+function signedArea(points){
+ let a=0;for(let i=0;i<points.length-1;i++)a+=points[i][0]*points[i+1][1]-points[i+1][0]*points[i][1];
+ return a/2;
+}
+const pointDistance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+const cap=(n,min,max)=>Math.max(min,Math.min(max,n));
+function createFacadeWindows(){
+ if(!map.isStyleLoaded()||!map.getSource(source)||!state.facades||!state.view3d||map.getZoom()<15.7){
+  map.getSource(facadeSource)?.setData({type:'FeatureCollection',features:[]});
+  if(state.facades&&state.view3d&&map.getZoom()<15.7)setStatus('请放大到街区尺度，查看建筑立面细节。');
+  return;
+ }
+ const visible=map.querySourceFeatures(source,{sourceLayer:'building'});
+ if(!visible.length){setStatus('正在读取建筑瓦片…');return;}
+ const focus=merc(map.getCenter().lng,map.getCenter().lat);
+ const pixelRad=map.getZoom()>17.2?370:map.getZoom()>16.3?470:600;
+ const maxFacades=5200;
+ const seen=new Set();const features=[];
+ let count=0;
+ outer:for(const building of visible){
+  const p=building.properties||{};
+  if(p.hide_3d===true||p.hide_3d==='true')continue;
+  const h=toNumber(p.render_height,6),min=toNumber(p.render_min_height,0);
+  if(h<6||h<=min+3)continue;
+  const geometry=building.geometry;
+  if(!geometry||!['Polygon','MultiPolygon'].includes(geometry.type))continue;
+  const groups=geometry.type==='Polygon'?[geometry.coordinates]:geometry.coordinates;
+  for(const group of groups){
+   if(!group?.[0]||group[0].length<4)continue;
+   const exterior=group[0];
+   const key=exterior.slice(0,4).map(pt=>pt.map(n=>Number(n).toFixed(6)).join(',')).join('|')+'|'+Math.round(h);
+   if(seen.has(key))continue;
+   seen.add(key);
+   const pts=exterior.map(c=>merc(c[0],c[1]));
+   if(!pts.length)continue;
+   const average=pts.reduce((a,q)=>[a[0]+q[0],a[1]+q[1]],[0,0]).map(v=>v/pts.length);
+   if(pointDistance(average,focus)>pixelRad)continue;
+   // Mercator metres increase with latitude; scale actual building dimensions using latitude.
+   const metersScale=Math.cos(map.getCenter().lat*Math.PI/180);
+   const orientation=signedArea(pts)>=0?1:-1;
+   const floorH=3.15;const floors=cap(Math.floor((h-min-.4)/floorH),1,25);
+   if(floors<2)continue;
+   count++;
+   for(let i=0;i<pts.length-1;i++){
+    const a=pts[i],b=pts[i+1],dx=b[0]-a[0],dy=b[1]-a[1];
+    const full=Math.hypot(dx,dy);
+    const realLength=full*metersScale;
+    if(realLength<5||realLength>180)continue;
+    const ux=dx/full,uy=dy/full;
+    // For CCW rings exterior normal points to the right.
+    const nx=orientation*uy,ny=-orientation*ux;
+    const cell=3.5;const slots=cap(Math.floor(realLength/cell),1,38);
+    const margin=(realLength-slots*cell)/2;
+    for(let floor=0;floor<floors;floor++){
+     const bottom=min+floor*floorH+.90;
+     const top=Math.min(h-.55,bottom+1.65);
+     if(top<=bottom+.45)continue;
+     for(let slot=0;slot<slots;slot++){
+      const start=(margin+slot*cell+.74)/metersScale;
+      const end=(margin+(slot+1)*cell-.74)/metersScale;
+      if(end<=start)continue;
+      const realNormal=.17/metersScale;
+      const depth=.10/metersScale;
+      const q1=[a[0]+ux*start+nx*realNormal,a[1]+uy*start+ny*realNormal];
+      const q2=[a[0]+ux*end+nx*realNormal,a[1]+uy*end+ny*realNormal];
+      const q3=[q2[0]+nx*depth,q2[1]+ny*depth];
+      const q4=[q1[0]+nx*depth,q1[1]+ny*depth];
+      const ring=[q1,q2,q3,q4,q1].map(v=>unmerc(v[0],v[1]));
+      // Deterministic facade variation, no external texture request.
+      const t=(Math.imul(slot+7,47)^Math.imul(floor+3,89)^Math.imul(i+5,17)^Math.round(h*31))>>>0;
+      features.push({type:'Feature',properties:{bottom,top,tone:t%5===0?1:t%7===0?2:0},
+        geometry:{type:'Polygon',coordinates:[ring]}});
+      if(features.length>=maxFacades)break outer;
+     }
+    }
+   }
+  }
+ }
+ map.getSource(facadeSource)?.setData({type:'FeatureCollection',features});
+ state.windows=features.length;state.buildings=count;
+ setStatus('已生成 '+count+' 栋附近建筑的立面细节 · '+features.length+' 个窗格。');
+}
+let timer=0;
+function schedule(){clearTimeout(timer);timer=setTimeout(createFacadeWindows,320);}
+document.getElementById('place').addEventListener('change',e=>{
+ map.flyTo({center:coords[e.target.value],zoom:16.7,bearing:-27,pitch:state.view3d?65:0,speed:1.1});
+});
+document.getElementById('day').addEventListener('click',()=>setLight(false));
+document.getElementById('night').addEventListener('click',()=>setLight(true));
+document.getElementById('view').addEventListener('click',()=>setView(!state.view3d));
+document.getElementById('facades').addEventListener('change',e=>{
+ state.facades=e.target.checked;
+ if(map.getLayer('preview-facades'))map.setLayoutProperty('preview-facades','visibility',state.facades&&state.view3d?'visible':'none');
+ schedule();
+});
+map.on('load',()=>{
+ try{
+  initLayers();setLight(false);schedule();
+  map.on('moveend',schedule);
+  map.on('idle',()=>{if(state.facades&&state.view3d&&state.windows===0)schedule();});
+ }catch(error){console.error(error);setStatus('3D 模式初始化失败：'+error.message);}
+});
+map.on('error',e=>{console.warn('3D preview map error',e.error);});
+window.addEventListener('beforeunload',()=>clearTimeout(timer));
+})();
+</script>
+</body>
+</html>
