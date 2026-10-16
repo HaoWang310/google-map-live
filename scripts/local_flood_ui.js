@@ -2369,6 +2369,7 @@ export function createLocalFloodUI({
         ' · 事件 '+simulationClock(elapsed)+' / '+simulationClock(duration)));
     if(siteHud('siteHudRun'))siteHud('siteHudRun').disabled=!prepared||annualPlaying||hydroState==='running'||hydroState==='preparing';
     if(siteHud('siteHudPause'))siteHud('siteHudPause').disabled=!prepared||(!annualPlaying&&hydroState!=='running');
+    if(hydroDisplay.flow)syncTensorTransport();
     const chart=siteHud('siteHudChart');
     if(chart){
       chart.replaceChildren();
@@ -3113,11 +3114,9 @@ export function createLocalFloodUI({
     }
     siteHud('siteHudRun').onclick=()=>{
       if(!prepared)return;
-      // Starting new rainfall never mixes with an active tensor animation.
       if(hydroDisplay.flow){
-        hydroDisplay.flow=false;stopTensorSequence();
-        if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
-        updateHydroLayerVisibility();
+        // Tensor Run always replays 2026 -> 2100. Never dispatch rainfall.
+        requestTensorPlayback();return;
       }
       if(longTermMode){
         if(!resolveFloodModeForPlayback())return;
@@ -3146,20 +3145,34 @@ export function createLocalFloodUI({
       updateSiteHydroDashboard();
     };
     siteHud('siteHudPause').onclick=()=>{
-      if(hydroDisplay.flow){
-        hydroDisplay.flow=false;stopTensorSequence({restoreRain:true});
-        if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
-        updateHydroLayerVisibility();
+      if(hydroDisplay.flow&&tensorSession){
+        const session=tensorSession;
+        if(session.playRequested){
+          session.playRequested=false;session.playbackState='ready';
+          setSiteHud('siteHudTensorGrowthStatus','已取消等待播放 · 仍停留在张量场');
+        }else if(hydroVector?.pauseContinuousPlayback()){
+          session.playbackState='paused';
+          setSiteHud('siteHudTensorGrowthStatus',
+            '张量场已暂停 · 点击「运行」将从2026重新播放');
+        }
+        syncTensorTransport();
+        return;
       }
       stopAnnual();simulator?.pause();updateSiteHydroDashboard();
     };
     siteHud('siteHudReset').onclick=()=>{
       if(hydroDisplay.flow){
-        hydroDisplay.flow=false;stopTensorSequence();
+        // Reset is the sole exit from the tensor-stage transport. Restore the
+        // completed rainfall snapshot; do not discard rain history or rerun it.
+        hydroDisplay.flow=false;
+        stopTensorSequence({restoreRain:true});
         if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
         updateHydroLayerVisibility();
+        updateSiteHydroDashboard();
+        status('已返回已完成的雨水模拟；点击运行可重新模拟雨水。');
+        return;
       }
-      // Reset the actual scenario, not just the position of the year slider.
+      // In rainfall mode Reset retains its original full-clear meaning.
       stopAnnual();
       clearRiskEnvelope();clearYearFrames();
       annualBudget=null;pendingBaselineFrame=false;
@@ -3249,16 +3262,17 @@ export function createLocalFloodUI({
           year!==session.awaitingYear||token!==session.awaitingToken||
           rainfallCase!==session.rainfallCase)return;
         if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
-        // The FIRST solved geometry starts a single wall-clock playback.
-        // Subsequent ~10-year solver snapshots update direction evidence in
-        // the background, NEVER restart or snap the visible growth clock.
-        if(session.index===0&&!session.manual&&!session.autoSmoothStarted){
-          session.autoSmoothStarted=hydroVector?.startContinuousPlayback({
-            durationMs:64000
-          })===true;
+        // Tensor preparation never auto-plays. A queued Run request starts
+        // once the first real integrated geometry is accepted; later geometry
+        // packets must never restart the current presentation.
+        if(session.playRequested){
+          requestTensorPlayback();
         }
-        setSiteHud('siteHudTensorGrowthStatus',year+' 年完整流线 '+lineCount+
-          ' 条 · '+(session.index+1)+'/'+TENSOR_YEARS.length);
+        if(!session.autoSmoothStarted&&!session.playRequested){
+          setSiteHud('siteHudTensorGrowthStatus',year+' 年真实流线 '+lineCount+
+            ' 条已准备 · 点击底部「运行」播放2026–2100');
+        }
+        syncTensorTransport();
         tensorStageTimer=setTimeout(()=>{
           tensorStageTimer=0;
           if(tensorSession===session&&hydroDisplay.flow)
@@ -3271,6 +3285,10 @@ export function createLocalFloodUI({
         if(now-lastTensorProgressHudAt<90&&fraction<.999)return;
         lastTensorProgressHudAt=now;
         if(session?.autoSmoothStarted&&!session.manual){
+          const playback=hydroVector?.getPlaybackState?.();
+          if(playback?.finished)session.playbackState='completed';
+          else if(playback?.paused)session.playbackState='paused';
+          else if(playback?.running)session.playbackState='playing';
           const visibleYear=Math.max(2026,Math.min(2100,Number(year)||2026));
           session.visualYear=visibleYear;
           const label=String(Math.floor(visibleYear));
@@ -3279,10 +3297,16 @@ export function createLocalFloodUI({
           for(const id of ['siteHudYear','siteHudFooterYear']){
             const slider=siteHud(id);if(slider)slider.value=label;
           }
-          setSiteHud('siteHudTensorGrowthStatus',
-            '连续生长 '+visibleYear.toFixed(1)+' / 2100 年 · '+
-            Math.round(fraction*100)+'% · 真实水文计算节点 '+(geometryYear??'—')+
-            (waitingForGeometry?'（后台更新中）':'（已就绪）'));
+          if(session.playbackState!=='paused')
+            setSiteHud('siteHudTensorGrowthStatus',
+              (session.playbackState==='completed'?'已完成 · ':'连续生长 ')+
+              visibleYear.toFixed(1)+' / 2100 年 · '+Math.round(fraction*100)+
+              '% · 真实水文节点 '+(geometryYear??'—')+
+              (waitingForGeometry?'（后台更新中）':'（已就绪）'));
+          setSiteHud('siteHudClock',Math.floor(visibleYear)+' 年 / 2100 年');
+          const bar=siteHud('siteHudProgress');
+          if(bar)bar.style.width=(fraction*100).toFixed(2)+'%';
+          syncTensorTransport();
           return;
         }
         const exact=Math.abs((geometryYear??-1)-Number(year))<.05&&!waitingForGeometry;
