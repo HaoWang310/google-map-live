@@ -1,4 +1,4 @@
-// v3.22.66 visible silk field and smooth reveal regression.
+// v3.22.67 separated blue/violet silk field and smooth reveal regression.
 // Run: node scripts/test_tensor_visual_palette.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,6 +25,19 @@ for(const branch of ['primary','secondary']){
   assert.ok(high.opacity>low.opacity);
   assert.ok(high.glowFactor>0);
 }
+const rgb=hex=>[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));
+const rgbDistance=(a,b)=>Math.hypot(...rgb(a).map((c,i)=>c-rgb(b)[i]));
+for(const rank of [0,.5,1]){
+  const major=baseTensorMaterial({branch:'primary',rank,wetSupport:rank});
+  const minor=baseTensorMaterial({branch:'secondary',rank,wetSupport:rank});
+  assert.ok(rgbDistance(major.color,minor.color)>90,
+    'primary and secondary should remain distinct at every rank');
+  assert.ok(major.opacity>.6&&minor.opacity>.6,
+    'black-canvas lines should not be washed out by low alpha');
+}
+const pinkStop=gradient.indexOf('#EDBDF9');
+assert.ok(pinkStop>=4&&gradient[pinkStop-1]<.60,
+  'pink-violet must appear by the middle of ribbon lines');
 const trunk=ribbonTensorMaterial({hierarchy:'trunk',rank:1});
 const branch=ribbonTensorMaterial({hierarchy:'tributary',rank:.2});
 assert.ok(trunk.opacity>branch.opacity);
