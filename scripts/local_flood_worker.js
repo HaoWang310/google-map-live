@@ -507,9 +507,14 @@ async function loadOfficialEaDepthForSite(){
     }
     let officialCells=0;
     for(const cls of classes)if(cls>=1&&cls<=7)officialCells++;
-    sim.eaDepthAvailable=true;
+    // Without a sampled official depth class we cannot tell actual dry
+    // coverage from raster NoData. Never claim that a zero overlap validates
+    // the model on a site without reference hazard cells.
+    sim.eaDepthAvailable=officialCells>0;
     sim.eaDepthMappedCells=officialCells;
-    sim.eaDepthInfo='EA 官方 RoFSW 2070s Upper End 0.1% AEP 深度分级 ('+officialCells+' 网格)';
+    sim.eaDepthInfo=officialCells>0?
+      'EA 官方 RoFSW 2070s Upper End 0.1% AEP 水深参照 ('+officialCells+' 格)':
+      '该选区未采样到 EA 官方水深类别；不能把空白当成已验证的无洪涝。';
   }catch(error){
     classes.fill(0);sim.eaDepthAvailable=false;sim.eaDepthMappedCells=0;
     sim.eaDepthInfo='EA 官方水深参考不可用：'+(error?.message||String(error));
@@ -876,7 +881,7 @@ function sendFrame(){
   // water softness from bleeding beyond the parcel.
   const validMask=new Uint8Array(cols*rows);
   for(let i=0;i<validMask.length;i++)
-    validMask[i]=inside[i]?1:0;
+    validMask[i]=inside[i]&&!obstacle[i]?1:0;
   const contactMask=new Uint8Array(cols*rows);
   let maxDepth=0,wetCells=0,shallowCells=0,volume=0,retainedM3=0;
   let floodedFootprintCells=0;
