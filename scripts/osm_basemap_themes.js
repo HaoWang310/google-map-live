@@ -1,7 +1,8 @@
 /* London Map basemap colours. MapLibre paint-only themes: never call map.setStyle().
- * Capture Liberty base layer IDs before project-specific analysis layers exist,
- * so DEM/EA/hydrology, parcel shapes, traffic and interactive tools stay intact.
- * Architectural Planning is the default. Dark Tech is opt-in. */
+ * Capture Liberty base layer IDs and native fill-pattern / outline paints
+ * BEFORE project analysis layers are added. Dark Tech neutralises colourful
+ * Liberty sprite textures, and Planning restores their exact originals.
+ * DEM/EA/flood/tensor/parcel layers remain untouched. */
 export const BASEMAP_THEMES=Object.freeze({
   planning:Object.freeze({
     id:'planning',name:'建筑规划',
@@ -79,8 +80,20 @@ export function createBasemapThemeController(map){
     if(!style?.layers?.length)return;
     for(const layer of style.layers){
       if(!layer?.id)continue;
+      const originalPaint=layer.paint||{};
+      const hasFillPattern=layer.type==='fill'&&
+        Object.prototype.hasOwnProperty.call(originalPaint,'fill-pattern');
+      const originalFillPattern=hasFillPattern?
+        structuredClone(originalPaint['fill-pattern']):null;
+      // Liberty's 'park' layer contains a BRIGHT GREEN outline unrelated to
+      // its fill color; it must be reset when using a monochrome palette.
+      const hasFillOutline=layer.type==='fill'&&
+        Object.prototype.hasOwnProperty.call(originalPaint,'fill-outline-color');
+      const originalFillOutline=hasFillOutline?
+        structuredClone(originalPaint['fill-outline-color']):null;
       baseLayers.set(layer.id,{
-        id:layer.id,type:layer.type,'source-layer':layer['source-layer']||''
+        id:layer.id,type:layer.type,'source-layer':layer['source-layer']||'',
+        hasFillPattern,originalFillPattern,hasFillOutline,originalFillOutline
       });
     }
     captured=true;
@@ -93,10 +106,30 @@ export function createBasemapThemeController(map){
     for(const layer of baseLayers.values()){
       if(!map.getLayer?.(layer.id))continue;
       const paint=colorFor(layer,palette);
+      if(layer.type==='fill'){
+        // A fill-pattern sprite OVERRIDES fill-color. The Liberty style uses
+        // wetland_bg_11 and pedestrian_polygon, and the wetland sprite contains
+        // bright coloured reeds. Dark mode suppresses these original *basemap*
+        // patterns; Planning mode restores each exact expression/string.
+        if(layer.hasFillPattern)
+          paint['fill-pattern']=active==='dark'?null:layer.originalFillPattern;
+        // Green park outlines stay green even after fill-color is overridden.
+        // Building outlines already follow the palette in colorFor(), while
+        // other original outlines must be neutral in Dark and exact in Planning.
+        if(layer.hasFillOutline&&!/buildings?|house|structure/i.test(
+          layer.id+' '+layer['source-layer'])){
+          paint['fill-outline-color']=active==='dark'?
+            (/park|garden|forest|wood|grass|green|landcover|wetland|cemetery|meadow/i
+              .test(layer.id+' '+layer['source-layer'])?palette.park:palette.boundary):
+            layer.originalFillOutline;
+        }
+      }
       for(const [key,value] of Object.entries(paint)){
         const identity=layer.id+'|'+key;
         if(applied.get(identity)===value)continue;
         try{
+          // null removes MapLibre's sprite pattern paint property; no source,
+          // layer, filter or underlying OSM feature is deleted.
           map.setPaintProperty(layer.id,key,value);
           applied.set(identity,value);
         }catch(error){
