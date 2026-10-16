@@ -57,6 +57,12 @@ assert.deepEqual(tensorRevealGate(.5).slice(0,3),['interpolate',['linear'],['get
 assert.ok(ui.includes('[FOCUS_TENSOR_RIBBON_SOURCE]:{type:\'geojson\',lineMetrics:true'),
   'gradient GeoJSON source must have lineMetrics:true');
 assert.ok(ui.includes("'line-gradient':HYDRO_TENSOR_RIBBON_GRADIENT"));
+assert.ok(field.includes("mode:'presentation',direction:'dual'"),
+  'new tensor renderer defaults to presentation mode');
+assert.ok(ui.includes('class="site-vector-mode active" data-vector-mode="presentation" aria-pressed="true"'),
+  'presentation mode button must appear selected by default');
+assert.ok(ui.includes('class="site-vector-mode" data-vector-mode="analysis" aria-pressed="false"'),
+  'analysis mode must remain selectable but initially inactive');
 assert.ok(field.includes('ensureTraceLayers()'), 'per-axis GPU trace layers installed');
 assert.ok(field.includes('traceGradient(ribbonProgress'), 'ribbon gradient is dynamically revealed');
 assert.ok(field.includes('uploadGeometryOnce()'));
