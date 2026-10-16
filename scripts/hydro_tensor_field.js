@@ -1,7 +1,7 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,tensorRevealGate} from './hydro_tensor_visual.js?v=3.22.66-tensor-smooth-reveal';
-/* v3.22.66-tensor-smooth-reveal · DISPLAY ONLY. Current computed eigenfield,
+import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,tensorRevealGate} from './hydro_tensor_visual.js?v=3.22.67-blue-purple-separation';
+/* v3.22.67-blue-purple-separation · DISPLAY ONLY. Current computed eigenfield,
    original streamline geometry, flood physics and particle path/speed logic
    are unchanged. Blue-violet colours encode artistic visual hierarchy only,
    not measured rainfall intensity, velocity or calibrated water depth. */
@@ -752,7 +752,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.66-tensor-smooth-reveal',
+    return {schema:'london-tensor-site-v1',version:'3.22.67-blue-purple-separation',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
