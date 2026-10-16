@@ -173,9 +173,11 @@ function signedArea(points){
 const pointDistance=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
 const cap=(n,min,max)=>Math.max(min,Math.min(max,n));
 function createFacadeWindows(){
- if(!map.isStyleLoaded()||!map.getSource(source)||!state.facades||!state.view3d||map.getZoom()<15.7){
+ if(!map.getSource(source)||!map.getSource(facadeSource)||!state.facades||!state.view3d||map.getZoom()<15.7){
   map.getSource(facadeSource)?.setData({type:'FeatureCollection',features:[]});
-  if(state.facades&&state.view3d&&map.getZoom()<15.7)setStatus('请放大到街区尺度，查看建筑立面细节。');
+  if(!state.facades)setStatus('立面窗格已关闭。');
+  else if(!state.view3d)setStatus('2D 平面模式：立面细节已隐藏。');
+  else if(map.getZoom()<15.7)setStatus('请放大到街区尺度，查看建筑立面细节。');
   return;
  }
  const visible=map.querySourceFeatures(source,{sourceLayer:'building'});
@@ -265,7 +267,11 @@ map.on('load',()=>{
  try{
   initLayers();setLight(false);schedule();
   map.on('moveend',schedule);
-  map.on('idle',()=>{if(state.facades&&state.view3d&&state.windows===0)schedule();});
+  // Update the facade meshes when new 3D building tiles become available.
+  // Do not listen to idle: setData() itself can trigger idle repeatedly.
+  map.on('sourcedata',event=>{
+   if(event.sourceId===source&&state.facades&&state.view3d)schedule();
+  });
  }catch(error){console.error(error);setStatus('3D 模式初始化失败：'+error.message);}
 });
 map.on('error',e=>{console.warn('3D preview map error',e.error);});
