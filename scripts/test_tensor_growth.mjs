@@ -1,41 +1,44 @@
-// London Map v3.22.52 live-growth regression, no browser dependencies.
+// v3.22.68 · Physical-path display growth regression.
 // Run: node scripts/test_tensor_growth.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-const source=fs.readFileSync(new URL('./hydro_tensor_field.js',import.meta.url),'utf8');
+import {
+  TENSOR_TRACE_WAVES,traceGrowthProgress,traceGrowthWave,traceGradient
+} from './hydro_tensor_visual.js';
+const field=fs.readFileSync(new URL('./hydro_tensor_field.js',import.meta.url),'utf8');
 const ui=fs.readFileSync(new URL('./local_flood_ui.js',import.meta.url),'utf8');
-const start=source.indexOf('  function drawLines(fraction=1){');
-const end=source.indexOf('  function drawParticles(elapsed,progress){',start);
-assert.ok(start>=0&&end>start,'reveal renderer exists');
-const lines=Array.from({length:20},(_,i)=>({
-  type:'Feature',properties:{family:'base',branch:i%2?'secondary':'primary'},
-  geometry:{type:'LineString',coordinates:Array.from({length:15},(_,j)=>[i,j])}
-}));
-const simulate=new Function('features','density','length','nextDensity','nextLength','fraction','emit',
-  "const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));"+
-  "let geometrySnapshot={scenario:{year:2100},parameters:{density,length}};"+
-  "let settings={density:nextDensity,length:nextLength,direction:'dual',showFilaments:true,showRibbon:false};"+
-  "let ribbonFeatures=[],timelineYear=2100,geometryBusy=false,geometryPending=null,"+
-  "controlsGeometryTimer=0,requestTimer=0,geometryTimer=0;"+
-  "const src=()=>({setData:x=>emit(x)}),ribbonSource=()=>null,onProgress=()=>{};"+
-  source.slice(start,end)+'drawLines(fraction);');
-let part,full,short;
-simulate(lines,55,65,55,65,.10,x=>part=x);
-simulate(lines,55,65,55,65,1,x=>full=x);
-simulate(lines,55,65,15,25,1,x=>short=x);
-assert.ok(part.features.length>0&&part.features.length<full.features.length);
-assert.ok(part.features[0].geometry.coordinates.length<full.features[0].geometry.coordinates.length);
-assert.equal(full.features.length,20);
-assert.equal(full.features[0].geometry.coordinates.length,15);
-assert.ok(short.features.length<20,'density has instant valid preview');
-assert.ok(short.features[0].geometry.coordinates.length<15,'length has instant valid preview');
-assert.ok(source.includes('function setTimelineYear('),'year binding exists');
-assert.ok(source.includes('function replayGrowth('),'growth playback exists');
-assert.ok(source.includes('yearGrowth=growthTo;growthFrom=growthTo;'),'Worker preserves growth progress');
-assert.ok(!source.includes("const f=settings.mode==='analysis'?1:"),'analysis can animate');
-assert.ok(ui.includes('hydroVector?.setTimelineYear(futureYear)'),'UI scrubbing connected');
+assert.equal(TENSOR_TRACE_WAVES,2);
+for(const family of ['ribbon','primary','secondary']){
+  assert.equal(traceGrowthProgress(0,family),0);
+  assert.equal(traceGrowthProgress(1,family),1);
+  for(const step of [0,.07,.24,.44,.67,.88,1]){
+    const first=traceGrowthProgress(step,family,0);
+    assert.ok(first>=0&&first<=1);
+    if(family!=='ribbon')
+      assert.ok(first>=traceGrowthProgress(step,family,1),
+        'later growth waves must not overtake earlier waves');
+  }
+}
+assert.ok(traceGrowthProgress(.26,'ribbon')>traceGrowthProgress(.26,'primary'));
+assert.ok(traceGrowthProgress(.55,'primary')>traceGrowthProgress(.55,'secondary'));
+assert.notEqual(traceGrowthWave(0),traceGrowthWave(1));
+for(const family of ['ribbon','primary','secondary']){
+  const complete=traceGradient(1,family);
+  assert.deepEqual(complete.slice(0,3),['interpolate',['linear'],['line-progress']]);
+  assert.ok(complete.includes('#EDBDF9'),'completed lines keep purple accents');
+  const partial=traceGradient(.38,family);
+  assert.equal(partial[partial.length-1],'rgba(0,0,0,0)');
+  const stops=partial.filter((value,i)=>i>=3&&(i-3)%2===0);
+  assert.ok(stops.every((n,i)=>i===0||n>stops[i-1]),
+    'gradient stops remain strictly increasing at partial progress');
+}
+assert.ok(field.includes('function drawGrowthHeads('),'heads are geometry-anchored');
+assert.ok(field.includes('function headCoordinate('),'heads use cumulative arc-length');
+assert.ok(field.includes('drawGrowthHeads(yearGrowth,true)'),'animated heads are driven on each frame');
+assert.ok(field.includes('5900/Math.max'),'replay lasts about six seconds');
+assert.ok(!field.includes('tensorRevealGate('),'whole-line opacity reveal is no longer primary');
+assert.ok(ui.includes('lineMetrics:true'),'real field source permits line-gradient');
 assert.ok(ui.includes("siteHud('siteHudTensorReplay').onclick"),'replay button connected');
-assert.ok(ui.includes("number.type='number'"),'parameter values editable');
-assert.ok(ui.includes('yearSeekDebounce=setTimeout('),'rapid year inputs coalesced');
-console.log('PASS: partial-to-full line reveal, both modes, density/length preview');
-console.log('PASS: time slider, replay, numeric inputs and debounce are wired');
+assert.ok(ui.includes('hydroVector?.setTimelineYear(futureYear)'),'year slider connected');
+console.log('PASS wave order and monotonic path gradients, with transparent untraced segments');
+console.log('PASS arc-length particle heads, six-second replay and UI wiring');
