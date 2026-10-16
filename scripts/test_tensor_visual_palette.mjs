@@ -1,11 +1,11 @@
-// v3.22.65 silk tensor VISUAL-only regression.
+// v3.22.66 visible silk field and smooth reveal regression.
 // Run: node scripts/test_tensor_visual_palette.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   HYDRO_TENSOR_PALETTE as P,
   HYDRO_TENSOR_RIBBON_GRADIENT as gradient,
-  baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial
+  baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,tensorRevealGate
 } from './hydro_tensor_visual.js';
 const read=name=>fs.readFileSync(new URL(name,import.meta.url),'utf8');
 const field=read('./hydro_tensor_field.js');
@@ -21,7 +21,7 @@ for(const branch of ['primary','secondary']){
   const high=baseTensorMaterial({branch,rank:1,wetSupport:1});
   assert.match(low.color,/^#[A-Fa-f0-9]{6}$/);
   assert.match(high.color,/^#[A-Fa-f0-9]{6}$/);
-  assert.ok(low.opacity>=.18&&high.opacity<=.70);
+  assert.ok(low.opacity>=.40&&high.opacity<=.85);
   assert.ok(high.opacity>low.opacity);
   assert.ok(high.glowFactor>0);
 }
@@ -37,12 +37,20 @@ assert.equal(gradient[0],'interpolate');
 assert.deepEqual(gradient[2],['line-progress']);
 assert.ok(gradient.includes('#E3F4FF'));
 assert.ok(gradient.includes('#A9D9FA'));
-assert.ok(gradient.includes('rgba(237, 189, 249, 0.38)'));
+assert.ok(gradient.includes('#EDBDF9'));
+assert.equal(tensorRevealGate(0),0);
+assert.equal(tensorRevealGate(1),1);
+assert.deepEqual(tensorRevealGate(.5).slice(0,3),['interpolate',['linear'],['get','revealOrder']]);
 assert.ok(ui.includes('[FOCUS_TENSOR_RIBBON_SOURCE]:{type:\'geojson\',lineMetrics:true'),
   'gradient GeoJSON source must have lineMetrics:true');
 assert.ok(ui.includes("'line-gradient':HYDRO_TENSOR_RIBBON_GRADIENT"));
-assert.ok(field.includes("['*',settings.glow*settings.opacity*.20"));
-assert.ok(field.includes("['*',settings.glow*settings.opacity*.18"));
+assert.ok(field.includes('paint(glowLayerId,.36,true)'));
+assert.ok(field.includes('paint(ribbonGlowLayerId,.31,true)'));
+assert.ok(field.includes('uploadGeometryOnce()'));
+assert.ok(!field.includes('coordinates:coords.slice('),
+  'animation must not reconstruct LineString coordinates per frame');
+assert.ok(field.includes('restart({preserveGrowth:true})'),
+  'each accepted year preserves running animation instead of snapping');
 assert.ok(field.includes('particleTensorMaterial({index:i,main,rank:line.rank})'));
 assert.ok(field.includes('const u=(elapsed*settings.speed*(.06+.09*line.rank)+'),
   'particles remain on original trajectory with original speed interpolation');
@@ -52,5 +60,5 @@ assert.ok(originalGeometry.includes('export function createTensorGeometry'));
 assert.ok(originalTensorWorker.includes('function solve('));
 assert.ok(originalFloodWorker.includes('sendFrame('));
 console.log('PASS exact five-colour palette, line opacity tiers and sparse highlights');
-console.log('PASS ribbon line-progress gradient, camera-safe core/glow and trajectory-bound particles');
+console.log('PASS gradient and shader-style reveal, core/glow zero, and on-trajectory particles');
 console.log('NOTE solver/geometry/flood file SHAs are verified separately against pre-change commit');
