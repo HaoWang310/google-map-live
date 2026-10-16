@@ -1,5 +1,5 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.81-general-hydrology';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.78-tensor-gap-diagnostic';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
@@ -926,6 +926,8 @@ export function createLocalFloodUI({
   };
   const scenarioRequest=year=>({
     year,climateScenario,floodMode,rainfallCase:rainPreset,
+    climateAllowancePercent:siteHud('siteHudClimateAllowance')?.value?.trim()
+      ?clamp(Number(siteHud('siteHudClimateAllowance').value),0,100):null,
     includeTensorFlow:hydroDisplay.flow===true,
     eventRainMmH:presetRainRate(),
     eventTotalMm:RAIN_PRESETS[rainPreset].total,
@@ -2394,16 +2396,16 @@ export function createLocalFloodUI({
           (v?.eaRiskOverlapPercent||0).toFixed(1)+'%'
         :'EA 风险覆盖缺失（仍可计算地表积水）';
       setSiteHud('siteHudAreaProgress',
-        futureYear+' 年 / 设计包络展示 '+pct+'% · 积水 '+nowHa.toFixed(2)+
-        ' ha（2026展示起点 0.00 → 2100最大包络 '+finalHa.toFixed(2)+
-        ' ha） · '+riskText);
+        futureYear+' 年 / 设计年份 '+pct+'% · 临界事件积水 '+nowHa.toFixed(2)+
+        ' ha（控制历时峰值 '+finalHa.toFixed(2)+
+        ' ha） · 雨强倍率 '+(stage.climateFactor||1).toFixed(3)+'× · '+riskText);
     }else{
       setSiteHud('siteHudAreaProgress',longTermMode
         ?'等待该年份的淹没面积快照':'');
     }
     setSiteHud('siteHudFloodPhase',longTermMode?
       (displayMode==='year'?
-        futureYear+' 年 · 多历时最大水深包络逐步展示，2100 达到设计峰值（非逐年洪灾预报）':
+        futureYear+' 年 · 控制历时暴雨峰值快照（设计情景，不是官方逐年洪灾预报）':
         '临界单场暴雨 · '+Math.round(eventTimeMin)+' min · 可能涨水或退水，与年份无关'):annualPlaying?
       futureYear+' 年 · 无新增干预的累计最大淹没风险包络（非持续积水）':
       (!v||v.timeMin===0?'尚未运行 · 无动态积水':'模拟 '+simulationClock(v.timeMin)+' · 蓝色区域按计算水深逐步变化'));
@@ -2651,7 +2653,9 @@ export function createLocalFloodUI({
       '<label class="site-hydro-row">地图风格 <select id="siteHudBasemapTheme" aria-label="场地底图风格" style="background:#23262b;color:#f4f4f6;border:1px solid #565b65;border-radius:7px;padding:6px;min-width:138px">',
       '<option value="planning" selected>建筑规划</option><option value="dark">黑色科技</option></select></label>',
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
-      '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 长期设计包络（2100峰值）</div>',
+      '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 场地设计暴雨水文求解</div>',
+      '<label class="site-hydro-row">2100 年雨强增幅 % <input id="siteHudClimateAllowance" type="number" min="0" max="100" step="1" placeholder="按流域填入" style="width:100px;background:#23262b;color:#f4f4f6;border:1px solid #565b65;border-radius:6px;padding:5px"></label>',
+      '<div class="site-hydro-mini">EA 气候增幅按管理流域、暴雨 AEP 和 Central / Upper End 分类，请手动填入地点对应值。空白代表未核实，不默认假定整个 70 km 区域同一增幅。</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
       '<input type="hidden" id="siteHudFutureMode" value="rain-risk">',
       '<label class="site-hydro-row">外部洪水位 <input id="siteHudFutureStage" type="number" step="0.1" placeholder="绝对高程 m" style="width:105px"> m</label>',
@@ -2753,7 +2757,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">启用后读取当前年份的地形与积水方向场</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
-      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 模拟水深 · 建筑占地可淹没<br>2026—2100 随年份更新。张量线及粒子不表示真实水流速度。</div>',
+      '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 单场雨水峰值 · 建筑阻水<br>设计雨强按年份计算；张量线及粒子不代表实测流速。</div>',
       '</div></section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
@@ -2791,14 +2795,14 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section-title" style="margin-top:9px">MULTI-DURATION · 四历时控制暴雨</div>',
       '<div id="siteHudCriticalStorm" class="site-hydro-mini">待求解四场暴雨，按峰值积水面积选出控制历时</div>',
       '<div id="siteHudStormComparison" class="site-hydro-mini">30 / 60 / 120 / 360 min：等待面积与水深比较</div>',
-      '<div class="site-hydro-mini">EA 独立校核口径：模型积水 ≥ 0.02 m；官方参考为 0.1% AEP 七档水深。参考范围不会裁剪模拟积水，也不会改变水文求解。</div>',
+      '<div class="site-hydro-mini">EA 独立参考：模型积水 ≥ 0.02 m；官方 0.1% AEP 七档深度。除非本地设计暴雨的概率与官方匹配，否则不能把 IoU 等指标表述为模型准确率。</div>',
       '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">© Environment Agency · 深度来源 ↗</a></div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAP DATA STATUS</div>',
       '<div id="siteHudEAStatus" class="site-hydro-mini">EA 风险：等待瓦片</div>',
       '<div id="siteHudDrainStatus" class="site-hydro-mini">地形网络：等待瓦片</div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">DATA PROVENANCE</div>',
       '<div class="site-hydro-mini">EA 风险等级 = 长期概率，不是水深；地形网络 = 汇水路径，不是地下管网；',
-      '动态水深 = 输入降雨、地形及可淹没建筑基地的概念模拟。此工具不能替代工程级洪水模型。</div></div></aside>',
+      '动态水深 = 设计降雨、地形与建筑阻水的概念模拟。场外上游洪水来水尚未建模，不能替代工程级洪涝分析。</div></div></aside>',
       '<div class="site-hydro-zoom">独立地块 3D · 拖动平移 / 右键旋转 / 滚轮缩放</div>',
       '<footer class="site-hydro-footer">',
       '<button id="siteHudRun" class="site-hydro-btn primary" style="flex:0 0 85px" type="button">▶ 运行</button>',
@@ -2813,7 +2817,7 @@ export function createLocalFloodUI({
       '</select></label>',
       '<span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
-      '<div class="site-hydro-mini" id="siteHudNotice">2026—2100 是多事件设计包络的单调展示，2100达到设定峰值；可切换单次暴雨分钟级回放。非EA逐年预测。</div></div></footer>'
+      '<div class="site-hydro-mini" id="siteHudNotice">分年份降雨强度在水文求解前调整；峰值水深来自同一设计事件。其它事件的最大包络只作风险统计，不能当作同一时刻水流。未提供当地气候增幅则运行基准暴雨。</div></div></footer>'
     ].join('');
     container.appendChild(shell);
     const bounds=bboxLngLat(polygon[0]);
@@ -3013,6 +3017,20 @@ export function createLocalFloodUI({
       if(prepared&&isolatedSelection&&longTermMode)requestYear(futureYear);
       status('已选择 '+RAIN_PRESETS[rainPreset].label+'：四历时按同一总量 '+
         RAIN_PRESETS[rainPreset].total+' mm 比较（非同一 FEH 重现期），2100 为设计包络峰值。');
+    };
+    const climateAllowanceInput=siteHud('siteHudClimateAllowance');
+    if(climateAllowanceInput)climateAllowanceInput.onchange=()=>{
+      const value=climateAllowanceInput.value.trim();
+      if(value&&(!Number.isFinite(Number(value))||
+        Number(value)<0||Number(value)>100)){
+        climateAllowanceInput.value='';
+        status('降雨增幅请输入 0–100% 的有效数值。',true);return;
+      }
+      clearYearFrames();
+      status(value?'已设置本场地 2100 年设计增幅 '+value+
+        '%；请确认所属管理流域、AEP 与官方表一致。':
+        '未来增幅为空，程序只执行基准暴雨，不虚构 2100 气候预测。');
+      if(prepared&&isolatedSelection&&longTermMode)requestYear(futureYear);
     };
     siteHud('siteHudTrialStage').onclick=()=>{
       if(!needsExternalStage()){status('请先选择仅外部洪水或降雨＋外部洪水模式。');return;}
@@ -4059,7 +4077,7 @@ export function createLocalFloodUI({
           if(data.state==='running')isolateViewer?.triggerRepaint();
         }
         updateSiteHydroDashboard();
-        if(data.state==='running')status('模拟运行中：雨水按地形和水头传播，建筑底面可淹没，不形成隐形阻水区。');
+        if(data.state==='running')status('模拟运行中：雨水按地形和水头传播，建筑阻水，屋顶来水排至室外。');
         else if(data.state==='paused')status('模拟已暂停。');
         else if(data.state==='complete'){
           if(annualPlaying&&isolatedSelection&&futureYear<2100){
@@ -4120,9 +4138,9 @@ export function createLocalFloodUI({
     if(!polygon)return false;
     const ring=polygon[0];
     const bounds=bboxLngLat(ring);
-    const area=ringAreaM2(ring);
+    const area=geodesicRingAreaM2(ring);
     if(area<5000){status('圈选范围太小，请至少圈选约 5,000 m²。',true);return false;}
-    if(area>60_000_000){status('圈选范围过大，请控制在约 60 km² 内。',true);return false;}
+    if(area>60_000_000){status('真实地面面积超过 60 km²，请分区模拟。',true);return false;}
 
     status('正在准备模拟：完整加载红色范围内的 OSM 建筑轮廓…');
     prepared=false;
@@ -4172,22 +4190,13 @@ export function createLocalFloodUI({
     }
 
     if(!queried.selected?.length){
-      const d=queried.diagnostics||{};
-      map.jumpTo({
-        center:keepCenter,
-        zoom:keepZoom,
-        pitch:keepPitch,
-        bearing:keepBearing
-      });
-      status(
-        '已读取建筑数据，但没有生成橙色建筑（source '+(d.sourceFeatureCount||0)+
-        ' · rendered '+(d.renderedFeatureCount||0)+
-        ' · groups '+(d.groupCount||0)+
-        ' · clipped '+(d.clippedCount||0)+
-        '）。红框已保留，可直接按 Enter 重试。',
-        true
-      );
-      return false;
+      const source=map.getLayer(cityBuildingsLayerId)?.source;
+      if(source&&!map.isSourceLoaded(source)){
+        map.jumpTo({center:keepCenter,zoom:keepZoom,pitch:keepPitch,bearing:keepBearing});
+        status('建筑瓦片尚未加载完成；请稍后重试，不将缺测误当作无建筑。',true);
+        return false;
+      }
+      status('当前选区无建筑，按 0 栋建筑的开放地块继续运行。');
     }
 
     const buildings=queried.selected.map((item,id)=>{
@@ -4246,7 +4255,8 @@ export function createLocalFloodUI({
       $('localFloodGridInfo').textContent=
         info.cellSizeM+' m 网格 · '+info.buildingCount+' 栋建筑 · '+
         (info.drainageAvailable?'汇水路径数据就绪':'地形独立计算（汇水数据不可用）')+
-        ' · '+(siteRiskAvailable?'EA 地表水 '+siteRiskMappedCount+' 格可用':'EA 地表水等级不可用');
+        ' · '+(siteRiskAvailable?'EA 地表水 '+siteRiskMappedCount+' 格可用':'EA 地表水等级不可用')+
+        ' · 建筑屋顶排至室外 '+info.roofRoutedCells+'/'+info.roofCells+' 格';
       $('localFloodStats').textContent=
         '范围 '+(area/1e6).toFixed(2)+' km² · '+info.cellSizeM+' m 网格 · 圈内建筑 '+info.buildingCount+' 栋';
       setButtons();
