@@ -46,11 +46,13 @@ EXTRACTED = WORK / "terrain50"
 API_BASE = "https://api.os.uk/downloads/v1"
 
 # 100 km National Grid squares covering the full Thames catchment and a generous buffer:
-# west/east 300–600 km; south/north 100–300 km in EPSG:27700.
+# west/east 300–625 km; south/north 100–300 km in EPSG:27700.
+# Extend beyond the London 70-km east edge (~E600037) before cropping:
+# never leave its outer rim as an artificial D8 basin outlet.
 TERRAIN_AREAS = ["SO", "SP", "ST", "SU", "TL", "TQ"]
 
 # Complete analysis domain (not the final London display crop).
-ANALYSIS_BOUNDS = (300000.0, 100000.0, 600000.0, 300000.0)  # left,bottom,right,top
+ANALYSIS_BOUNDS = (300000.0, 100000.0, 625000.0, 300000.0)  # left,bottom,right,top
 CELL = 50.0
 NODATA = -9999.0
 ANALYSIS_WIDTH = int((ANALYSIS_BOUNDS[2] - ANALYSIS_BOUNDS[0]) / CELL)
