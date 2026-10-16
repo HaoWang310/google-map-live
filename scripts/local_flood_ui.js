@@ -1022,11 +1022,17 @@ export function createLocalFloodUI({
   let tensorSession=null,tensorSessionId=0,tensorContext=null,tensorStageTimer=0;
   let lastTensorProgressHudAt=0;
   let tensorSessionRestoreFrame=null;
+  let tensorPlaybackRate=1.25;
   const TENSOR_YEARS=[2026,2035,2045,2055,2065,2075,2085,2095,2100];
   function syncTensorTransport(){
     if(!hydroDisplay.flow||!tensorSession)return;
     const session=tensorSession,state=hydroVector?.getPlaybackState?.();
     const run=siteHud('siteHudRun'),pause=siteHud('siteHudPause');
+    const speedControl=siteHud('siteHudTensorSpeedControl');
+    const speedSelector=siteHud('siteHudTensorSpeed');
+    if(speedControl)speedControl.hidden=false;
+    if(speedSelector&&speedSelector.value!==String(tensorPlaybackRate))
+      speedSelector.value=String(tensorPlaybackRate);
     if(run){
       run.disabled=!prepared;
       run.textContent=['playing','paused','completed'].includes(session.playbackState)?'▶ 从2026重播':'▶ 运行';
@@ -1056,6 +1062,8 @@ export function createLocalFloodUI({
     session.playRequested=true;
     session.autoSmoothStarted=false;
     session.visualYear=2026;
+    // Keep the selected rate for the entire next replay.
+    hydroVector?.setPlaybackRate(tensorPlaybackRate);
     // Never start an invisible timer before at least one accepted streamline.
     const started=hydroVector?.getPlaybackState?.()?.ready===true&&
       hydroVector?.startContinuousPlayback({durationMs:64000})===true;
@@ -1098,6 +1106,8 @@ export function createLocalFloodUI({
     tensorSessionRestoreFrame=null;
     const run=siteHud('siteHudRun');
     if(run){run.textContent='▶ 运行';run.title='';}
+    const speedControl=siteHud('siteHudTensorSpeedControl');
+    if(speedControl)speedControl.hidden=true;
   }
   function advanceTensorStage(session,index){
     if(tensorSession!==session||!hydroDisplay.flow||!isolatedSelection)return;
@@ -2656,7 +2666,6 @@ export function createLocalFloodUI({
       '<label class="site-vector-param"><span>线条密度<output id="siteHudVectorDensityValue">55</output></span><input id="siteHudVectorDensity" type="range" min="0" max="100" step="1" value="55"></label>',
       '<label class="site-vector-param"><span>线条长度<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
       '<label class="site-vector-param"><span>发光强度<output id="siteHudVectorGlowValue">0.35</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0.35"></label>',
-      '<label class="site-vector-param"><span>动画速度<output id="siteHudVectorSpeedValue">0</output></span><input id="siteHudVectorSpeed" type="range" min="0" max="3" step="0.1" value="0"></label>',
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>主方向 · 蓝</span><div aria-hidden="true"></div><span>次方向 · 粉紫</span></div>',
@@ -2717,8 +2726,14 @@ export function createLocalFloodUI({
       '<button id="siteHudRun" class="site-hydro-btn primary" style="flex:0 0 85px" type="button">▶ 运行</button>',
       '<button id="siteHudPause" class="site-hydro-btn" style="flex:0 0 70px" type="button">Ⅱ 暂停</button>',
       '<button id="siteHudReset" class="site-hydro-btn" style="flex:0 0 75px" type="button">↺ 重置</button>',
-      '<div class="site-hydro-timeline"><div style="display:flex;justify-content:space-between">',
-      '<strong id="siteHudClock">2026 年 / 2100 年</strong><span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
+      '<div class="site-hydro-timeline"><div class="site-hydro-timeline-heading">',
+      '<strong id="siteHudClock">2026 年 / 2100 年</strong>',
+      '<label id="siteHudTensorSpeedControl" class="site-hydro-speed" hidden>倍速',
+      '<select id="siteHudTensorSpeed" aria-label="张量场播放倍速" title="调整2026–2100张量生长及粒子移动速度">',
+      '<option value="0.5">0.5×</option><option value="1.25" selected>1.25×</option>',
+      '<option value="1.5">1.5×</option><option value="2">2.0×</option><option value="3">3.0×</option>',
+      '</select></label>',
+      '<span id="siteHudRunState" class="site-hydro-mini">准备就绪</span>',
       '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
       '<div class="site-hydro-mini" id="siteHudNotice">2026—2100 是多事件设计包络的单调展示，2100达到设定峰值；可切换单次暴雨分钟级回放。非EA逐年预测。</div></div></footer>'
     ].join('');
@@ -3054,7 +3069,7 @@ export function createLocalFloodUI({
     const tensorControls=[
       ['TerrainWeight','terrainWeight'],['DrainageWeight','drainageWeight'],
       ['Avoidance','avoidance'],['Smoothness','smoothness'],
-      ['Density','density'],['Length','length'],['Glow','glow'],['Speed','speed']
+      ['Density','density'],['Length','length'],['Glow','glow']
     ];
     for(const [name,key] of tensorControls){
       const slider=siteHud('siteHudVector'+name);
@@ -3076,6 +3091,20 @@ export function createLocalFloodUI({
       slider.oninput=()=>update(slider.value);
       number.oninput=()=>{if(number.value!==''&&Number.isFinite(Number(number.value)))update(number.value)};
       number.onchange=()=>update(number.value===''?slider.value:number.value);
+    }
+    const speedSelector=siteHud('siteHudTensorSpeed');
+    if(speedSelector){
+      speedSelector.value=String(tensorPlaybackRate);
+      speedSelector.onchange=()=>{
+        const candidate=Number(speedSelector.value);
+        if(![.5,1.25,1.5,2,3].includes(candidate)){
+          speedSelector.value=String(tensorPlaybackRate);return;
+        }
+        tensorPlaybackRate=candidate;
+        // Paint-only, no rainfall requests, solver resets or replay jumps.
+        hydroVector?.setPlaybackRate(candidate);
+        if(hydroDisplay.flow&&tensorSession)syncTensorTransport();
+      };
     }
     siteHud('siteHudTensorReplay').onclick=()=>requestTensorPlayback();
     for(const button of container.querySelectorAll('[data-vector-mode]')){
@@ -3325,6 +3354,7 @@ export function createLocalFloodUI({
             ' · 显示预览，真实方向重算中'));
       }
     });
+    hydroVector.setPlaybackRate(tensorPlaybackRate);
     hydroVector.setTimelineYear(futureYear,{instant:true});
     // Typed native-grid design tensor contract for future Wool and roads.
     window.getLondonHydroTensorFieldData=()=>hydroVector?.exportStructuredData()||null;
