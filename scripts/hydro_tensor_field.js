@@ -783,7 +783,7 @@ export function createHydroTensorRenderer(args){
     enabled=requested;
     const state=enabled?'visible':'none';
     for(const id of [lineLayerId,glowLayerId,ribbonLayerId,ribbonGlowLayerId,
-      ...traceGroups.flatMap(g=>[g.coreId,g.glowId]),headHaloLayerId]){
+      ...traceGroups.flatMap(g=>[g.coreId,g.glowId]),headHaloLayerId,particleLayerId]){
       if(map.getLayer(id))map.setLayoutProperty(id,'visibility',state);
     }
     if(!enabled){
