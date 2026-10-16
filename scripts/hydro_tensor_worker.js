@@ -68,7 +68,7 @@ function solve(data){
   const dominantProcess=new Uint8Array(n);
   const coarseRadiusX=Math.max(1,Math.ceil(150/dx)),coarseRadiusY=Math.max(1,Math.ceil(150/dy));
   const waterActive=new Float32Array(n),hydX=new Float32Array(n),hydY=new Float32Array(n);
-  const valid=i=>i>=0&&i<n&&inside[i]!==0&&Number.isFinite(terrain[i]);
+  const valid=i=>i>=0&&i<n&&inside[i]!==0&&!barrier[i]&&Number.isFinite(terrain[i]);
   // Decode the raster's LOG upstream-area encoding to a normalized log rank,
   // never treat codes as rainfall volume or an actual measured drain flow.
   for(let i=0;i<n;i++){
@@ -84,7 +84,7 @@ function solve(data){
   }
   // Building bases are passable in this ground-scale orientation model.
   // Terrain / drainage gradients must still respect parcel / NoData gaps.
-  const terrainValid=i=>i>=0&&i<n&&inside[i]!==0&&Number.isFinite(terrain[i]);
+  const terrainValid=i=>i>=0&&i<n&&inside[i]!==0&&!barrier[i]&&Number.isFinite(terrain[i]);
   function derivative(x,y,ox,oy,radius,spacing,minSupport=50){
     const i=y*w+x;let lo=0,hi=0;
     for(let k=1;k<=radius;k++){
@@ -299,8 +299,8 @@ function solve(data){
     }
     cos2.set(tmpC);sin2.set(tmpS);evidence.set(tmpE);
   }
-  // Buildings are NOT wall barriers; do not bias axes toward footprint edges.
-  const obstacleCells=0;
+  // Explicit solid building masks match the ground runoff calculation.
+  const obstacleCells=barrier.reduce((sum,v)=>sum+(v?1:0),0);
   for(let i=0;i<n;i++){
     if(!validMask[i])continue;
     const trace=evidence[i],gap=Math.min(trace,Math.hypot(cos2[i],sin2[i]));
@@ -381,7 +381,7 @@ function solve(data){
     drainageThresholdKm2:threshold,
     drainageDirectionMethod:'local accumulation-ridge PCA; undirected; not D8 connectivity',
     diagnostics:{counts,drainageD8Available:false,groundMetreBasis:true,
-      obstacleCells,buildingFootprintsPassable:true,continuityRadiusM:continuityRadius,regularizationIterations:smooth>0?iterations:0,
+      obstacleCells,buildingFootprintsPassable:false,continuityRadiusM:continuityRadius,regularizationIterations:smooth>0?iterations:0,
       hierarchy:'regional DEM (150m support), local DEM (50m support), accumulation ridge, local depth head',
       yearUsedOnlyForMetadata:true,
       hydraulicDepthAvailable:data.depthAvailable!==false,
@@ -394,8 +394,8 @@ function solve(data){
         note:'Computed-depth response only; does not assert different flow direction when terrain head implies the same axis'}},
     demNativeResolutionM:demSupportMeters,
     terrainGradientSupportM:[demRadiusX*dx,demRadiusY*dy],
-    dataSource:'OS Terrain 50 DEM (>=50m gradient support), contributing area, dynamic modeled rainfall/depth; building bases passable',
-    fieldSemantics:'symmetric hydrological tensor; relative intensity; no measured speed, no roads',
+    dataSource:'OS Terrain 50 DEM (>=50m gradient support), contributing area, dynamic modeled rainfall/depth; building bases blocked from ground flow',
+    fieldSemantics:'symmetric hydrological tensor; solid building masks; not measured speed or a designed road',
     fields:{tensorXX,tensorXY,tensorYY,primaryX,primaryY,
       crossCos4,crossSin4,confidence,suitability,
       drainageRank,avoidMask,floodProximity,crossSuitability,validMask,
