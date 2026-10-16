@@ -1,6 +1,7 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.59-tensor-3d-performance';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.65-tensor-silk-palette';
+import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.65-tensor-silk-palette';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
 
@@ -2016,8 +2017,8 @@ export function createLocalFloodUI({
             'line-cap':'round','line-join':'round'},
           paint:{
             'line-color':['get','color'],
-            'line-width':['*',['get','width'],2.7],
-            'line-blur':1.8,'line-opacity':0.27
+            'line-width':['*',['get','width'],2.1],
+            'line-blur':.9,'line-opacity':0
           }},
         {id:FOCUS_FLOW_LAYER,type:'line',source:FOCUS_FLOW_SOURCE,
           layout:{visibility:hydroDisplay.flow?'visible':'none',
@@ -2025,21 +2026,24 @@ export function createLocalFloodUI({
           paint:{
             'line-color':['get','color'],
             'line-width':['get','width'],
-            'line-opacity':0.91
+            'line-opacity':.55
           }},
         {id:FOCUS_TENSOR_RIBBON_GLOW,type:'line',source:FOCUS_TENSOR_RIBBON_SOURCE,
           layout:{visibility:hydroDisplay.flow?'visible':'none',
             'line-cap':'round','line-join':'round'},
           paint:{
             'line-color':['get','color'],
-            'line-width':['*',['get','width'],4.5],
-            'line-blur':2.5,'line-opacity':.22
+            'line-width':['*',['get','width'],2.25],
+            'line-blur':.95,'line-opacity':0
           }},
         {id:FOCUS_TENSOR_RIBBON_LAYER,type:'line',source:FOCUS_TENSOR_RIBBON_SOURCE,
           layout:{visibility:hydroDisplay.flow?'visible':'none',
             'line-cap':'round','line-join':'round'},
           paint:{
+            // lineMetrics is already enabled on FOCUS_TENSOR_RIBBON_SOURCE.
+            // This colours the computed curve, never creates or modifies it.
             'line-color':['get','color'],
+            'line-gradient':HYDRO_TENSOR_RIBBON_GRADIENT,
             'line-width':['get','width'],
             'line-opacity':['get','opacity']
           }},
@@ -2048,10 +2052,10 @@ export function createLocalFloodUI({
           paint:{
             'circle-color':['get','color'],
             'circle-radius':['get','radius'],
-            'circle-opacity':.82,
-            'circle-blur':.20,
-            'circle-stroke-width':.3,
-            'circle-stroke-color':'#c9ebff'
+            'circle-opacity':.72,
+            'circle-blur':.10,
+            'circle-stroke-width':.16,
+            'circle-stroke-color':'#E3F4FF'
           }},
         // The dashed red boundary is a ground-level graphic, not an overlay
         // painted across roofs/walls. Extruded buildings must draw after it
@@ -2493,7 +2497,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.64-planning-grayscale</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.65-tensor-silk-palette</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
