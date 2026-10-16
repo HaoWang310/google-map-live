@@ -1882,8 +1882,8 @@ export function createLocalFloodUI({
     // Same two OSM styles, only for the independent model's local ground.
     // Do not change flood water/depth/risk or tensor overlay coloration.
     return getBasemapTheme()==='dark'?{
-      ground:'#101d29',green:'#1b3636',water:'#19445d',
-      roadCasing:'#233c52',roadMajor:'#4a708a',roadPedestrian:'#2a4b60',roadMinor:'#34566c'
+      ground:'#07111a',green:'#081a1d',water:'#03131c',
+      roadCasing:'#203448',roadMajor:'#7aa3c5',roadPedestrian:'#3a5369',roadMinor:'#597b99'
     }:{
       ground:'#f1f3f2',green:'#e1ebe2',water:'#dbeaf0',
       roadCasing:'#c9d2d5',roadMajor:'#e2e8e8',roadPedestrian:'#edf0ed',roadMinor:'#f9faf9'
@@ -2493,7 +2493,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.59-tensor-3d-performance</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.22.61-dark-map-refinement</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -2502,7 +2502,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-eyebrow">SCENARIO BUILDER</div>',
       '<div class="site-hydro-title">真实场地洪涝模拟</div>',
       '<label class="site-hydro-row">地图风格 <select id="siteHudBasemapTheme" aria-label="场地底图风格" style="background:#23262b;color:#f4f4f6;border:1px solid #565b65;border-radius:7px;padding:6px;min-width:138px">',
-      '<option value="planning" selected>03 · 建筑规划</option><option value="dark">02 · 黑色科技</option></select></label>',
+      '<option value="planning" selected>建筑规划</option><option value="dark">黑色科技</option></select></label>',
       '<div class="site-hydro-pill"><div id="siteHudLocation">查询地块坐标…</div><small id="siteHudGrid"></small></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">2026—2100 · 长期设计包络（2100峰值）</div>',
       '<div class="site-hydro-row"><input type="range" id="siteHudYear" min="2026" max="2100" step="1" value="2026" style="flex:1;min-width:70px"><strong id="siteHudYearText">2026</strong></div>',
