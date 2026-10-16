@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
     paths:
+      - 'index.html'
+      - 'scripts/hydro_tensor_field.js'
+      - 'scripts/test_release_version.mjs'
       - 'scripts/local_flood_worker.js'
       - 'scripts/local_flood_ui.js'
       - 'scripts/hydro_tensor_worker.js'
@@ -32,6 +35,8 @@ jobs:
           node --check scripts/hydro_tensor_worker.js
           node --check scripts/local_flood_sim.js
           node --check scripts/local_flood_ui.js
+      - name: Check release label and nested worker cache keys
+        run: node scripts/test_release_version.mjs
       - name: Install raster regression dependencies
         run: python -m pip install numpy Pillow
       - name: Audit all 70-km numerical raster cells
