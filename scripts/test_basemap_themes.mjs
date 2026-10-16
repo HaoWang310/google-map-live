@@ -1,4 +1,4 @@
-// London Map v3.22.63: restore original Liberty sprite patterns on style switch.
+// London Map v3.22.64: both basemap themes suppress Liberty green/pattern sprites.
 // Run: node scripts/test_basemap_themes.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -44,6 +44,16 @@ controller.apply('planning');
 const light={background:paints.get('background')['background-color'],
   building:paints.get('building')['fill-color'],
   roads:paints.get('road-major')['line-color']};
+assert.equal(light.background,'#f9f9f9');
+assert.equal(light.building,'#ffffff');
+assert.equal(light.roads,'#eaeaea');
+assert.equal(paints.get('landcover_wetland')['fill-pattern'],null,
+  'Planning must also hide the pale-green wetland sprite');
+assert.equal(paints.get('road_area_pattern')['fill-pattern'],null,
+  'Planning must also hide original pavement textures');
+assert.equal(paints.get('landcover_wetland')['fill-color'],BASEMAP_THEMES.planning.park);
+assert.equal(paints.get('park')['fill-outline-color'],BASEMAP_THEMES.planning.park,
+  'Planning must never show original green park outlines');
 controller.apply('dark');
 const dark={background:paints.get('background')['background-color'],
   building:paints.get('building')['fill-color'],
@@ -71,12 +81,12 @@ assert.equal(parkDark['fill-outline-color'],BASEMAP_THEMES.dark.park,
 const before=operations;controller.apply('dark');
 assert.equal(operations,before,'re-applying unchanged palette should do no paint work');
 controller.apply('planning');
-assert.equal(paints.get('landcover_wetland')['fill-pattern'],'wetland_bg_11',
-  'switching back to planning restores original vegetation sprite');
-assert.equal(paints.get('road_area_pattern')['fill-pattern'],'pedestrian_polygon',
-  'switching back to planning restores pedestrian pavement sprite');
-assert.equal(paints.get('park')['fill-outline-color'],'rgba(95, 208, 100, 1)',
-  'switching back to planning restores original park outline');
+assert.equal(paints.get('landcover_wetland')['fill-pattern'],null,
+  'switching back to Planning must NOT restore green wetland sprites');
+assert.equal(paints.get('road_area_pattern')['fill-pattern'],null,
+  'switching back to Planning must NOT restore pavement patterns');
+assert.equal(paints.get('park')['fill-outline-color'],BASEMAP_THEMES.planning.park,
+  'switching back to Planning must keep park outlines grayscale');
 controller.apply('dark');
 assert.equal(paints.get('landcover_wetland')['fill-pattern'],null,
   'repeat dark switch still suppresses the colored wetland sprite');
@@ -90,6 +100,11 @@ assert.ok(index.includes('<option value="dark">黑色科技</option>'));
 assert.ok(focus.includes('<option value="planning" selected>建筑规划</option>'));
 assert.ok(focus.includes('<option value="dark">黑色科技</option>'));
 assert.equal(BASEMAP_THEMES.planning.name,'建筑规划');
+assert.equal(BASEMAP_THEMES.planning.background,'#f9f9f9');
+assert.equal(BASEMAP_THEMES.planning.building,'#ffffff');
+assert.equal(BASEMAP_THEMES.planning.road,'#eeeeee');
+assert.equal(BASEMAP_THEMES.planning.water,'#f4f4f4');
+assert.equal(BASEMAP_THEMES.planning.park,'#f6f6f6');
 assert.equal(BASEMAP_THEMES.dark.name,'黑色科技');
 assert.equal(BASEMAP_THEMES.dark.background,'#161616');
 assert.equal(BASEMAP_THEMES.dark.building,'#2b2f33');
@@ -97,12 +112,14 @@ assert.equal(BASEMAP_THEMES.dark.primaryRoad,'#62676c');
 assert.equal(BASEMAP_THEMES.dark.water,'#0f0f10');
 assert.ok(!index.includes('03 · 建筑规划</option>')&&!index.includes('02 · 黑色科技</option>'));
 assert.ok(focus.includes("ground:'#1f1f1f',green:'#202020',water:'#0f0f10'"));
+assert.ok(focus.includes("ground:'#f9f9f9',green:'#f6f6f6',water:'#f4f4f4'"));
+assert.ok(index.includes("const building=next==='dark'?'#2b2f33':'#ffffff'"));
 assert.ok(index.includes('let osmStructuresHidden=true'));
 assert.ok(index.includes('basemapThemeController.capture()'));
 assert.ok(index.includes('basemapThemeController.apply(basemapTheme)'));
 assert.ok(index.includes('getBasemapTheme:()=>basemapTheme'));
 assert.ok(focus.includes('siteHudBasemapTheme'));
 assert.ok(focus.includes('focusThemePalette()'));
-console.log('PASS Planning remains default; Dark Tech uses charcoal gray palette and unnumbered labels');
-console.log('PASS original Liberty sprite patterns and green park outlines are neutral in Dark');
-console.log('PASS Planning restores exact original textures; GIS overlays/sources untouched');
+console.log('PASS Planning defaults to white/light gray buildings and roads; Dark Tech stays charcoal');
+console.log('PASS colored Liberty sprite patterns and green park outlines suppressed in BOTH themes');
+console.log('PASS repeated switches do not reinstate colored textures; GIS overlays/sources untouched');
