@@ -222,12 +222,17 @@ assert.equal(renderer.exportStructuredData().displayCountIndependentOfYear,true)
 assert.equal(renderer.exportStructuredData().displayUsesUnifiedComputedEigenfield,true);
 passed++;console.log('PASS renderer exact-grid contract, stale responses, snapshot exports and re-enable');
 deferGeometry=true;
-renderer.configure({density:60});assert.equal(geometryJobs.length,1);
-renderer.configure({density:80});assert.equal(geometryJobs.length,1); // coalesced latest, no growing worker backlog
-const release=()=>{const job=geometryJobs.shift();job.worker.onmessage({data:{type:'geometry-result',id:job.data.id,packet:buildTensorGeometryPacket(job.data.result,job.data.options)}})};
-release();assert.equal(geometryJobs.length,1);assert.equal(renderer.exportGeometry().parameters.density,55);
-release();assert.equal(renderer.exportGeometry().parameters.density,80);assert.equal(renderer.exportGeometry().pending,false);
-passed++;console.log('PASS geometry worker coalesces updates and rejects stale geometry');
+renderer.configure({density:60});
+renderer.configure({density:80});
+await new Promise(r=>setTimeout(r,320)); // configuration debounce = 240 ms
+assert.equal(geometryJobs.length,1,'rapid density changes must coalesce to one geometry job');
+const last=geometryJobs.shift();
+assert.equal(last.data.options.density,80,'coalesced build must use latest density');
+last.worker.onmessage({data:{type:'geometry-result',id:last.data.id,
+  packet:buildTensorGeometryPacket(last.data.result,last.data.options)}});
+assert.equal(renderer.exportGeometry().parameters.density,80);
+assert.equal(renderer.exportGeometry().pending,false);
+passed++;console.log('PASS geometry worker coalesces rapid updates after debounce');
 const jobCount=geometryJobs.length;
 renderer.configure({direction:'primary'});
 assert.ok(drawn.get('axes').features.length>0);
