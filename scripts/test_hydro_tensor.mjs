@@ -65,20 +65,20 @@ test('same-frame water head rotates the wet tensor; stale vx/vy have no influenc
  const dry=fixture();dry.vy.fill(127);dry.intensity.fill(255);
  assert.equal(solve(dry).fields.rainfallInfluence[center],0);
 });
-test('building footprint barriers stop tensor integration and NoData stays invalid',()=>{
+test('visual tensor continues across building base while parcel NoData stays invalid',()=>{
   const d=fixture(3,3,50,50);d.depthMm[4]=500;
   d.obstacle[5]=1;d.obstacle[7]=1;d.inside[3]=0;d.inside[1]=0;
   const f=solve(d).fields;
-  assert.equal(f.validMask[5],0);assert.equal(f.validMask[7],0);
+  assert.equal(f.validMask[5],1);assert.equal(f.validMask[7],1);
   assert.equal(f.validMask[3],0);assert.equal(f.validMask[1],0);
   const a=structuredClone(ridge);a.config.smoothness=100;
   for(let y=0;y<41;y++)a.obstacle[y*41+21]=1;
   const b=structuredClone(a);b.obstacle.fill(0);
   const x=solve(a).fields,z=solve(b).fields;
-  assert.equal(x.validMask[20*41+21],0);
+  assert.equal(x.validMask[20*41+21],1);
   assert.equal(z.validMask[20*41+21],1);
-  assert.equal(x.tensorXX[20*41+21],0);
-  assert.ok(z.tensorXX[20*41+21]>0);
+  assert.deepEqual(x.tensorXX,z.tensorXX);
+  assert.deepEqual(x.primaryX,z.primaryX);
 });
 test('true ordered eigenvalues, orthogonality and matrix residuals after smoothing',()=>{
  const d=structuredClone(ridge);d.config.smoothness=100;d.depthMm.fill(200);
@@ -147,7 +147,7 @@ test('anchored physical-scale regularization reduces undirected neighbour roughn
   assert.ok(b.directionContinuity[i]>=0&&b.directionContinuity[i]<=1.000001);
  }
 });
-test('wall masking removes building cells while retaining adjacent terrain evidence',()=>{
+test('physical wall mask does not erase continuous tensor direction evidence',()=>{
   const d=fixture();d.config.smoothness=100;
   for(let y=0;y<41;y++)for(let x=0;x<41;x++){
     d.terrain[y*41+x]=30-x*.1;
@@ -155,7 +155,7 @@ test('wall masking removes building cells while retaining adjacent terrain evide
   }
   const f=solve(d).fields;
   assert.equal(f.obstacleConstraint[center],0);
-  assert.equal(f.validMask[20*41+21],0);
+  assert.equal(f.validMask[20*41+21],1);
   assert.ok(Math.abs(f.primaryX[center])>.99);
   const flat=structuredClone(d);flat.terrain.fill(20);const empty=solve(flat).fields;
   assert.equal(empty.primaryY[center],0);assert.equal(empty.tensorYY[center],0);
