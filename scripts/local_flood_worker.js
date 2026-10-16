@@ -876,6 +876,10 @@ function buildHydroFlowField(force=false){
 // Draw-only inundation under buildings: carry neighbouring outside water
 // surface elevation into the connected footprint. Hydrological obstacles and
 // their stored water remain untouched; no visual water contributes to volume.
+function designYearRevealFactor(year){
+  const progress=clamp((Number(year)-2026)/74,0,1);
+  return progress*progress*(3-2*progress);
+}
 function presentationDepth(){
   const {cols,rows,inside,obstacle,terrain,water,svCapacity}=sim,n=cols*rows;
   const depth=new Uint16Array(n),head=new Float32Array(n);
@@ -1326,7 +1330,7 @@ onmessage=async({data})=>{
         // Physically solve the year-specific design rain BEFORE displaying a
         // continuous 2026->2100 reveal of its controlling storm peak. The
         // smooth interpolation is presentation staging, not an annual forecast.
-        stagingFactor=progress*progress*(3-2*progress);
+        stagingFactor=designYearRevealFactor(year);
         for(let i=0;i<sim.water.length;i++)
           sim.water[i]=forecast.critical.peakFrame[i]*stagingFactor;
         sim.timeSec=forecast.critical.peakMinute*60;
