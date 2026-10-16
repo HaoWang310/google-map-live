@@ -1,9 +1,10 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
-/* v3.22.71-tensor-transport-stable · DISPLAY ONLY. Current computed eigenfield,
-   original streamline geometry, flood physics and particle path/speed logic
-   are unchanged. Blue-violet colours encode artistic visual hierarchy only,
+import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
+/* v3.22.76-tensor-particle-balance · DISPLAY ONLY. Current computed eigenfield,
+   original streamline geometry and flood physics are unchanged. Particle
+   sampling and visual brightness are spatially balanced. Blue-violet colours encode artistic visual hierarchy only,
    not measured rainfall intensity, velocity or calibrated water depth. */
 export function createHydroTensorRenderer(args){
   const {map,sourceId,particleSourceId,glowLayerId,lineLayerId,particleLayerId,
@@ -116,23 +117,25 @@ export function createHydroTensorRenderer(args){
       map.addLayer({id:headHaloLayerId,type:'circle',source:particleSourceId,
         layout:{visibility:'none'},paint:{
           'circle-color':['get','color'],
-          'circle-radius':['*',['get','radius'],3.1],
-          'circle-opacity':.36,'circle-blur':.86
+          'circle-radius':['*',['get','radius'],2.35],
+          'circle-opacity':['*',.20,['coalesce',['get','opacity'],1]],'circle-blur':.82
         }},particleLayerId);
     }
   }
-  const pickSpread=(items,count)=>{
-    if(items.length<=count)return items;
-    return Array.from({length:count},(_,i)=>
-      items[Math.min(items.length-1,Math.floor((i+.45)*items.length/count))]);
-  };
-  // Cache arc length for selected trajectories once per geometry packet.
+  // All selected paths are samples of existing verified streamlines.
+  // Spatial balancing changes only which curves carry moving particle heads.
   function prepareParticlePaths(){
     const source=features.filter(f=>f.geometry?.coordinates?.length>1);
-    const ribbonPicked=pickSpread(ribbons.filter(r=>r.hierarchy==='trunk'),48)
-      .concat(pickSpread(ribbons.filter(r=>r.hierarchy!=='trunk'),22));
-    const primaryPicked=pickSpread(source.filter(f=>f.properties.branch==='primary'),75);
-    const secondaryPicked=pickSpread(source.filter(f=>f.properties.branch==='secondary'),58);
+    const midpoint=item=>{
+      const coords=item.coordinates||item.geometry?.coordinates;
+      return coords?.[Math.floor((coords.length-1)/2)]||[NaN,NaN];
+    };
+    const pick=(items,count)=>
+      selectSpatialParticlePaths(items,count,midpoint);
+    const ribbonPicked=pick(ribbons.filter(r=>r.hierarchy==='trunk'),48)
+      .concat(pick(ribbons.filter(r=>r.hierarchy!=='trunk'),22));
+    const primaryPicked=pick(source.filter(f=>f.properties.branch==='primary'),75);
+    const secondaryPicked=pick(source.filter(f=>f.properties.branch==='secondary'),58);
     particlePaths=[...ribbonPicked.map(r=>({
       coordinates:r.coordinates,branch:'ribbon',wave:0,rank:r.rank||.6
     })),...primaryPicked.concat(secondaryPicked).map(f=>({
@@ -148,6 +151,12 @@ export function createHydroTensorRenderer(args){
       }
       return {...item,dist,total};
     }).filter(item=>item.total>0);
+  }
+  // Protect both moving particle types against visual hotspots on screen.
+  // Project into screen pixels (zoom-aware); this never alters paths/positions.
+  function balanceParticleDraw(points){
+    return thinVisibleParticles(points,
+      typeof map.project==='function'?coord=>map.project(coord):null,14);
   }
   function headCoordinate(line,progress){
     const at=line.total*clamp(progress,0,1),d=line.dist,coords=line.coordinates;
@@ -165,7 +174,8 @@ export function createHydroTensorRenderer(args){
       return;
     }
     const points=[];
-    for(const path of particlePaths){
+    for(let i=0;i<particlePaths.length;i++){
+      const path=particlePaths[i];
       if(path.branch==='ribbon'&&!settings.showRibbon)continue;
       if(path.branch!=='ribbon'&&(!settings.showFilaments||
         settings.direction!=='dual'&&settings.direction!==path.branch))continue;
@@ -173,13 +183,18 @@ export function createHydroTensorRenderer(args){
       if(progress<=.012||progress>=.998)continue;
       const p=headCoordinate(path,progress);
       const core=path.branch==='ribbon';
+      // Deterministic asynchronous brightness makes neighbouring heads less
+      // likely to form a synchronous white blob; the traced geometry stays put.
+      const pulse=.74+.18*Math.sin(fraction*20+i*2.3999632);
       points.push({type:'Feature',properties:{
         color:core?'#E3F4FF':path.branch==='secondary'?'#EDBDF9':'#9DDCFF',
-        radius:core?2.0:path.branch==='primary'?1.35:1.12
+        radius:core?1.65:path.branch==='primary'?1.16:.92,
+        opacity:Math.max(.48,Math.min(.94,pulse))
       },geometry:{type:'Point',coordinates:p}});
     }
-    dots().setData({type:'FeatureCollection',features:points});
-    headsActive=points.length>0;
+    const visible=balanceParticleDraw(points);
+    dots().setData({type:'FeatureCollection',features:visible});
+    headsActive=visible.length>0;
   }
   const isNumericArray=(v,n)=>v?.length===n;
   const sameArray=(a,b)=>a===b||Boolean(a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i])));
@@ -627,29 +642,34 @@ export function createHydroTensorRenderer(args){
   function drawParticles(elapsed,progress){
     if(!dots())return;
     if(!enabled||settings.mode!=='presentation'){
-      dots().setData(empty());return
+      dots().setData(empty());return;
     }
-    const particles=[],count=Math.min(145,Math.round(30+settings.density));
+    const particles=[],count=Math.min(110,Math.round(24+settings.density));
+    // The same spatially balanced path pool is reused after growth finishes.
+    // Constant phase offsets stagger each head; positions follow arc length
+    // instead of vertex index, so short segments do not produce speed spikes.
     for(let i=0;i<count;i++){
-      const main=settings.showRibbon&&ribbons.length&&i%3===0;
-      const available=main?ribbons:wetLines;
-      if(!available.length||(!main&&!settings.showFilaments))continue;
-      const line=available[(i*37)%available.length];
-      if(line.index>=available.length*progress)continue;
-      const coords=line.coordinates;
-      if(coords.length<2)continue;
-      // Time is purely a display timeline; no true metres-per-second claim.
+      if(!particlePaths.length)break;
+      const line=particlePaths[Math.min(particlePaths.length-1,
+        Math.floor((i+.5)*particlePaths.length/count))];
+      const main=line.branch==='ribbon';
+      if(main&&!settings.showRibbon)continue;
+      if(!main&&(!settings.showFilaments||
+        settings.direction!=='dual'&&settings.direction!==line.branch))continue;
       const u=(particleClockSeconds*(.06+.09*line.rank)+
         i*.61803398875)%1;
-      const pos=u*(coords.length-1),j=Math.min(coords.length-2,Math.floor(pos));
-      const alpha=pos-j,a=coords[j],b=coords[j+1];
+      const coords=line.coordinates;
+      const pos=u*(coords.length-1);
+      // Sample by verified physical arc length; do not alter source curve.
+      const point=headCoordinate(line,u);
       const particleMaterial=particleTensorMaterial({index:i,main,rank:line.rank});
       particles.push({type:'Feature',properties:{
-        color:particleMaterial.color,radius:particleMaterial.radius
-      },geometry:{type:'Point',coordinates:[
-        a[0]+(b[0]-a[0])*alpha,a[1]+(b[1]-a[1])*alpha]}});
+        color:particleMaterial.color,radius:Math.min(1.20,particleMaterial.radius),
+        opacity:.68+.15*Math.sin(particleClockSeconds*1.1+i*2.3999632)
+      },geometry:{type:'Point',coordinates:point}});
     }
-    dots().setData({type:'FeatureCollection',features:particles});
+    dots().setData({type:'FeatureCollection',
+      features:balanceParticleDraw(particles)});
   }
   function stop(){if(animation)cancelAnimationFrame(animation);animation=0}
   function startContinuousPlayback({durationMs=64000}={}){
