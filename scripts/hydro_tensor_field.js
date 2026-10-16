@@ -708,8 +708,9 @@ export function createHydroTensorRenderer(args){
     stop();animationOrigin=performance.now();
     lastAnimationDraw=0;renderedFraction=-1;applyStyle();
     if(!enabled)return;
-    if(preserveGrowth){
-      // New geometry is allowed, but display fraction stays continuous.
+    if(preserveGrowth||continuousPlayback){
+      // Worker refreshes AND analysis/presentation mode changes must preserve
+      // the currently visible year, including during a paused session.
       growthFrom=yearGrowth;growthChangeAt=performance.now();
     }else{
       yearGrowth=growthTo;growthFrom=growthTo;growthChangeAt=performance.now();
@@ -721,7 +722,7 @@ export function createHydroTensorRenderer(args){
        !continuousPlayback?.paused||
        (preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005))
       animation=requestAnimationFrame(tick);
-    else dots()?.setData(empty());
+    else if(!continuousPlayback?.paused)dots()?.setData(empty());
   }
   function setTimelineYear(year,{instant=false}={}){
     if(disposed)return;
