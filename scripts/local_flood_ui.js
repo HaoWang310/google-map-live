@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.22.58-tensor-start-fix';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.74-tensor-speed-5x';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.22.75-tensor-scrub';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -973,7 +973,52 @@ export function createLocalFloodUI({
     ensureSimulator().seekYear({...scenarioRequest(year),scenarioToken:++lastRequestedScenarioToken});
     return true;
   };
+  let tensorScrubActive=false,tensorScrubResumeAfterRelease=false;
+  function seekTensorDisplayYear(value){
+    if(!hydroDisplay.flow||!tensorSession)return false;
+    const session=tensorSession;
+    const target=Math.max(2026,Math.min(2100,Number(value)||2026));
+    if(!tensorScrubActive){
+      tensorScrubResumeAfterRelease=Boolean(hydroVector?.getPlaybackState?.()?.running);
+      tensorScrubActive=true;
+    }
+    // Preserve the background nine-keyframe hydrology sequence. Scrubbing
+    // changes only the already integrated line-gradient display fraction.
+    session.playRequested=false;
+    session.manual=false;
+    session.autoSmoothStarted=true;
+    session.visualYear=target;
+    session.playbackState='paused';
+    hydroVector?.seekContinuousPlayback(target,{resume:false});
+    const display=Math.floor(target);
+    for(const id of ['siteHudYear','siteHudFooterYear']){
+      const slider=siteHud(id);if(slider)slider.value=String(display);
+    }
+    setSiteHud('siteHudYearText',String(display));
+    setSiteHud('siteHudTensorYear',String(display));
+    setSiteHud('siteHudTensorGrowthStatus',
+      '正在查看 '+display+' 年张量场 · 拖动时间轴可查看任意生长阶段');
+    syncTensorTransport();
+    return true;
+  }
+  function finishTensorDisplaySeek(value){
+    if(!hydroDisplay.flow||!tensorSession)return;
+    if(!tensorScrubActive)seekTensorDisplayYear(value);
+    const session=tensorSession,continuePlaying=tensorScrubResumeAfterRelease;
+    tensorScrubActive=false;tensorScrubResumeAfterRelease=false;
+    if(continuePlaying&&hydroVector?.resumeContinuousPlayback()){
+      session.playbackState='playing';
+      setSiteHud('siteHudTensorGrowthStatus','从 '+Math.floor(session.visualYear)+
+        ' 年继续按所选倍速生长至2100年');
+    }else{
+      session.playbackState=Number(session.visualYear)>=2100?'completed':'paused';
+      setSiteHud('siteHudTensorGrowthStatus',
+        '停留在 '+Math.floor(session.visualYear)+' 年 · 点击「运行」可从2026重播');
+    }
+    syncTensorTransport();
+  }
   const seekYear=value=>{
+    if(seekTensorDisplayYear(value))return;
     stopAnnual();
     futureYear=Math.max(2026,Math.min(2100,Math.round(Number(value)||2026)));
     // Manual year-scrub interrupts automatic keyframes, not the tensor layer.
@@ -1093,6 +1138,7 @@ export function createLocalFloodUI({
   function stopTensorSequence({restoreRain=false}={}){
     const original=tensorSession?.originalYear;
     tensorSessionId++;tensorSession=null;
+    tensorScrubActive=false;tensorScrubResumeAfterRelease=false;
     if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
     hydroVector?.setEnabled(false);
     if(restoreRain&&Number.isInteger(original)){
@@ -2843,8 +2889,15 @@ export function createLocalFloodUI({
       updateSiteHydroDashboard();
       redrawDisplayOnly();
     };
-    siteHud('siteHudYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
-    siteHud('siteHudFooterYear').oninput=e=>{if(longTermMode)seekYear(e.target.value);else{futureYear=Number(e.target.value);syncFuture();}};
+    for(const id of ['siteHudYear','siteHudFooterYear']){
+      const slider=siteHud(id);
+      if(!slider)continue;
+      slider.oninput=e=>{
+        if(hydroDisplay.flow&&tensorSession||longTermMode)seekYear(e.target.value);
+        else{futureYear=Number(e.target.value);syncFuture();}
+      };
+      slider.onchange=e=>finishTensorDisplaySeek(e.target.value);
+    }
     siteHud('siteHudQueryEaZones').onclick=async()=>{
       const output=siteHud('siteHudEaFloodZoneStatus');
       const ring=polygon?.[0];
