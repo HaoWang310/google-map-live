@@ -35,7 +35,7 @@ const result=vm.runInContext(`(()=>{
   const balance=stored*sim.groundAreaM2;
   const roofWet=sim.water[mid];
   params={...params,rainfall:0};
-  sim.water[11]+=.20;sim.timeSec=5;
+  sim.water[11]+=.20;sim.balance.externalInM3+=.20*sim.groundAreaM2;sim.timeSec=5;
   simulationStep(5);sendFrame();
   return {total,balance,roofWet,roofTargetCount,roofCellCount:sim.roofCellCount,
     building:sim.water[mid],validCells:sim.inside.reduce((a,v)=>a+v,0),
