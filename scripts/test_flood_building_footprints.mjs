@@ -37,7 +37,7 @@ const result=vm.runInContext(`(()=>{
   params={...params,rainfall:0};
   sim.water[11]+=.20;sim.balance.externalInM3+=.20*sim.groundAreaM2;sim.timeSec=5;
   simulationStep(5);sendFrame();
-  const renderedBuildingMm=new Uint16Array(frame.depthMm)[mid];
+  const renderedBuildingMm=presentationDepth()[mid];
   sim.water.fill(0);
   const dryFootprintMm=presentationDepth()[mid];
   return {total,balance,roofWet,renderedBuildingMm,dryFootprintMm,
