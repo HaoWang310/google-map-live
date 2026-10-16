@@ -1029,7 +1029,7 @@ export function createLocalFloodUI({
     const run=siteHud('siteHudRun'),pause=siteHud('siteHudPause');
     if(run){
       run.disabled=!prepared;
-      run.textContent=session.playbackState==='playing'?'▶ 从2026重播':'▶ 运行';
+      run.textContent=['playing','paused','completed'].includes(session.playbackState)?'▶ 从2026重播':'▶ 运行';
       run.title='每次点击都从2026年重新连续播放到2100年，不退出张量场';
     }
     if(pause){
