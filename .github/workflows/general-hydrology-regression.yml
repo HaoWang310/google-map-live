@@ -9,6 +9,10 @@ on:
       - 'scripts/local_flood_sim.js'
       - 'scripts/test_flood_building_footprints.mjs'
       - 'scripts/test_hydro_tensor.mjs'
+      - 'scripts/test_70km_raster_coverage.py'
+      - 'assets/drainage_area/metadata.json'
+      - 'assets/drainage_area/dem50_log16.webp'
+      - 'assets/drainage_area/area_log16.webp'
       - 'scripts/test_rain_scenario_tensor.mjs'
       - '.github/workflows/general-hydrology-regression.yml'
   workflow_dispatch:
@@ -28,6 +32,10 @@ jobs:
           node --check scripts/hydro_tensor_worker.js
           node --check scripts/local_flood_sim.js
           node --check scripts/local_flood_ui.js
+      - name: Install raster regression dependencies
+        run: python -m pip install numpy Pillow
+      - name: Audit all 70-km numerical raster cells
+        run: python scripts/test_70km_raster_coverage.py
       - name: Verify hydrology and barrier semantics
         run: |
           node scripts/test_flood_building_footprints.mjs
