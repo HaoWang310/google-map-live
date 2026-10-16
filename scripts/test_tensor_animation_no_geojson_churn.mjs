@@ -12,6 +12,11 @@ assert.ok(!reveal.includes('.setData('),
 assert.ok(reveal.includes("'line-gradient'"),'gradient paint is frame-driven');
 assert.ok(visual.includes('rgba(0,0,0,0)'),'unswept parts stay invisible');
 
+// Presentation is the default: mock the browser's RAF scheduler without
+// executing queued frames, since this test checks GeoJSON upload churn only.
+let nextFrameId=0;
+globalThis.requestAnimationFrame=()=>++nextFrameId;
+globalThis.cancelAnimationFrame=()=>{};
 const layers=new Map(),sources=new Map(),uploadCounts=new Map();
 const initial=['field','field-glow','ribbon','ribbon-glow','particles'];
 for(const id of initial)layers.set(id,{id,paint:{}});
