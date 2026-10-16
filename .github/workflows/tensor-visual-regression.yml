@@ -10,6 +10,7 @@ on:
       - 'scripts/test_tensor_continuous_clock.mjs'
       - 'scripts/test_tensor_transport.mjs'
       - 'scripts/test_tensor_playback_speed.mjs'
+      - 'scripts/test_tensor_timeline_scrub.mjs'
       - 'scripts/test_tensor_visual_palette.mjs'
       - 'scripts/test_tensor_animation_no_geojson_churn.mjs'
       - '.github/workflows/tensor-visual-regression.yml'
@@ -35,5 +36,6 @@ jobs:
           node scripts/test_tensor_continuous_clock.mjs
           node scripts/test_tensor_transport.mjs
           node scripts/test_tensor_playback_speed.mjs
+          node scripts/test_tensor_timeline_scrub.mjs
           node scripts/test_tensor_visual_palette.mjs
           node scripts/test_tensor_animation_no_geojson_churn.mjs
