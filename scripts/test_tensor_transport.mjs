@@ -48,6 +48,10 @@ const pauseBlock=renderer.slice(renderer.indexOf('  function pauseContinuousPlay
   renderer.indexOf('  function resumeContinuousPlayback(){'));
 assert.ok(!pauseBlock.includes('dots()?.setData(empty())'),
   'Pause must freeze particle heads where they are, rather than clear them');
+assert.ok(renderer.includes('if(preserveGrowth||continuousPlayback)'),
+  'mode changes must not snap the clock to 2100');
+assert.ok(renderer.includes('else if(!continuousPlayback?.paused)dots()?.setData(empty())'),
+  'background geometry replacements must preserve paused particle heads');
 assert.ok(renderer.includes('function startContinuousPlayback('));
 assert.ok(renderer.includes('function resumeContinuousPlayback()'));
 assert.ok(renderer.includes('getPlaybackState,setField,setEnabled'),
