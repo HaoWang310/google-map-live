@@ -8,6 +8,7 @@ on:
       - 'scripts/hydro_tensor_worker.js'
       - 'scripts/local_flood_sim.js'
       - 'scripts/test_flood_building_footprints.mjs'
+      - 'scripts/test_hydro_tensor.mjs'
       - 'scripts/test_rain_scenario_tensor.mjs'
       - '.github/workflows/general-hydrology-regression.yml'
   workflow_dispatch:
