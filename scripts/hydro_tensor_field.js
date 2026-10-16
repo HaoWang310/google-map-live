@@ -1,7 +1,7 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial} from './hydro_tensor_visual.js?v=3.22.65-tensor-silk-palette';
-/* v3.22.65-tensor-silk-palette · DISPLAY ONLY. Current computed eigenfield,
+import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,tensorRevealGate} from './hydro_tensor_visual.js?v=3.22.66-tensor-smooth-reveal';
+/* v3.22.66-tensor-smooth-reveal · DISPLAY ONLY. Current computed eigenfield,
    original streamline geometry, flood physics and particle path/speed logic
    are unchanged. Blue-violet colours encode artistic visual hierarchy only,
    not measured rainfall intensity, velocity or calibrated water depth. */
@@ -13,7 +13,7 @@ export function createHydroTensorRenderer(args){
   const presets={
     terrainWeight:35,drainageWeight:45,avoidance:70,
     smoothness:60,crossStrength:60,
-    density:55,length:65,width:1.4,opacity:.85,glow:0,
+    density:55,length:65,width:1.4,opacity:.85,glow:.35,
     speed:0,growth:1,mode:'analysis',direction:'dual',
     showRibbon:true,showFilaments:true,ribbonConcentration:68,
     ribbonWidth:42,trunkEmphasis:75,curvatureSmoothing:65
@@ -31,6 +31,12 @@ export function createHydroTensorRenderer(args){
   let geometryActiveId=0,geometryStartedAt=0,provisionalLineCount=0,previewBaseSettings=null;
   const scenarioSnapshots=new Map();
   let lastAnimationDraw=0,renderedFraction=0,reported='';
+  // A complete geometry collection is published once per accepted Worker
+  // packet. Animation only adjusts MapLibre paint; no geometry copies/tiles.
+  let uploadedField=null,uploadedRibbon=null,uploadedDirection=null;
+  const invalidateUploaded=()=>{
+    uploadedField=null;uploadedRibbon=null;uploadedDirection=null;
+  };
   // The year controls an explicit *visual line reveal*, not invented hydraulic data.
   let timelineYear=2026;
   const revealForYear=y=>{const t=clamp((y-2026)/74,0,1);return .08+.92*t*t*(3-2*t)};
@@ -187,7 +193,11 @@ export function createHydroTensorRenderer(args){
       }
     }
     if(!candidates.length)return false;
-    features=candidates;provisionalLineCount=candidates.length;
+    features=candidates;
+    features.forEach((feature,i)=>{
+      feature.properties.revealOrder=i/Math.max(1,features.length);
+    });
+    provisionalLineCount=candidates.length;
     previewBaseSettings={...settings};
     drawLines(growthTo);renderedFraction=growthTo;
     status((computed.scenario?.year??timelineYear)+' 年 · 已显示真实张量方向预览 '+candidates.length+
@@ -251,7 +261,8 @@ export function createHydroTensorRenderer(args){
         settings.width*(line.branch==='primary'?.7:.5)*(1+.50*line.wet)),
       opacity:line.visualOpacity,glowFactor:line.glowFactor,
       family:'base',branch:line.branch,relativeGuidance:line.rank,
-      wetSupport:line.wet,lengthM:line.lengthM
+      wetSupport:line.wet,lengthM:line.lengthM,
+      revealOrder:line.index/Math.max(1,lines.length)
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
   }
   function buildRibbons(packet,unpacked){
@@ -267,7 +278,9 @@ export function createHydroTensorRenderer(args){
     ribbonFeatures=ribbons.map(line=>({type:'Feature',properties:{
       color:line.color,analysisColor:line.color,width:line.width,opacity:line.opacity,
       glowFactor:line.glowFactor,
-      hierarchy:line.hierarchy,lengthM:line.lengthM,relativeGuidance:line.rank,hydrologyReference:true
+      hierarchy:line.hierarchy,lengthM:line.lengthM,relativeGuidance:line.rank,
+      hydrologyReference:true,
+      revealOrder:line.index/Math.max(1,ribbons.length)
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
     geometryStatus();
   }
@@ -348,12 +361,51 @@ export function createHydroTensorRenderer(args){
   }
   // Static parcel geometry is camera-independent. MapLibre reprojects existing
   // GeoJSON on drag/rotate/pitch/zoom; there is no geometry Worker on moveend.
+  function uploadGeometryOnce(){
+    if(!enabled)return;
+    const fieldSource=src();
+    if(fieldSource&&
+       (uploadedField!==features||uploadedDirection!==settings.direction)){
+      // Never slice individual LineString coordinate arrays per frame.
+      const visible=settings.direction==='dual'?features:
+        features.filter(f=>f.properties.branch===settings.direction);
+      fieldSource.setData({type:'FeatureCollection',features:visible});
+      uploadedField=features;uploadedDirection=settings.direction;
+    }
+    const ribbonData=ribbonSource();
+    if(ribbonData&&uploadedRibbon!==ribbonFeatures){
+      ribbonData.setData({type:'FeatureCollection',features:ribbonFeatures});
+      uploadedRibbon=ribbonFeatures;
+    }
+  }
+  function revealOpacity(fraction){
+    const f=clamp(fraction,0,1);
+    const prior=geometrySnapshot?.parameters||previewBaseSettings||settings;
+    // Keep existing low-density preview semantics without recomputing geometry.
+    const densityRatio=clamp(
+      (settings.density+10)/(Number(prior.density??settings.density)+10),.05,1);
+    const gate=tensorRevealGate(f*densityRatio);
+    const paint=(id,multiplier,glow=false)=>{
+      if(!id||!map.getLayer(id))return;
+      if(glow&&settings.glow<=0){
+        map.setPaintProperty(id,'line-opacity',0);
+        return;
+      }
+      const base=multiplier*settings.opacity*(glow?settings.glow:1);
+      map.setPaintProperty(id,'line-opacity',
+        ['*',base,['get','opacity'],glow?['get','glowFactor']:1,gate]);
+    };
+    paint(lineLayerId,settings.mode==='presentation'?.96:1);
+    paint(glowLayerId,.36,true);
+    paint(ribbonLayerId,settings.mode==='presentation'?.98:.92);
+    paint(ribbonGlowLayerId,.31,true);
+  }
   function applyStyle(){
     const present=settings.mode==='presentation';
     for(const [id,show] of [[lineLayerId,settings.showFilaments],
-      [glowLayerId,settings.showFilaments],
+      [glowLayerId,settings.showFilaments&&settings.glow>0],
       [ribbonLayerId,settings.showRibbon],
-      [ribbonGlowLayerId,settings.showRibbon]]){
+      [ribbonGlowLayerId,settings.showRibbon&&settings.glow>0]]){
       if(id&&map.getLayer(id))map.setLayoutProperty(id,'visibility',
         enabled&&show?'visible':'none');
     }
@@ -361,69 +413,41 @@ export function createHydroTensorRenderer(args){
       map.setPaintProperty(lineLayerId,'line-color',
         present?['get','color']:['get','analysisColor']);
       map.setPaintProperty(lineLayerId,'line-width',['get','width']);
-      map.setPaintProperty(lineLayerId,'line-opacity',
-        ['*',settings.opacity*(present?.9:1),['get','opacity']]);
     }
     if(map.getLayer(glowLayerId)){
       map.setPaintProperty(glowLayerId,'line-color',['get','color']);
       map.setPaintProperty(glowLayerId,'line-width',
-        ['*',['get','width'],1.8+settings.glow*.95]);
-      // Glow works in Analysis AND Presentation; 0 means completely OFF.
-      // Core stays visible and the outer halo remains faint at full strength.
-      map.setPaintProperty(glowLayerId,'line-opacity',
-        ['*',settings.glow*settings.opacity*.20,
-          ['get','opacity'],['get','glowFactor']]);
-      map.setPaintProperty(glowLayerId,'line-blur',.45+settings.glow*.95);
+        ['*',['get','width'],1.9+settings.glow*.65]);
+      map.setPaintProperty(glowLayerId,'line-blur',.42+settings.glow*.65);
     }
     if(ribbonLayerId&&map.getLayer(ribbonLayerId)){
       map.setPaintProperty(ribbonLayerId,'line-color',
         present?['get','color']:['get','analysisColor']);
       map.setPaintProperty(ribbonLayerId,'line-width',
         ['*',['get','width'],1+settings.trunkEmphasis/110]);
-      map.setPaintProperty(ribbonLayerId,'line-opacity',
-        ['*',settings.opacity*(present?.96:.88),['get','opacity']]);
     }
     if(ribbonGlowLayerId&&map.getLayer(ribbonGlowLayerId)){
       map.setPaintProperty(ribbonGlowLayerId,'line-color',['get','color']);
       map.setPaintProperty(ribbonGlowLayerId,'line-width',
-        ['*',['get','width'],1.9+settings.glow*.95]);
-      map.setPaintProperty(ribbonGlowLayerId,'line-opacity',
-        ['*',settings.glow*settings.opacity*.18,
-          ['get','opacity'],['get','glowFactor']]);
-      map.setPaintProperty(ribbonGlowLayerId,'line-blur',.55+settings.glow*.95);
+        ['*',['get','width'],1.85+settings.glow*.65]);
+      map.setPaintProperty(ribbonGlowLayerId,'line-blur',.47+settings.glow*.65);
     }
     if(map.getLayer(particleLayerId)){
       map.setLayoutProperty(particleLayerId,'visibility',
         enabled&&present?'visible':'none');
-      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.72);
+      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.78);
     }
+    revealOpacity(yearGrowth);
   }
   function drawLines(fraction=1){
-    const f=clamp(fraction,0,1),prior=geometrySnapshot?.parameters||previewBaseSettings||settings;
-    // Supported immediate preview: filter/shorten existing computed geometry.
-    // Adding new lines or extending them requires the geometry Worker.
-    const densityRatio=clamp((settings.density+10)/(Number(prior.density??settings.density)+10),.05,1);
-    const lengthRatio=clamp((settings.length+15)/(Number(prior.length??settings.length)+15),.08,1);
-    const accepts=feature=>settings.direction==='dual'||feature.properties.branch===settings.direction;
-    const reveal=items=>{
-      if(!items.length||f<=0)return [];
-      const count=Math.max(1,Math.ceil(items.length*f*densityRatio));
-      return items.slice(0,count).map(feature=>{
-        const coords=feature.geometry.coordinates;
-        if(coords.length<2)return null;
-        const ratio=clamp(f*lengthRatio,0,1);
-        if(ratio>=.999)return feature;
-        return {...feature,geometry:{type:'LineString',
-          coordinates:coords.slice(0,Math.max(2,Math.floor(1+(coords.length-1)*ratio)))}};
-      }).filter(Boolean);
-    };
-    src()?.setData({type:'FeatureCollection',
-      features:settings.showFilaments?reveal(features.filter(accepts)):[]});
-    ribbonSource()?.setData({type:'FeatureCollection',
-      features:settings.showRibbon?reveal(ribbonFeatures):[]});
-    onProgress?.({year:timelineYear,fraction:f,geometryYear:geometrySnapshot?.scenario?.year??null,
-      waitingForGeometry:geometryBusy||Boolean(geometryPending)||Boolean(controlsGeometryTimer)||
-        Boolean(requestTimer)||Boolean(geometryTimer)});
+    // An OSM/MapLibre source update is costly for thousands of lines. Do it
+    // ONLY when a new full geometry packet arrives or direction changes.
+    uploadGeometryOnce();
+    revealOpacity(fraction);
+    onProgress?.({year:timelineYear,fraction:clamp(fraction,0,1),
+      geometryYear:geometrySnapshot?.scenario?.year??null,
+      waitingForGeometry:geometryBusy||Boolean(geometryPending)||
+        Boolean(controlsGeometryTimer)||Boolean(requestTimer)||Boolean(geometryTimer)});
   }
   function drawParticles(elapsed,progress){
     if(!dots())return;
@@ -456,7 +480,7 @@ export function createHydroTensorRenderer(args){
   function tick(time){
     if(!enabled){stop();return}
     animation=requestAnimationFrame(tick);
-    if(time-lastAnimationDraw<95)return;
+    if(time-lastAnimationDraw<46)return;
     lastAnimationDraw=time;
     const elapsed=Math.max(0,(time-animationOrigin)/1000);
     const duration=replayGrowthActive?Math.max(850,4300/Math.max(.5,settings.speed||1)):
@@ -469,8 +493,10 @@ export function createHydroTensorRenderer(args){
       drawLines(yearGrowth);renderedFraction=yearGrowth;
     }
     if(transition>=1)replayGrowthActive=false;
-    if(settings.mode==='presentation')drawParticles(elapsed,yearGrowth);
-    else if(transition>=1)stop();
+    if(settings.mode==='presentation'){
+      if(settings.speed>0||transition<1)drawParticles(elapsed,yearGrowth);
+      if(transition>=1&&settings.speed<=0)stop();
+    }else if(transition>=1)stop();
   }
   function restart(){
     stop();animationOrigin=performance.now();
@@ -539,7 +565,7 @@ export function createHydroTensorRenderer(args){
       queueSolve();
       status(timelineYear+' 年 · 正在按新地形／汇水／积水权重重算方向…');
     }else if(geometryChanged&&result){
-      drawLines(yearGrowth);renderedFraction=yearGrowth; // immediate geometry preview
+      drawLines(yearGrowth);renderedFraction=yearGrowth; // paint-only geometry preview
       if(controlsGeometryTimer)clearTimeout(controlsGeometryTimer);
       controlsGeometryTimer=setTimeout(()=>{
         controlsGeometryTimer=0;
@@ -617,7 +643,7 @@ export function createHydroTensorRenderer(args){
       worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
       geometryWorker?.terminate();geometryWorker=null;geometryBusy=false;geometryActiveId=0;
       stop();src()?.setData(empty());ribbonSource()?.setData(empty());
-      dots()?.setData(empty());
+      dots()?.setData(empty());invalidateUploaded();
       return;
     }
     // A layer toggle is a visibility change, not a reason to throw away the
@@ -641,7 +667,7 @@ export function createHydroTensorRenderer(args){
     replayGrowthActive=false;
     lastRenderedYear=2026;yearGrowth=revealForYear(timelineYear);growthFrom=yearGrowth;growthTo=yearGrowth;
     stop();src()?.setData(empty());ribbonSource()?.setData(empty());
-    dots()?.setData(empty());
+    dots()?.setData(empty());invalidateUploaded();
     status('等待 DEM / 汇水 / 雨水计算数据');
   }
   function exportStructuredData(){
@@ -695,7 +721,7 @@ export function createHydroTensorRenderer(args){
     geometryWorker?.terminate();geometryWorker=null;geometryPending=null;
     worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
     src()?.setData(empty());ribbonSource()?.setData(empty());
-    dots()?.setData(empty());
+    dots()?.setData(empty());invalidateUploaded();
   }
   function exportSiteSnapshot(){
     if(!result)return null;
@@ -719,7 +745,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.22.65-tensor-silk-palette',
+    return {schema:'london-tensor-site-v1',version:'3.22.66-tensor-smooth-reveal',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},
