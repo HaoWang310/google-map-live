@@ -25,6 +25,10 @@ export const BASEMAP_THEMES=Object.freeze({
 });
 export const normaliseBasemapTheme=value=>
   value==='dark'?'dark':'planning';
+// MapLibre expression values are JSON-compatible; avoid structuredClone so
+// style capture works in older browsers and lightweight test environments.
+const clonePaintValue=value=>
+  value==null?value:JSON.parse(JSON.stringify(value));
 
 function colorFor(layer,palette){
   const id=String(layer.id||'').toLowerCase();
@@ -84,13 +88,13 @@ export function createBasemapThemeController(map){
       const hasFillPattern=layer.type==='fill'&&
         Object.prototype.hasOwnProperty.call(originalPaint,'fill-pattern');
       const originalFillPattern=hasFillPattern?
-        structuredClone(originalPaint['fill-pattern']):null;
+        clonePaintValue(originalPaint['fill-pattern']):null;
       // Liberty's 'park' layer contains a BRIGHT GREEN outline unrelated to
       // its fill color; it must be reset when using a monochrome palette.
       const hasFillOutline=layer.type==='fill'&&
         Object.prototype.hasOwnProperty.call(originalPaint,'fill-outline-color');
       const originalFillOutline=hasFillOutline?
-        structuredClone(originalPaint['fill-outline-color']):null;
+        clonePaintValue(originalPaint['fill-outline-color']):null;
       baseLayers.set(layer.id,{
         id:layer.id,type:layer.type,'source-layer':layer['source-layer']||'',
         hasFillPattern,originalFillPattern,hasFillOutline,originalFillOutline
