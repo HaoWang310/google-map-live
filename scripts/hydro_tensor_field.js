@@ -481,29 +481,59 @@ export function createHydroTensorRenderer(args){
     }
   }
   function revealOpacity(fraction){
-    const f=clamp(fraction,0,1);
-    const prior=geometrySnapshot?.parameters||previewBaseSettings||settings;
-    // Keep existing low-density preview semantics without recomputing geometry.
-    const densityRatio=clamp(
-      (settings.density+10)/(Number(prior.density??settings.density)+10),.05,1);
-    const gate=tensorRevealGate(f*densityRatio);
-    const paint=(id,multiplier,glow=false)=>{
-      if(!id||!map.getLayer(id))return;
-      if(glow&&settings.glow<=0){
-        map.setPaintProperty(id,'line-opacity',0);
-        return;
+    // No moving GeoJSON coordinates. Animate gradient paint on stable sources.
+    // Static mesh remains faint; travelling blue/purple traces carry the image.
+    const fractionClamped=clamp(fraction,0,1);
+    ensureTraceLayers();
+    if(map.getLayer(lineLayerId))
+      map.setPaintProperty(lineLayerId,'line-opacity',
+        ['*',.13*settings.opacity,['get','opacity']]);
+    if(map.getLayer(glowLayerId))map.setPaintProperty(glowLayerId,'line-opacity',0);
+    for(const group of traceGroups){
+      const progress=traceGrowthProgress(fractionClamped,group.branch,group.wave);
+      for(const glow of [true,false]){
+        const id=glow?group.glowId:group.coreId;
+        if(!map.getLayer(id))continue;
+        const last=lastTraceHeads.get(id);
+        if(last===undefined||Math.abs(last-progress)>.0015){
+          map.setPaintProperty(id,'line-gradient',
+            traceGradient(progress,group.branch,glow));
+          lastTraceHeads.set(id,progress);
+        }
+        const opacity=settings.opacity*(glow?settings.glow*.66:
+          group.branch==='primary'?.92:.86);
+        if(map.getPaintProperty(id,'line-opacity')!==opacity)
+          map.setPaintProperty(id,'line-opacity',opacity);
       }
-      const base=multiplier*settings.opacity*(glow?settings.glow:1);
-      map.setPaintProperty(id,'line-opacity',
-        ['*',base,['get','opacity'],glow?['get','glowFactor']:1,gate]);
-    };
-    paint(lineLayerId,settings.mode==='presentation'?.96:1);
-    paint(glowLayerId,.36,true);
-    paint(ribbonLayerId,settings.mode==='presentation'?.98:.92);
-    paint(ribbonGlowLayerId,.31,true);
+    }
+    const ribbonProgress=traceGrowthProgress(fractionClamped,'ribbon',0);
+    for(const [id,glow] of [[ribbonLayerId,false],[ribbonGlowLayerId,true]]){
+      if(!id||!map.getLayer(id))continue;
+      const old=lastTraceHeads.get(id);
+      if(old===undefined||Math.abs(old-ribbonProgress)>.0015){
+        map.setPaintProperty(id,'line-gradient',
+          traceGradient(ribbonProgress,'ribbon',glow));
+        lastTraceHeads.set(id,ribbonProgress);
+      }
+      map.setPaintProperty(id,'line-opacity',['*',
+        settings.opacity*(glow?settings.glow*.80:.96),
+        ['get',glow?'glowFactor':'opacity']]);
+    }
   }
   function applyStyle(){
+    ensureTraceLayers();
     const present=settings.mode==='presentation';
+    for(const group of traceGroups){
+      const visible=enabled&&settings.showFilaments&&
+        (settings.direction==='dual'||settings.direction===group.branch);
+      for(const id of [group.glowId,group.coreId]){
+        if(map.getLayer(id))map.setLayoutProperty(id,'visibility',
+          visible&&(id!==group.glowId||settings.glow>0)?'visible':'none');
+      }
+    }
+    if(map.getLayer(headHaloLayerId))
+      map.setLayoutProperty(headHaloLayerId,'visibility',
+        enabled&&settings.glow>0?'visible':'none');
     for(const [id,show] of [[lineLayerId,settings.showFilaments],
       [glowLayerId,settings.showFilaments&&settings.glow>0],
       [ribbonLayerId,settings.showRibbon],
@@ -531,13 +561,13 @@ export function createHydroTensorRenderer(args){
     if(ribbonGlowLayerId&&map.getLayer(ribbonGlowLayerId)){
       map.setPaintProperty(ribbonGlowLayerId,'line-color',['get','color']);
       map.setPaintProperty(ribbonGlowLayerId,'line-width',
-        ['*',['get','width'],1.85+settings.glow*.65]);
-      map.setPaintProperty(ribbonGlowLayerId,'line-blur',.47+settings.glow*.65);
+        ['*',['get','width'],2.65+settings.glow*1.45]);
+      map.setPaintProperty(ribbonGlowLayerId,'line-blur',1.15+settings.glow*.70);
     }
     if(map.getLayer(particleLayerId)){
-      map.setLayoutProperty(particleLayerId,'visibility',
-        enabled&&present?'visible':'none');
-      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.78);
+      map.setLayoutProperty(particleLayerId,'visibility',enabled?'visible':'none');
+      map.setPaintProperty(particleLayerId,'circle-opacity',settings.opacity*.94);
+      map.setPaintProperty(particleLayerId,'circle-blur',.18);
     }
     revealOpacity(yearGrowth);
   }
