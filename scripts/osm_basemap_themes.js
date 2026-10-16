@@ -1,10 +1,10 @@
 /* London Map basemap colours. MapLibre paint-only themes: never call map.setStyle().
  * Capture Liberty base layer IDs before project-specific analysis layers exist,
  * so DEM/EA/hydrology, parcel shapes, traffic and interactive tools stay intact.
- * 03 Architectural Planning is the default. 02 Dark Tech is opt-in. */
+ * Architectural Planning is the default. Dark Tech is opt-in. */
 export const BASEMAP_THEMES=Object.freeze({
   planning:Object.freeze({
-    id:'planning',name:'03 · 建筑规划风格',
+    id:'planning',name:'建筑规划',
     background:'#f7f8f6',land:'#f1f3f1',residential:'#f2f3f2',
     park:'#e3ece4',water:'#dcecf2',
     building:'#bbc5cb',buildingEdge:'#85929a',
@@ -13,13 +13,13 @@ export const BASEMAP_THEMES=Object.freeze({
     text:'#65727b',textHalo:'#f7f8f6',poi:'#748a91'
   }),
   dark:Object.freeze({
-    id:'dark',name:'02 · 黑色科技风格',
-    background:'#071018',land:'#0d1924',residential:'#142230',
-    park:'#143135',water:'#0e334b',
-    building:'#30485c',buildingEdge:'#476a81',
-    motorway:'#4b7895',primaryRoad:'#355a73',road:'#243f53',
-    rail:'#4b6980',boundary:'#41637a',
-    text:'#a4c3d2',textHalo:'#071018',poi:'#85b4ce'
+    id:'dark',name:'黑色科技',
+    background:'#02070d',land:'#07111a',residential:'#0a1621',
+    park:'#081a1d',water:'#03131c',
+    building:'#203243',buildingEdge:'#31485c',
+    motorway:'#8fb6d6',primaryRoad:'#7aa3c5',road:'#597b99',
+    rail:'#5a6f83',boundary:'#31485c',
+    text:'#667b8f',textHalo:'#02070d',poi:'#5f7487'
   })
 });
 export const normaliseBasemapTheme=value=>
