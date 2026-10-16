@@ -649,7 +649,8 @@ export function createHydroTensorRenderer(args){
     playback.elapsedMs=clamp(performance.now()-playback.startedAt,0,playback.durationMs);
     playback.paused=true;
     stop();
-    dots()?.setData(empty());headsActive=false;
+    // Freeze the existing particle-head source in place, like pausing a film.
+    // Clearing it would make all heads disappear at the pause moment.
     return true;
   }
   function resumeContinuousPlayback(){
