@@ -1,4 +1,4 @@
-// London Map v3.22.60: two safe, paint-only OpenStreetMap palettes.
+// London Map v3.22.63: restore original Liberty sprite patterns on style switch.
 // Run: node scripts/test_basemap_themes.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +10,12 @@ const focus=read('./local_flood_ui.js');
 const basemap=[
  {id:'background',type:'background'},
  {id:'landuse',type:'fill','source-layer':'landuse'},
- {id:'park',type:'fill','source-layer':'landcover'},
+ {id:'park',type:'fill','source-layer':'park',
+   paint:{'fill-color':'#d8e8c8','fill-outline-color':'rgba(95, 208, 100, 1)'}},
+ {id:'landcover_wetland',type:'fill','source-layer':'landcover',
+   paint:{'fill-pattern':'wetland_bg_11','fill-opacity':.8}},
+ {id:'road_area_pattern',type:'fill','source-layer':'transportation',
+   paint:{'fill-pattern':'pedestrian_polygon'}},
  {id:'water',type:'fill','source-layer':'water'},
  {id:'road-major',type:'line','source-layer':'transportation'},
  {id:'road-minor',type:'line','source-layer':'transportation'},
@@ -53,8 +58,33 @@ assert.equal(fullStyleReloads,0);
 assert.ok(!paints.has('ea-flood-depth'));
 assert.ok(!paints.has('hydro-tensor'));
 assert.ok(!paints.has('local-flood-building-scene'));
+const wetlandDark=paints.get('landcover_wetland');
+const pedestrianDark=paints.get('road_area_pattern');
+const parkDark=paints.get('park');
+assert.equal(wetlandDark['fill-pattern'],null,
+  'wetland_bg_11 sprite must not override grayscale wetland fill in dark mode');
+assert.equal(pedestrianDark['fill-pattern'],null,
+  'pedestrian_polygon sprite must not introduce bright patterns in dark mode');
+assert.equal(wetlandDark['fill-color'],BASEMAP_THEMES.dark.park);
+assert.equal(parkDark['fill-outline-color'],BASEMAP_THEMES.dark.park,
+  'park green outline should be neutral in Dark mode');
 const before=operations;controller.apply('dark');
 assert.equal(operations,before,'re-applying unchanged palette should do no paint work');
+controller.apply('planning');
+assert.equal(paints.get('landcover_wetland')['fill-pattern'],'wetland_bg_11',
+  'switching back to planning restores original vegetation sprite');
+assert.equal(paints.get('road_area_pattern')['fill-pattern'],'pedestrian_polygon',
+  'switching back to planning restores pedestrian pavement sprite');
+assert.equal(paints.get('park')['fill-outline-color'],'rgba(95, 208, 100, 1)',
+  'switching back to planning restores original park outline');
+controller.apply('dark');
+assert.equal(paints.get('landcover_wetland')['fill-pattern'],null,
+  'repeat dark switch still suppresses the colored wetland sprite');
+assert.equal(paints.get('park')['fill-outline-color'],BASEMAP_THEMES.dark.park);
+assert.equal(fullStyleReloads,0,'basemap style switching must not reload sources');
+assert.ok(!paints.has('ea-flood-depth'));
+assert.ok(!paints.has('hydro-tensor'));
+assert.ok(!paints.has('local-flood-building-scene'));
 assert.ok(index.includes('<option value="planning" selected>建筑规划</option>'));
 assert.ok(index.includes('<option value="dark">黑色科技</option>'));
 assert.ok(focus.includes('<option value="planning" selected>建筑规划</option>'));
@@ -74,4 +104,5 @@ assert.ok(index.includes('getBasemapTheme:()=>basemapTheme'));
 assert.ok(focus.includes('siteHudBasemapTheme'));
 assert.ok(focus.includes('focusThemePalette()'));
 console.log('PASS Planning remains default; Dark Tech uses charcoal gray palette and unnumbered labels');
-console.log('PASS OSM base layers only; flood/tensor/site overlays and sources untouched');
+console.log('PASS original Liberty sprite patterns and green park outlines are neutral in Dark');
+console.log('PASS Planning restores exact original textures; GIS overlays/sources untouched');
