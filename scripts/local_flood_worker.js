@@ -879,6 +879,7 @@ function buildHydroFlowField(force=false){
 function presentationDepth(){
   const {cols,rows,inside,obstacle,terrain,water,svCapacity}=sim,n=cols*rows;
   const depth=new Uint16Array(n),head=new Float32Array(n);
+  const seen=new Uint8Array(n);
   const queue=new Int32Array(n);let first=0,last=0;
   for(let i=0;i<n;i++)if(inside[i]&&!obstacle[i])
     depth[i]=Math.min(65535,Math.round(Math.max(0,water[i]-svCapacity[i])*1000));
@@ -891,7 +892,7 @@ function presentationDepth(){
     if(!Number.isFinite(level))continue;
     // A minimum 1 mm continuity fringe helps prevent an apparent gap at a
     // building base; it is not reported as physical water depth or volume.
-    head[i]=level;depth[i]=Math.max(1,Math.min(65535,
+    head[i]=level;seen[i]=1;depth[i]=Math.max(1,Math.min(65535,
       Math.round(Math.max(0,level-terrain[i])*1000)));
     queue[last++]=i;
   }
@@ -899,8 +900,8 @@ function presentationDepth(){
     const i=queue[first++],row=(i/cols)|0,col=i%cols;
     for(const j of [col?i-1:-1,col+1<cols?i+1:-1,
       row?i-cols:-1,row+1<rows?i+cols:-1]){
-      if(j<0||!inside[j]||!obstacle[j]||head[j]!==0)continue;
-      head[j]=head[i];
+      if(j<0||!inside[j]||!obstacle[j]||seen[j])continue;
+      head[j]=head[i];seen[j]=1;
       depth[j]=Math.max(1,Math.min(65535,Math.round(
         Math.max(0,head[j]-terrain[j])*1000)));
       queue[last++]=j;
