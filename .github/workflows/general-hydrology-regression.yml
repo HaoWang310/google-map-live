@@ -1,0 +1,35 @@
+name: London hydro generalization regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/local_flood_worker.js'
+      - 'scripts/local_flood_ui.js'
+      - 'scripts/hydro_tensor_worker.js'
+      - 'scripts/local_flood_sim.js'
+      - 'scripts/test_flood_building_footprints.mjs'
+      - 'scripts/test_rain_scenario_tensor.mjs'
+      - '.github/workflows/general-hydrology-regression.yml'
+  workflow_dispatch:
+jobs:
+  hydrology:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax
+        run: |
+          node --check scripts/local_flood_worker.js
+          node --check scripts/hydro_tensor_worker.js
+          node --check scripts/local_flood_sim.js
+          node --check scripts/local_flood_ui.js
+      - name: Verify hydrology and barrier semantics
+        run: |
+          node scripts/test_flood_building_footprints.mjs
+          node scripts/test_hydro_tensor.mjs
+          node scripts/test_rain_scenario_tensor.mjs
+          node scripts/test_tensor_growth.mjs
