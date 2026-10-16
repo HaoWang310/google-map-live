@@ -1140,7 +1140,13 @@ export function createLocalFloodUI({
     tensorSessionId++;tensorSession=null;
     tensorScrubActive=false;tensorScrubResumeAfterRelease=false;
     if(tensorStageTimer){clearTimeout(tensorStageTimer);tensorStageTimer=0}
+    hydroVector?.setGapDiagnosticEnabled(false);
     hydroVector?.setEnabled(false);
+    const gapToggle=siteHud('siteHudTensorGapToggle');
+    if(gapToggle)gapToggle.checked=false;
+    for(const id of ['siteHudTensorGapLegend','siteHudTensorGapStatus']){
+      const el=siteHud(id);if(el)el.style.display='none';
+    }
     if(restoreRain&&Number.isInteger(original)){
       futureYear=original;simYearDisplay();
       const frame=yearFrames.get(original)||tensorSessionRestoreFrame;
@@ -1375,6 +1381,9 @@ export function createLocalFloodUI({
   const FOCUS_FLOW_GLOW='focus-flow-streamlines-glow';
   const FOCUS_FLOW_PARTICLES='focus-flow-particles';
   const FOCUS_FLOW_PARTICLE_LAYER='focus-flow-particle-layer';
+  const FOCUS_TENSOR_GAP_SOURCE='focus-tensor-gap-diagnostic-source';
+  const FOCUS_TENSOR_GAP_WET='focus-tensor-gap-wet-underlay';
+  const FOCUS_TENSOR_GAP_REASONS='focus-tensor-gap-reason-overlay';
   const FOCUS_TENSOR_RIBBON_SOURCE='focus-tensor-ribbon-source';
   const FOCUS_TENSOR_RIBBON_LAYER='focus-tensor-ribbon-line';
   const FOCUS_TENSOR_RIBBON_GLOW='focus-tensor-ribbon-glow';
@@ -2069,6 +2078,7 @@ export function createLocalFloodUI({
         [FOCUS_FLOW_SOURCE]:{type:'geojson',lineMetrics:true,data:spongeCollection([])},
         [FOCUS_TENSOR_RIBBON_SOURCE]:{type:'geojson',lineMetrics:true,data:spongeCollection([])},
         [FOCUS_FLOW_PARTICLES]:{type:'geojson',data:spongeCollection([])},
+        [FOCUS_TENSOR_GAP_SOURCE]:{type:'geojson',data:spongeCollection([])},
         [FOCUS_EA_SOURCE]:{
           type:'raster',tiles:[focusContextUrl('ea',analysis.threshold)],
           tileSize:512,minzoom:13,maxzoom:17
@@ -2125,6 +2135,18 @@ export function createLocalFloodUI({
         {id:FOCUS_DRAINAGE_LAYER,type:'raster',source:FOCUS_DRAINAGE_SOURCE,
           layout:{visibility:'none'},
           paint:{'raster-opacity':.85,'raster-resampling':'linear','raster-fade-duration':0}},
+        // Opt-in evidence atlas beneath original tensor streamlines.
+        {id:FOCUS_TENSOR_GAP_WET,type:'fill',source:FOCUS_TENSOR_GAP_SOURCE,
+          filter:['==',['get','category'],'wet'],
+          layout:{visibility:'none'},
+          paint:{'fill-color':'#315BC4','fill-opacity':.27}},
+        {id:FOCUS_TENSOR_GAP_REASONS,type:'fill',source:FOCUS_TENSOR_GAP_SOURCE,
+          filter:['!=',['get','category'],'wet'],
+          layout:{visibility:'none'},
+          paint:{'fill-color':['match',['get','category'],
+            'missing','#FA6379','low','#F59E78','isotropic','#E9B85B',
+            'axis','#B79BFA','uncovered','#37BDF2','#000000'],
+            'fill-opacity':.52}},
         // Display hydrological flow ABOVE the water colour raster, and below
         // the architectural 3D buildings so walls still occlude the field.
         {id:FOCUS_FLOW_GLOW,type:'line',source:FOCUS_FLOW_SOURCE,
@@ -2715,6 +2737,16 @@ export function createLocalFloodUI({
       '</div>',
       '<label class="site-hydro-check site-tensor-buildings"><input id="siteHudTensorBuildings" type="checkbox"> 显示建筑（默认隐藏）</label>',
       '<div class="site-vector-scale"><span>主方向 · 蓝</span><div aria-hidden="true"></div><span>次方向 · 粉紫</span></div>',
+      '<label class="site-hydro-check" style="margin:12px 0 5px"><input id="siteHudTensorGapToggle" type="checkbox"> 断裂原因诊断（测试版，默认关闭）</label>',
+      '<div class="site-hydro-mini">标出低置信度、方向不唯一、缺失数据和方向有效但未布线区，并叠加 ≥2 cm 模拟积水。青色不等于已证明的曲率停止。</div>',
+      '<div id="siteHudTensorGapLegend" style="display:none;font-size:10px;line-height:1.7;margin:7px 0">',
+      '<span style="color:#FA6379">■</span> 红：缺失数据　',
+      '<span style="color:#F59E78">■</span> 橙：低置信度　',
+      '<span style="color:#E9B85B">■</span> 黄：方向不唯一　',
+      '<span style="color:#B79BFA">■</span> 紫：主轴缺失　',
+      '<span style="color:#37BDF2">■</span> 青：方向有效未布线　',
+      '<span style="color:#7197F5">■</span> 蓝：≥2 cm 积水</div>',
+      '<div class="site-hydro-mini" id="siteHudTensorGapStatus" style="display:none;white-space:pre-line;color:#d7e7ef">勾选后读取当前计算节点。</div>',
       '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">张量场准备中 · 首次计算将先显示真实方向预览</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ 从2026重新播放张量场</button>',
       '<div class="site-hydro-mini" style="font-size:11px">主干先亮起，蓝紫粒子沿真实张量曲线生长并留下渐变尾迹；未生长路径隐藏。路径与粒子仅表示设计方向，不代表实测水流速度。</div>',
@@ -3182,6 +3214,18 @@ export function createLocalFloodUI({
         hydroVector?.configure({direction});
       };
     }
+    const showTensorGap=siteHud('siteHudTensorGapToggle');
+    if(showTensorGap)showTensorGap.onchange=()=>{
+      const active=Boolean(showTensorGap.checked&&hydroDisplay.flow);
+      if(showTensorGap.checked&&!active)showTensorGap.checked=false;
+      const legend=siteHud('siteHudTensorGapLegend'),stat=siteHud('siteHudTensorGapStatus');
+      if(legend)legend.style.display=active?'block':'none';
+      if(stat){
+        stat.style.display=active?'block':'none';
+        if(active)stat.textContent='正在读取张量证据和场地流线…';
+      }
+      hydroVector?.setGapDiagnosticEnabled(active);
+    };
     const showTensorBuildings=siteHud('siteHudTensorBuildings');
     siteHud('siteHudTensorExport').onclick=()=>{
       const snapshot=window.getLondonHydroTensorSiteSnapshot?.();
