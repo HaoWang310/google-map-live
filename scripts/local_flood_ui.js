@@ -1056,7 +1056,9 @@ export function createLocalFloodUI({
     session.playRequested=true;
     session.autoSmoothStarted=false;
     session.visualYear=2026;
-    const started=hydroVector?.startContinuousPlayback({durationMs:64000})===true;
+    // Never start an invisible timer before at least one accepted streamline.
+    const started=hydroVector?.getPlaybackState?.()?.ready===true&&
+      hydroVector?.startContinuousPlayback({durationMs:64000})===true;
     if(started){
       session.playRequested=false;
       session.autoSmoothStarted=true;
