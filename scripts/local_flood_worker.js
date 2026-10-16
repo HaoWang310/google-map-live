@@ -108,9 +108,11 @@ function sampleDem(codes,x,y){
     decodeDem(codes[y1*demConfig.demWidth+x0]),
     decodeDem(codes[y1*demConfig.demWidth+x1])
   ];
-  const valid=vals.filter(Number.isFinite);
-  if(!valid.length)return NaN;
-  for(let i=0;i<4;i++)if(!Number.isFinite(vals[i]))vals[i]=valid[0];
+  // Interpolating through NoData (including the 70-km outer rim) creates
+  // fictitious elevations. Every positively weighted neighbour must exist.
+  const weights=[(1-tx)*(1-ty),tx*(1-ty),(1-tx)*ty,tx*ty];
+  for(let k=0;k<4;k++)
+    if(weights[k]>1e-9&&!Number.isFinite(vals[k]))return NaN;
   const a=vals[0]*(1-tx)+vals[1]*tx;
   const btm=vals[2]*(1-tx)+vals[3]*tx;
   return a*(1-ty)+btm*ty;
