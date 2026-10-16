@@ -111,8 +111,10 @@ function sampleDem(codes,x,y){
   // Interpolating through NoData (including the 70-km outer rim) creates
   // fictitious elevations. Every positively weighted neighbour must exist.
   const weights=[(1-tx)*(1-ty),tx*(1-ty),(1-tx)*ty,tx*ty];
-  for(let k=0;k<4;k++)
-    if(weights[k]>1e-9&&!Number.isFinite(vals[k]))return NaN;
+  for(let k=0;k<4;k++)if(!Number.isFinite(vals[k])){
+    if(weights[k]>1e-9)return NaN;
+    vals[k]=0; // true zero-weight neighbour must not yield NaN via 0*NaN
+  }
   const a=vals[0]*(1-tx)+vals[1]*tx;
   const btm=vals[2]*(1-tx)+vals[3]*tx;
   return a*(1-ty)+btm*ty;
