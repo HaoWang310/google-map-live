@@ -35,7 +35,7 @@ for(const family of ['ribbon','primary','secondary']){
 assert.ok(field.includes('function drawGrowthHeads('),'heads are geometry-anchored');
 assert.ok(field.includes('function headCoordinate('),'heads use cumulative arc-length');
 assert.ok(field.includes('drawGrowthHeads(yearGrowth,true)'),'animated heads are driven on each frame');
-assert.ok(field.includes('5900/Math.max'),'replay lasts about six seconds');
+assert.ok(field.includes('5900/playbackRate'),'short replay respects the selected playback multiplier');
 assert.ok(!field.includes('tensorRevealGate('),'whole-line opacity reveal is no longer primary');
 assert.ok(ui.includes('lineMetrics:true'),'real field source permits line-gradient');
 assert.ok(ui.includes("siteHud('siteHudTensorReplay').onclick"),'replay button connected');
