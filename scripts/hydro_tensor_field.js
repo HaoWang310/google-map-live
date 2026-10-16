@@ -1,6 +1,6 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,tensorRevealGate} from './hydro_tensor_visual.js?v=3.22.67-blue-purple-separation';
+import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 /* v3.22.67-blue-purple-separation · DISPLAY ONLY. Current computed eigenfield,
    original streamline geometry, flood physics and particle path/speed logic
    are unchanged. Blue-violet colours encode artistic visual hierarchy only,
@@ -48,6 +48,104 @@ export function createHydroTensorRenderer(args){
   const src=()=>map.getSource(sourceId),dots=()=>map.getSource(particleSourceId);
   const ribbonSource=()=>ribbonSourceId?map.getSource(ribbonSourceId):null;
   const status=t=>{if(t!==reported){reported=t;onStatus?.(t)}};
+  // Line sources are stable; only GPU gradient paint changes while tracing.
+  const traceGroups=['primary','secondary'].flatMap(branch=>
+    Array.from({length:TENSOR_TRACE_WAVES},(_,wave)=>({
+      branch,wave,
+      coreId:lineLayerId+'-trace-'+branch+'-'+wave,
+      glowId:lineLayerId+'-wake-'+branch+'-'+wave
+    })));
+  const headHaloLayerId=particleLayerId+'-halo';
+  let lastTraceHeads=new Map(),particlePaths=[];
+  function ensureTraceLayers(){
+    if(!map.getLayer(lineLayerId)||!map.getLayer(ribbonGlowLayerId))return;
+    for(const group of traceGroups){
+      for(const glow of [true,false]){
+        const id=glow?group.glowId:group.coreId;
+        if(map.getLayer(id))continue;
+        map.addLayer({id,type:'line',source:sourceId,
+          filter:['all',['==',['get','branch'],group.branch],
+            ['==',['get','growthWave'],group.wave]],
+          layout:{visibility:'none','line-cap':'round','line-join':'round'},
+          paint:{
+            'line-color':group.branch==='primary'?'#518DCE':'#EDBDF9',
+            'line-gradient':traceGradient(0,group.branch,glow),
+            'line-width':['*',['get','width'],glow?3.1:1.16],
+            'line-blur':glow?1.15:0,
+            'line-opacity':0
+          }},ribbonGlowLayerId);
+      }
+    }
+    if(particleLayerId&&map.getLayer(particleLayerId)&&
+       !map.getLayer(headHaloLayerId)){
+      map.addLayer({id:headHaloLayerId,type:'circle',source:particleSourceId,
+        layout:{visibility:'none'},paint:{
+          'circle-color':['get','color'],
+          'circle-radius':['*',['get','radius'],3.1],
+          'circle-opacity':.36,'circle-blur':.86
+        }},particleLayerId);
+    }
+  }
+  const pickSpread=(items,count)=>{
+    if(items.length<=count)return items;
+    return Array.from({length:count},(_,i)=>
+      items[Math.min(items.length-1,Math.floor((i+.45)*items.length/count))]);
+  };
+  // Cache arc length for selected trajectories once per geometry packet.
+  function prepareParticlePaths(){
+    const source=features.filter(f=>f.geometry?.coordinates?.length>1);
+    const ribbonPicked=pickSpread(ribbons.filter(r=>r.hierarchy==='trunk'),48)
+      .concat(pickSpread(ribbons.filter(r=>r.hierarchy!=='trunk'),22));
+    const primaryPicked=pickSpread(source.filter(f=>f.properties.branch==='primary'),75);
+    const secondaryPicked=pickSpread(source.filter(f=>f.properties.branch==='secondary'),58);
+    particlePaths=[...ribbonPicked.map(r=>({
+      coordinates:r.coordinates,branch:'ribbon',wave:0,rank:r.rank||.6
+    })),...primaryPicked.concat(secondaryPicked).map(f=>({
+      coordinates:f.geometry.coordinates,branch:f.properties.branch,
+      wave:f.properties.growthWave||0,rank:f.properties.relativeGuidance||0
+    }))].map(item=>{
+      const coordinates=item.coordinates,dist=new Float64Array(coordinates.length);
+      let total=0,prev=toMerc(coordinates[0]);
+      for(let i=1;i<coordinates.length;i++){
+        const current=toMerc(coordinates[i]);
+        total+=Math.hypot(current[0]-prev[0],current[1]-prev[1]);
+        dist[i]=total;prev=current;
+      }
+      return {...item,dist,total};
+    }).filter(item=>item.total>0);
+  }
+  function headCoordinate(line,progress){
+    const at=line.total*clamp(progress,0,1),d=line.dist,coords=line.coordinates;
+    let lo=1,hi=d.length-1;
+    while(lo<hi){const mid=(lo+hi)>>1;if(d[mid]<at)lo=mid+1;else hi=mid;}
+    const j=Math.max(1,lo),span=d[j]-d[j-1];
+    const k=span>0?(at-d[j-1])/span:0;
+    return [coords[j-1][0]+(coords[j][0]-coords[j-1][0])*k,
+      coords[j-1][1]+(coords[j][1]-coords[j-1][1])*k];
+  }
+  function drawGrowthHeads(fraction,active){
+    if(!dots())return;
+    if(!active||!settings.showFilaments&&!settings.showRibbon){
+      if(lastTraceHeads.size){dots().setData(empty());lastTraceHeads.clear();}
+      return;
+    }
+    const points=[];
+    for(const path of particlePaths){
+      if(path.branch==='ribbon'&&!settings.showRibbon)continue;
+      if(path.branch!=='ribbon'&&(!settings.showFilaments||
+        settings.direction!=='dual'&&settings.direction!==path.branch))continue;
+      const progress=traceGrowthProgress(fraction,path.branch,path.wave);
+      if(progress<=.012||progress>=.998)continue;
+      const p=headCoordinate(path,progress);
+      const core=path.branch==='ribbon';
+      points.push({type:'Feature',properties:{
+        color:core?'#E3F4FF':path.branch==='secondary'?'#EDBDF9':'#9DDCFF',
+        radius:core?2.0:path.branch==='primary'?1.35:1.12
+      },geometry:{type:'Point',coordinates:p}});
+    }
+    dots().setData({type:'FeatureCollection',features:points});
+    lastTraceHeads.set('active',points.length);
+  }
   const isNumericArray=(v,n)=>v?.length===n;
   const sameArray=(a,b)=>a===b||Boolean(a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i])));
   function workerStart(){
@@ -188,7 +286,7 @@ export function createHydroTensorRenderer(args){
           color:material.color,analysisColor:material.color,
           width:branch==='primary'?1.05:.75,
           opacity:material.opacity,glowFactor:material.glowFactor,
-          family:'base',branch,preview:true
+          family:'base',branch,growthWave:traceGrowthWave(candidates.length),preview:true
         },geometry:{type:'LineString',coordinates:path.map(toCoordinate)}});
       }
     }
@@ -199,6 +297,7 @@ export function createHydroTensorRenderer(args){
     });
     provisionalLineCount=candidates.length;
     previewBaseSettings={...settings};
+    prepareParticlePaths();
     drawLines(growthTo);renderedFraction=growthTo;
     status((computed.scenario?.year??timelineYear)+' 年 · 已显示真实张量方向预览 '+candidates.length+
       ' 条；长流线正在后台积分，预览并非最终曲线');
@@ -262,8 +361,10 @@ export function createHydroTensorRenderer(args){
       opacity:line.visualOpacity,glowFactor:line.glowFactor,
       family:'base',branch:line.branch,relativeGuidance:line.rank,
       wetSupport:line.wet,lengthM:line.lengthM,
+      growthWave:traceGrowthWave(line.index,line.rank),
       revealOrder:line.index/Math.max(1,lines.length)
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
+    prepareParticlePaths();
   }
   function buildRibbons(packet,unpacked){
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
@@ -282,6 +383,7 @@ export function createHydroTensorRenderer(args){
       hydrologyReference:true,
       revealOrder:line.index/Math.max(1,ribbons.length)
     },geometry:{type:'LineString',coordinates:line.coordinates}}));
+    prepareParticlePaths();
     geometryStatus();
   }
   function pumpGeometry(){
