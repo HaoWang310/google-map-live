@@ -56,7 +56,7 @@ export function createHydroTensorRenderer(args){
       glowId:lineLayerId+'-wake-'+branch+'-'+wave
     })));
   const headHaloLayerId=particleLayerId+'-halo';
-  let lastTraceHeads=new Map(),particlePaths=[];
+  let lastTraceHeads=new Map(),particlePaths=[],headsActive=false;
   function ensureTraceLayers(){
     if(!map.getLayer(lineLayerId)||!map.getLayer(ribbonGlowLayerId))return;
     for(const group of traceGroups){
@@ -126,7 +126,7 @@ export function createHydroTensorRenderer(args){
   function drawGrowthHeads(fraction,active){
     if(!dots())return;
     if(!active||!settings.showFilaments&&!settings.showRibbon){
-      if(lastTraceHeads.size){dots().setData(empty());lastTraceHeads.clear();}
+      if(headsActive){dots().setData(empty());headsActive=false;}
       return;
     }
     const points=[];
@@ -144,7 +144,7 @@ export function createHydroTensorRenderer(args){
       },geometry:{type:'Point',coordinates:p}});
     }
     dots().setData({type:'FeatureCollection',features:points});
-    lastTraceHeads.set('active',points.length);
+    headsActive=points.length>0;
   }
   const isNumericArray=(v,n)=>v?.length===n;
   const sameArray=(a,b)=>a===b||Boolean(a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i])));
@@ -612,11 +612,11 @@ export function createHydroTensorRenderer(args){
   function tick(time){
     if(!enabled){stop();return}
     animation=requestAnimationFrame(tick);
-    if(time-lastAnimationDraw<46)return;
+    if(time-lastAnimationDraw<48)return;
     lastAnimationDraw=time;
     const elapsed=Math.max(0,(time-animationOrigin)/1000);
-    const duration=replayGrowthActive?Math.max(850,4300/Math.max(.5,settings.speed||1)):
-      Math.max(140,290/settings.growth);
+    const duration=replayGrowthActive?Math.max(2500,5900/Math.max(.8,settings.speed||1)):
+      Math.max(220,360/settings.growth);
     const transition=clamp((time-growthChangeAt)/duration,0,1);
     const eased=transition*transition*(3-2*transition);
     yearGrowth=growthFrom+(growthTo-growthFrom)*eased;
@@ -624,11 +624,14 @@ export function createHydroTensorRenderer(args){
        (transition>=1&&renderedFraction!==yearGrowth)){
       drawLines(yearGrowth);renderedFraction=yearGrowth;
     }
-    if(transition>=1)replayGrowthActive=false;
-    if(settings.mode==='presentation'){
-      if(settings.speed>0||transition<1)drawParticles(elapsed,yearGrowth);
-      if(transition>=1&&settings.speed<=0)stop();
-    }else if(transition>=1)stop();
+    if(transition<1)drawGrowthHeads(yearGrowth,true);
+    else if(settings.mode==='presentation'&&settings.speed>0)
+      drawParticles(elapsed,yearGrowth);
+    else drawGrowthHeads(yearGrowth,false);
+    if(transition>=1){
+      replayGrowthActive=false;
+      if(settings.mode!=='presentation'||settings.speed<=0)stop();
+    }
   }
   function restart({preserveGrowth=false}={}){
     stop();animationOrigin=performance.now();
@@ -641,6 +644,7 @@ export function createHydroTensorRenderer(args){
       yearGrowth=growthTo;growthFrom=growthTo;growthChangeAt=performance.now();
     }
     drawLines(yearGrowth);renderedFraction=yearGrowth;
+    drawGrowthHeads(yearGrowth,preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005);
     if(settings.mode==='presentation'||
        (preserveGrowth&&Math.abs(growthTo-yearGrowth)>.0005))
       animation=requestAnimationFrame(tick);
@@ -668,6 +672,7 @@ export function createHydroTensorRenderer(args){
     growthFrom=0;yearGrowth=0;growthTo=revealForYear(timelineYear);
     growthChangeAt=performance.now();
     drawLines(0);renderedFraction=0;
+    drawGrowthHeads(0,true);
     if(!animation)animation=requestAnimationFrame(tick);
   }
   function configure(patch){
@@ -769,7 +774,8 @@ export function createHydroTensorRenderer(args){
     }
     enabled=requested;
     const state=enabled?'visible':'none';
-    for(const id of [lineLayerId,glowLayerId,ribbonLayerId,ribbonGlowLayerId]){
+    for(const id of [lineLayerId,glowLayerId,ribbonLayerId,ribbonGlowLayerId,
+      ...traceGroups.flatMap(g=>[g.coreId,g.glowId]),headHaloLayerId]){
       if(map.getLayer(id))map.setLayoutProperty(id,'visibility',state);
     }
     if(!enabled){
@@ -782,8 +788,8 @@ export function createHydroTensorRenderer(args){
       worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
       geometryWorker?.terminate();geometryWorker=null;geometryBusy=false;geometryActiveId=0;
       stop();src()?.setData(empty());ribbonSource()?.setData(empty());
-      dots()?.setData(empty());invalidateUploaded();
-      return;
+      dots()?.setData(empty());headsActive=false;lastTraceHeads.clear();
+      invalidateUploaded();return;
     }
     // A layer toggle is a visibility change, not a reason to throw away the
     // previously displayed provisional or completed geometry.
@@ -800,7 +806,8 @@ export function createHydroTensorRenderer(args){
     requestId++;result=null;flow=null;context=null;depth=null;geometryDiagnostics=null;geometrySnapshot=null;
     scenarioSnapshots.clear();
     geometryDesired++;geometryPending=null;
-    lines=[];baseLines=[];wetLines=[];features=[];
+    lines=[];baseLines=[];wetLines=[];features=[];particlePaths=[];
+    headsActive=false;lastTraceHeads.clear();
     provisionalLineCount=0;previewBaseSettings=null;
     ribbons=[];ribbonFeatures=[];hydroCorePaths=[];
     replayGrowthActive=false;
@@ -860,7 +867,8 @@ export function createHydroTensorRenderer(args){
     geometryWorker?.terminate();geometryWorker=null;geometryPending=null;
     worker?.terminate();worker=null;tensorBusy=false;tensorActiveRequest=0;
     src()?.setData(empty());ribbonSource()?.setData(empty());
-    dots()?.setData(empty());invalidateUploaded();
+    dots()?.setData(empty());particlePaths=[];headsActive=false;
+    lastTraceHeads.clear();invalidateUploaded();
   }
   function exportSiteSnapshot(){
     if(!result)return null;
