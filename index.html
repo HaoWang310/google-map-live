@@ -326,9 +326,10 @@
       border-radius:7px;color:#ecf9ff;padding:8px 5px;cursor:pointer;font-size:11px}
     .site-hydro-btn.primary{background:#177f92;border-color:#46adc0}
     .site-hydro-btn:disabled{opacity:.4;cursor:not-allowed}
-    .site-hydro-footer{position:absolute;left:12px;right:12px;bottom:10px;height:73px;
+    .site-hydro-footer{position:absolute;left:12px;right:12px;bottom:10px;
+      min-height:86px;height:auto;box-sizing:border-box;
       background:#101d2def;border:1px solid var(--hborder);border-radius:12px;
-      pointer-events:auto;display:flex;align-items:center;gap:14px;padding:10px 14px}
+      pointer-events:auto;display:flex;align-items:center;gap:12px;padding:10px 14px}
     .site-hydro-timeline{flex:1;min-width:100px}
     .site-hydro-timeline-heading{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .site-hydro-timeline-heading>strong{white-space:nowrap;font-size:12px}
@@ -344,7 +345,11 @@
       .site-hydro-timeline-heading{gap:5px}
       .site-hydro-timeline-heading>#siteHudRunState{flex-basis:100%;text-align:left;margin-left:0}
     }
-    .site-hydro-track{height:8px;background:#2b4256;border-radius:6px;overflow:hidden;margin:9px 0 4px}
+    .site-hydro-track{height:8px;background:#2b4256;border-radius:6px;overflow:visible;margin:12px 0 9px;
+      position:relative;touch-action:none}
+    .site-hydro-ui #siteHudFooterYear{position:absolute;left:0;top:-11px;z-index:6;
+      width:100%;height:30px;margin:0;cursor:ew-resize;touch-action:none;
+      accent-color:#d5eef9;opacity:.9;pointer-events:auto}
     .site-hydro-progress{height:100%;background:linear-gradient(90deg,#2e9cce,#66d9cf);width:0}
     .site-hydro-chart{height:50px;display:flex;align-items:flex-end;gap:3px}
     .site-hydro-chart span{flex:1;background:#4a9db7;border-radius:2px 2px 0 0;min-height:2px}
@@ -526,7 +531,7 @@
       .site-hydro-ui .site-hydro-brand{font-size:12px}
       .site-hydro-ui .site-hydro-brand small{font-size:8px}
       .site-hydro-ui .site-hydro-side{top:84px;bottom:107px;padding:9px}
-      .site-hydro-ui .site-hydro-footer{bottom:5px;left:5px;right:5px;height:88px;padding:7px}
+      .site-hydro-ui .site-hydro-footer{bottom:5px;left:5px;right:5px;height:auto;min-height:96px;padding:7px}
       .site-hydro-ui .site-hydro-close{font-size:10px;padding:6px 7px}
       .site-hydro-ui #siteHudTop,
       .site-hydro-ui #siteHudIso{flex:0 0 45px!important}
@@ -901,7 +906,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.74-tensor-speed-5x</div>
+        <div class="sub">OpenStreetMap / OpenFreeMap · v3.22.75-tensor-scrub</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -1288,12 +1293,12 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.74-tensor-speed-5x';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.74-tensor-speed-5x';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.22.75-tensor-scrub';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.75-tensor-scrub';
   import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.22.74-tensor-speed-5x';
+  const APP_VERSION='3.22.75-tensor-scrub';
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
   const CITY_BUILDINGS_DRIVER_LAYER='osm-city-buildings-tile-driver';
   const CITY_BUILDINGS_LAYER='osm-city-buildings-3d';
