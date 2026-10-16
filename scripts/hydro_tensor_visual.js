@@ -74,3 +74,15 @@ export function particleTensorMaterial({index=0,main=false,rank=0}={}){
     radius:main?.90+clamp01(rank)*.40:.62+clamp01(rank)*.30
   };
 }
+
+// Presentation-only gradual reveal. MapLibre evaluates this against a stable
+// GeoJSON source in the renderer; no vertices are sliced or re-uploaded per
+// animation frame. Feature property revealOrder is visual draw order only.
+export function tensorRevealGate(progress){
+  const f=clamp01(progress);
+  if(f<=.0001)return 0;
+  if(f>=.999)return 1;
+  const start=Math.max(0,f-.065),end=Math.min(1,f+.02);
+  return ['interpolate',['linear'],['get','revealOrder'],
+    start,1,end,0];
+}
