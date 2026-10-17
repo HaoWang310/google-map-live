@@ -6,7 +6,7 @@
  * Neither mode resets MapLibre sources or calls setStyle(). */
 export const BASEMAP_THEMES=Object.freeze({
   planning:Object.freeze({
-    id:'planning',name:'Building planning',
+    id:'planning',name:'建筑规划',
     // Matched to the user's white/very-light-gray architectural reference.
     background:'#f9f9f9',land:'#f9f9f9',residential:'#fafafa',
     park:'#f6f6f6',water:'#f4f4f4',
@@ -16,7 +16,7 @@ export const BASEMAP_THEMES=Object.freeze({
     text:'#999999',textHalo:'#ffffff',poi:'#b5b5b5'
   }),
   dark:Object.freeze({
-    id:'dark',name:'Dark tech',
+    id:'dark',name:'黑色科技',
     background:'#161616',land:'#1f1f1f',residential:'#242424',
     park:'#202020',water:'#0f0f10',
     building:'#2b2f33',buildingEdge:'#3b4045',

@@ -70,11 +70,11 @@ async function loadDem(){
   if(demPromise)return demPromise;
   demPromise=(async()=>{
     const response=await fetch(demConfig.demUrl,{cache:'force-cache'});
-    if(!response.ok)throw new Error('50 m terrain data failed to load ('+response.status+')');
+    if(!response.ok)throw new Error('50 m 地形数据加载失败（'+response.status+'）');
     const bitmap=await createImageBitmap(await response.blob());
     if(bitmap.width!==demConfig.demWidth||bitmap.height!==demConfig.demHeight){
       bitmap.close();
-      throw new Error('50 m terrain data size mismatch');
+      throw new Error('50 m 地形数据尺寸不匹配');
     }
     const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
@@ -136,11 +136,11 @@ async function loadDrainageCodes(){
   if(drainagePromise)return drainagePromise;
   drainagePromise=(async()=>{
     const response=await fetch(demConfig.drainageUrl,{cache:'force-cache'});
-    if(!response.ok)throw new Error('50 m catchment raster unavailable');
+    if(!response.ok)throw new Error('50 m 汇水栅格不可用');
     const bitmap=await createImageBitmap(await response.blob());
     try{
       if(bitmap.width!==demConfig.demWidth||bitmap.height!==demConfig.demHeight){
-        throw new Error('Catchment raster and terrain raster sizes do not match');
+        throw new Error('汇水栅格与地形栅格尺寸不匹配');
       }
       const cv=new OffscreenCanvas(bitmap.width,bitmap.height);
       const ctx=cv.getContext('2d',{willReadFrequently:true});
@@ -233,16 +233,16 @@ async function setup(data){
   const selectionRings=toMercatorRings(data.polygon);
   const box=bboxOfRings(selectionRings);
   const width=box.right-box.left,height=box.top-box.bottom;
-  if(!(width>0&&height>0))throw new Error('Selected area invalid');
+  if(!(width>0&&height>0))throw new Error('圈选范围无效');
   const centreLatitude=lngLat((box.left+box.right)/2,(box.top+box.bottom)/2)[1];
   const groundScale=Math.cos(centreLatitude*Math.PI/180);
   if(width*groundScale>12000||height*groundScale>12000)
-    throw new Error('Selection spans over 12 km of real ground; simulate in parts.');
+    throw new Error('选区真实地面跨度超过 12 km，请分区模拟。');
 
   const cell=chooseCellSize(width,height);
   const cols=Math.max(1,Math.ceil(width/cell));
   const rows=Math.max(1,Math.ceil(height/cell));
-  if(cols*rows>70000)throw new Error('Selected area too large; simulation grid over 70,000 cells');
+  if(cols*rows>70000)throw new Error('圈选范围过大；模拟网格超过 70,000 个单元');
 
   const terrain=new Float32Array(cols*rows);
   const inside=new Uint8Array(cols*rows);
@@ -275,8 +275,8 @@ async function setup(data){
   // An incomplete/missing DEM would falsely suggest zero hazard.
   // Unmapped cells are not zero-risk cells. Refuse to solve partial terrain.
   if(!siteGridCells||validTerrainCells!==siteGridCells){
-    throw new Error('Selection terrain coverage incomplete:'+validTerrainCells+'/'+siteGridCells+
-      ' cells have real elevation. Adjust the selection; missing cells cannot be read as no flooding.');
+    throw new Error('选区地形覆盖不完整：'+validTerrainCells+'/'+siteGridCells+
+      ' 格有真实高程。请调整选区；无法把缺测格解释为无洪涝。');
   }
 
   sim={
@@ -387,7 +387,7 @@ async function loadPublishedRiskForSite(){
     if(!res.ok)throw Error('EA metadata HTTP '+res.status);
     const meta=await res.json(),grid=meta.web_grid;
     if(meta.source_type!=='surface_water'||!Array.isArray(meta.products)||meta.products.length!==4)
-      throw Error('Only the separate EA Surface Water risk class raster is allowed; combined or rivers/sea maps must not guide rainfall');
+      throw Error('仅允许独立 EA Surface Water 分类风险栅格；禁止综合或河流/海洋图作为降雨引导');
     if(!grid?.bounds_m||grid.width!==5736||grid.height!==5750)
       throw Error('EA raster alignment metadata differs');
     const [left,bottom,right,top]=grid.bounds_m;
@@ -458,18 +458,18 @@ async function loadPublishedRiskForSite(){
  */
 async function loadOfficialEaDepthForSite(){
   const classes=new Uint8Array(sim.inside.length);
-  sim.eaDepthClasses=classes;sim.eaDepthAvailable=false;sim.eaDepthInfo='Official depth data not published yet';
+  sim.eaDepthClasses=classes;sim.eaDepthAvailable=false;sim.eaDepthInfo='官方深度数据尚未发布';
   try{
     if(!demConfig.depthMetaUrl||!Array.isArray(demConfig.depthTileUrls)||
-       demConfig.depthTileUrls.length!==4)throw Error('EA official depth tile configuration missing');
+       demConfig.depthTileUrls.length!==4)throw Error('缺少 EA 官方水深瓦片配置');
     const response=await fetch(demConfig.depthMetaUrl,{cache:'force-cache'});
-    if(!response.ok)throw Error('EA depth metadata HTTP '+response.status);
+    if(!response.ok)throw Error('EA 水深元数据 HTTP '+response.status);
     const meta=await response.json(),grid=meta.web_grid;
     if(meta.source_type!=='ea_official_surface_water_depth'||meta.aep_percent!==0.1||
        !String(meta.layer||'').includes('1in1000_Depths_CCP1')||
        !Array.isArray(meta.products)||meta.products.length!==4 ||
        !grid?.bounds_m||grid.width!==5736||grid.height!==5750)
-      throw Error('EA official depth source / return period / coordinate metadata mismatch');
+      throw Error('EA 官方水深来源／重现期／坐标元数据不符');
     const [left,bottom,right,top]=grid.bounds_m;
     const tw=grid.width/2,th=grid.height/2;
     const coords=Array.from({length:4},()=>[]);
@@ -491,10 +491,10 @@ async function loadOfficialEaDepthForSite(){
     for(let tile=0;tile<4;tile++){
       if(!coords[tile].length)continue;
       const r=await fetch(demConfig.depthTileUrls[tile],{cache:'force-cache'});
-      if(!r.ok)throw Error('EA depth tile HTTP '+r.status);
+      if(!r.ok)throw Error('EA 水深瓦片 HTTP '+r.status);
       const bitmap=await createImageBitmap(await r.blob());
       try{
-        if(bitmap.width!==tw||bitmap.height!==th)throw Error('EA depth tile size mismatch');
+        if(bitmap.width!==tw||bitmap.height!==th)throw Error('EA 水深瓦片尺寸不符');
         const canvas=new OffscreenCanvas(tw,th);
         const ctx=canvas.getContext('2d',{willReadFrequently:true});
         ctx.drawImage(bitmap,0,0);
@@ -504,7 +504,7 @@ async function loadOfficialEaDepthForSite(){
           if(rgba[n+3]<128)continue;
           const matched=expected.findIndex(rgb=>
             rgb[0]===rgba[n]&&rgb[1]===rgba[n+1]&&rgb[2]===rgba[n+2]);
-          if(matched<0)throw Error('EA depth tile has an unexplained colour code');
+          if(matched<0)throw Error('EA 水深瓦片存在无法解释的颜色编码');
           classes[i]=matched+1;
         }
       }finally{bitmap.close();}
@@ -517,11 +517,11 @@ async function loadOfficialEaDepthForSite(){
     sim.eaDepthAvailable=officialCells>0;
     sim.eaDepthMappedCells=officialCells;
     sim.eaDepthInfo=officialCells>0?
-      'EA official RoFSW 2070s Upper End 0.1% AEP depth reference ('+officialCells+' cells)':
-      'No EA official depth class sampled in this selection; blank cannot be taken as verified no flooding.';
+      'EA 官方 RoFSW 2070s Upper End 0.1% AEP 水深参照 ('+officialCells+' 格)':
+      '该选区未采样到 EA 官方水深类别；不能把空白当成已验证的无洪涝。';
   }catch(error){
     classes.fill(0);sim.eaDepthAvailable=false;sim.eaDepthMappedCells=0;
-    sim.eaDepthInfo='EA official depth reference unavailable:'+(error?.message||String(error));
+    sim.eaDepthInfo='EA 官方水深参考不可用：'+(error?.message||String(error));
   }
 }
 
@@ -606,7 +606,7 @@ function buildRoofDrainage(s){
   for(let i=0;i<n;i++)if(inside[i]&&obstacle[i]&&receiver[i]>=0){
     s.roofDrainCounts[receiver[i]]++;routed++;
   }
-  if(roofs!==routed)throw new Error('Building footprints have no reachable outdoor drainage cell; enlarge the selection.');
+  if(roofs!==routed)throw new Error('建筑占地没有可达的室外排水格，请扩大选区。');
   s.roofCellCount=roofs;s.roofRoutedCells=routed;
 }
 function resetWaterBalance(){
@@ -1224,7 +1224,7 @@ onmessage=async({data})=>{
         ?data.floodMode:'rain';
       const externalStage=data.externalStageM==null?null:Number(data.externalStageM);
       if((mode==='external'||mode==='coupled')&&!Number.isFinite(externalStage))
-        throw Error('External flooding needs a reliable absolute boundary level.');
+        throw Error('外部洪水需要可信的绝对边界水位。');
       // Rainfall runoff must remain computable even without EA reference
       // coverage. Missing EA data disables validation only, not physics.
       const interventions=Array.isArray(data.interventions)?data.interventions:[];
@@ -1233,7 +1233,7 @@ onmessage=async({data})=>{
         Number(data.drainageThreshold)||0,interventions]);
       if(!annualRiskForecast||annualRiskForecast.key!==key){
         postMessage({type:'status',state:'preparing',
-          message:'Comparing four separate design storms of 30, 60, 120 and 360 minutes, extracting peaks and EA extent differences; please wait…'});
+          message:'正在比较30、60、120、360分钟的四场独立设计暴雨，提取峰值和EA范围偏差；请稍候…'});
         const priorParams=params;
         const envelope=new Float32Array(sim.water.length);
         const comparisons=[];
@@ -1299,8 +1299,8 @@ onmessage=async({data})=>{
                 peakFrame,snapshots};
             }
             postMessage({type:'status',state:'preparing',
-              message:'Multi-duration simulation '+(k+1)+'/4 done · '+duration+
-                ' min; continuing to check the EA 0.1% AEP extent…'});
+              message:'多历时模拟 '+(k+1)+'/4 已完成 · '+duration+
+                ' min；正在继续校核 EA 0.1% AEP 范围…'});
           }
           let finalWetCount=0;
           for(let i=0;i<envelope.length;i++)
@@ -1381,13 +1381,13 @@ onmessage=async({data})=>{
     }
     if(data.type==='annual-step'){
       annualFrameYear=Number(data.climateYear)||null;
-      if(running)throw new Error('Pause the short simulation before running the yearly storage scenario');
+      if(running)throw new Error('请先暂停短时模拟，再运行年度蓄水情景');
       annualStorageStep(data);annualFrameYear=null;return;
     }
     if(data.type==='start'){
       resetWaterBalance();
       params={...params,...data.params};
-      if(!sim)throw new Error('Select and prepare a simulation area first');
+      if(!sim)throw new Error('请先圈选并准备模拟区域');
       applySpongeInterventions();
       if(running)return;
       running=true;

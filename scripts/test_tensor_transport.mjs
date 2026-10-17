@@ -56,7 +56,7 @@ assert.ok(renderer.includes('function startContinuousPlayback('));
 assert.ok(renderer.includes('function resumeContinuousPlayback()'));
 assert.ok(renderer.includes('getPlaybackState,setField,setEnabled'),
   'renderer exposes reusable presentation transport');
-assert.ok(ui.includes('Click “Reset” at the bottom to return to the rainfall simulation.'),
+assert.ok(ui.includes('请点击底部「重置」返回雨水模拟。'),
   'accidental checkbox uncheck must not escape tensor stage');
 console.log('PASS tensor Run / Pause never trigger rainfall or exit the tensor stage');
 console.log('PASS Reset alone restores saved rainfall; start/replay queue on real geometry');

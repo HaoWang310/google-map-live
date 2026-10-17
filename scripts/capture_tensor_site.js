@@ -8,7 +8,7 @@ function capture(){
   const native=window.getLondonHydroTensorSiteSnapshot?.();
   if(native)return native;
   const data=window.getLondonHydroTensorFieldData?.();
-  if(!data)throw new Error('Turn on the tensor field and wait for it to finish, then export.');
+  if(!data)throw new Error('请启用张量场并等待计算完成，再导出。');
   const geometry=window.getLondonHydroTensorGeometryData?.();
   const current={grid:data.grid,scenario:data.stage,cols:data.cols,rows:data.rows,
     cellX:data.cellX,cellY:data.cellY,demNativeResolutionM:data.demNativeResolutionM,parameters:data.parameters,
@@ -27,10 +27,10 @@ function capture(){
 let button=document.getElementById('tensor-existing-tab-export');
 if(!button){
   button=document.createElement('button');button.id='tensor-existing-tab-export';
-  button.textContent='Export current site diagnostics (keeps the original selection)';button.type='button';
+  button.textContent='导出当前场地诊断（保留原选区）';button.type='button';
   button.style.cssText='margin:8px 0;padding:8px;color:#fff;background:#263a4b;border:1px solid #7191a9;border-radius:6px;cursor:pointer';
   const status=document.getElementById('siteHudVectorStatus');
-  if(!status)throw new Error('Open the tensor-field view of the originally selected site first.');
+  if(!status)throw new Error('请先进入原圈选场地的张量场界面。');
   status.after(button);
 }
 button.onclick=()=>{
@@ -38,6 +38,6 @@ button.onclick=()=>{
     const snapshot=capture(),blob=new Blob([JSON.stringify(snapshot)],{type:'application/json'}),url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='LondonMap_Tensor_Existing_Site_'+snapshot.current.scenario.year+'.json';a.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
-    button.textContent='Exported · recorded '+(snapshot.scenarios.map(s=>s.scenario.year).join(' / ')||snapshot.current.scenario.year)+' ';
+    button.textContent='已导出 · 已记录 '+(snapshot.scenarios.map(s=>s.scenario.year).join(' / ')||snapshot.current.scenario.year)+' 年';
   }catch(error){button.textContent=error.message}
 };

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -902,80 +902,80 @@
 
   <div class="panel" id="panel">
     <div id="panelResizeHandle" class="panelResizeHandle" role="separator"
-      aria-orientation="vertical" aria-label="Drag to resize the control panel" title="Drag left or right to resize the panel"></div>
+      aria-orientation="vertical" aria-label="拖动调整控制面板宽度" title="左右拖动调整面板宽度"></div>
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.23.2-english</div>
+        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.23.1-buildingbase-yearly</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
-      <button id="collapse" aria-label="Collapse control panel" title="Collapse / expand control panel">−</button>
+      <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
     </div>
 
     <div class="searchTools">
       <form class="searchForm" id="placeSearchForm" role="search">
-        <input id="placeSearchInput" type="search" aria-label="Search places, addresses or postcodes"
-          placeholder="Search places, addresses or postcodes…" maxlength="200" autocomplete="off" required>
-        <button id="placeSearchButton" type="submit" disabled>Search</button>
+        <input id="placeSearchInput" type="search" aria-label="搜索地点、地址或邮编"
+          placeholder="搜索地点、地址或邮编…" maxlength="200" autocomplete="off" required>
+        <button id="placeSearchButton" type="submit" disabled>搜索</button>
       </form>
       <div id="placeSearchStatus" class="searchStatus" role="status" aria-live="polite"></div>
-      <div id="placeSearchResults" class="searchResults" role="group" aria-label="Search results"></div>
+      <div id="placeSearchResults" class="searchResults" role="group" aria-label="搜索结果"></div>
     </div>
 
     <div class="content">
       <div class="divider"></div>
 
-      <div class="section">Map source</div>
+      <div class="section">地图来源</div>
       <div class="layerRow">
         <span>OpenStreetMap / OpenFreeMap</span>
-        <span style="font-size:9px;color:#9fb0c4">Development mode</span>
+        <span style="font-size:9px;color:#9fb0c4">开发模式</span>
       </div>
-      <label class="layerRow" title="Changes map colours only; does not replace the original map style or reload analysis layers">
+      <label class="layerRow" title="只修改地图颜色，不替换原始地图样式，不重载分析图层">
         <span class="layerName">
-          <strong>Map style</strong>
-          <small>Visual colours only · real coordinates and results unchanged</small>
+          <strong>地图风格</strong>
+          <small>仅视觉配色 · 不改变真实坐标和分析结果</small>
         </span>
-        <select id="osmVisualStyle" aria-label="OpenStreetMap basemap style"
+        <select id="osmVisualStyle" aria-label="OpenStreetMap 底图风格"
           style="min-width:132px;width:132px;background:#26292c;color:#f4f5f6;border:1px solid #565b63;border-radius:8px;padding:7px 5px;font-size:11px">
-          <option value="planning" selected>Building planning</option>
-          <option value="dark">Dark tech</option>
+          <option value="planning" selected>建筑规划</option>
+          <option value="dark">黑色科技</option>
         </select>
       </label>
-      <label class="layerRow" title="Hides OpenStreetMap / OpenFreeMap labels such as road names, place names, POI names and icons, Underground and bus stops; keeps road and building shapes, grey 3D buildings and analysis layers">
+      <label class="layerRow" title="隐藏 OpenStreetMap / OpenFreeMap 的道路名称、地点名称、POI 名称与图标、地铁站和公交站等标注；保留道路与建筑实体、3D 灰色建筑及分析图层">
         <span class="layerName">
-          <strong>Hide OSM names / POI labels</strong>
-          <small>Hides OSM text / POI only; keeps roads, buildings, red outline, anchors, dimensions and analysis layers</small>
+          <strong>隐藏 OSM 名称 / POI 标注</strong>
+          <small>仅隐藏 OSM 文字 / POI；保留道路、建筑、红框、锚点、尺寸与分析图层</small>
         </span>
         <input id="osmStructureToggle" type="checkbox" autocomplete="off" disabled>
       </label>
 
-      <label class="layerRow" title="Controls street cars separately; no longer affected by the “Hide OSM names / POI labels” switch">
+      <label class="layerRow" title="独立控制街道车辆显示；不再受“隐藏 OSM 名称 / POI 标注”开关影响">
         <span class="layerName">
-          <strong>Show street cars</strong>
-          <small>Separate switch · not affected by OSM label display</small>
+          <strong>显示街道小车</strong>
+          <small>独立开关 · 不受 OSM 标注显示状态影响</small>
         </span>
         <input id="streetVehicleToggle" type="checkbox" autocomplete="off" disabled>
       </label>
 
-      <div class="row viewButtons" role="group" aria-label="Map view">
-        <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D plan</button>
-        <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D city</button>
+      <div class="row viewButtons" role="group" aria-label="地图视角">
+        <button id="view2D" class="secondary" type="button" aria-pressed="true" disabled>2D 平面</button>
+        <button id="view3D" class="secondary" type="button" aria-pressed="false" disabled>3D 城市</button>
       </div>
       <select id="provider" class="googleOnly">
         <option value="osm" selected>OpenStreetMap / OpenFreeMap</option>
       </select>
 
       <select id="mapType" class="googleOnly">
-        <option value="roadmap">Roadmap</option>
-        <option value="satellite">Satellite</option>
-        <option value="hybrid">Hybrid</option>
-        <option value="terrain">Terrain</option>
+        <option value="roadmap">道路图 Roadmap</option>
+        <option value="satellite">卫星图 Satellite</option>
+        <option value="hybrid">混合图 Hybrid</option>
+        <option value="terrain">地形图 Terrain</option>
       </select>
 
       <div class="divider"></div>
       <button class="sectionToggle" id="layerListToggle" type="button"
-        aria-expanded="false" aria-controls="analysisLayerList" title="Expand analysis layers">
-        <span id="layerListTitle">Analysis layers</span>
+        aria-expanded="false" aria-controls="analysisLayerList" title="展开分析图层">
+        <span id="layerListTitle">分析图层</span>
         <span class="sectionToggleIcon" aria-hidden="true">⌄</span>
       </button>
       <div class="layerList sectionCollapsed" id="analysisLayerList" role="group" aria-labelledby="layerListTitle">
@@ -984,37 +984,37 @@
           <label class="layerRow">
             <span class="layerName">
               <strong>EA LiDAR DTM 1 m</strong>
-              <small>Bare-earth terrain elevation · local zoom tiles · Environment Agency</small>
+              <small>裸地地形高程 · 本地分级瓦片 · Environment Agency</small>
             </span>
             <input id="terrainToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
-            <span>Opacity</span>
+            <span>透明度</span>
             <input id="terrainOpacity" type="range" min="0" max="1" step="0.05" value="0.42">
             <span id="terrainOpacityValue">42%</span>
           </div>
           <div class="layerMeta">
-            Official terrain cached on this site and tiled by zoom level · no live WMS/WMTS requests · DTM 1 m source · Open Government Licence
+            官方地形已缓存到本站并按缩放分级生成瓦片 · 不再实时请求 WMS/WMTS · DTM 1 m 来源 · Open Government Licence
           </div>
-          <div id="terrainStatus" class="layerStatus" role="status" aria-live="polite">Off</div>
+          <div id="terrainStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem" id="contourItem">
           <label class="layerRow">
             <span class="layerName">
-              <strong>Contours · OS Terrain 50</strong>
-              <small id="contourSubtitle">Real elevation data · 10 m contour interval · Ordnance Survey OpenData</small>
+              <strong>等高线 · OS Terrain 50</strong>
+              <small id="contourSubtitle">真实高程数据 · 10 m 等高距 · Ordnance Survey OpenData</small>
             </span>
             <input id="contourToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
-            <span>Opacity</span>
-            <input id="contourOpacity" aria-label="Contour opacity" type="range" min="0" max="1" step="0.05" value="0.72">
+            <span>透明度</span>
+            <input id="contourOpacity" aria-label="等高线透明度" type="range" min="0" max="1" step="0.05" value="0.72">
             <span id="contourOpacityValue">72%</span>
           </div>
           <div class="layerOptions">
-            <label for="contourInterval">Interval</label>
-            <select id="contourInterval" aria-label="Contour interval">
+            <label for="contourInterval">等高距</label>
+            <select id="contourInterval" aria-label="等高线等高距">
               <option value="5">5 m</option>
               <option value="10" selected>10 m</option>
               <option value="25">25 m</option>
@@ -1023,80 +1023,80 @@
             </select>
           </div>
           <div class="layerMeta">
-            Contours generated live from the OS Terrain 50 · 50 m elevation grid; choose a 5 / 10 / 25 / 50 / 100 m vertical interval. Zoom in to see elevation labels on the lines; hovering over any contour also shows its elevation. 5 m contours are interpolated from the 50 m DEM grid and do not mean the source data has 5 m horizontal resolution.
+            基于 OS Terrain 50 · 50 m 数值高程网格实时生成等高线；可选择 5 / 10 / 25 / 50 / 100 m 垂直等高距。放大后在线标注高程，鼠标移到任意等高线上也会显示该线高程。5 m 等高线为基于 50 m DEM 网格插值生成，不代表原始数据具有 5 m 水平空间分辨率。
           </div>
-          <div id="contourStatus" class="layerStatus" role="status" aria-live="polite">Off</div>
+          <div id="contourStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem" id="floodItem">
           <label class="layerRow">
             <span class="layerName">
-              <strong>Present-day flood risk class · EA</strong>
-              <small>London 70 km · official risk classes · raw or smoothed</small>
+              <strong>现状洪水风险等级 · EA</strong>
+              <small>伦敦 70 km · 官方风险类别 · 可选原始/平滑</small>
             </span>
             <input id="floodToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
-            <span>Risk source</span>
-            <select id="floodRiskSource" aria-label="Flood risk source" style="max-width:185px;background:#203449;color:#e8f3ff;border:1px solid #526b82;border-radius:7px;padding:6px;">
-              <option value="combined">Combined risk (for comparison)</option>
-              <option value="surface_water">Surface water only · RoFSW</option>
-              <option value="rivers_sea">Rivers and sea only · RoFRS</option>
+            <span>风险来源</span>
+            <select id="floodRiskSource" aria-label="洪水风险来源" style="max-width:185px;background:#203449;color:#e8f3ff;border:1px solid #526b82;border-radius:7px;padding:6px;">
+              <option value="combined">综合风险（对比参考）</option>
+              <option value="surface_water">仅地表水 · RoFSW</option>
+              <option value="rivers_sea">仅河流与海洋 · RoFRS</option>
             </select>
           </div>
           <div class="rangeRow">
-            <span>Class display</span>
-            <select id="floodDisplayMode" aria-label="EA risk class rendering" style="max-width:185px;background:#203449;color:#e8f3ff;border:1px solid #526b82;border-radius:7px;padding:6px;">
-              <option value="nearest">Raw classes · no smoothing</option>
-              <option value="linear">Smooth transition · display only</option>
+            <span>类别显示</span>
+            <select id="floodDisplayMode" aria-label="EA 风险等级渲染" style="max-width:185px;background:#203449;color:#e8f3ff;border:1px solid #526b82;border-radius:7px;padding:6px;">
+              <option value="nearest">原始等级 · 不平滑</option>
+              <option value="linear">平滑过渡 · 仅显示</option>
             </select>
           </div>
           <div class="rangeRow">
-            <span>Opacity</span>
-            <input id="floodOpacity" aria-label="Flood risk opacity" type="range" min="0" max="1" step="0.05" value="0.7">
+            <span>透明度</span>
+            <input id="floodOpacity" aria-label="洪水风险透明度" type="range" min="0" max="1" step="0.05" value="0.7">
             <span id="floodOpacityValue">70%</span>
           </div>
-          <div class="networkLegend floodLegend" aria-label="Annual flood probability class by source">
-            <span><i style="--swatch:#9cddea"></i>Very low &lt;0.1%</span>
-            <span><i style="--swatch:#f7d359"></i>Low 0.1–&lt;1%</span>
-            <span><i style="--swatch:#f29d38"></i>Medium 1–&lt;3.3%</span>
-            <span><i style="--swatch:#d73731"></i>High ≥3.3%</span>
-            <span><i style="--swatch:#999c9e"></i>Unavailable</span>
+          <div class="networkLegend floodLegend" aria-label="各来源的年洪水发生概率等级">
+            <span><i style="--swatch:#9cddea"></i>很低 &lt;0.1%</span>
+            <span><i style="--swatch:#f7d359"></i>低 0.1–&lt;1%</span>
+            <span><i style="--swatch:#f29d38"></i>中 1–&lt;3.3%</span>
+            <span><i style="--swatch:#d73731"></i>高 ≥3.3%</span>
+            <span><i style="--swatch:#999c9e"></i>不可用</span>
           </div>
           <div class="layerMeta">
-            Switch between combined risk, surface water only (RoFSW) or rivers and sea only (RoFRS). The two independent risks are not added into a flood volume; the rainfall simulation uses only RoFSW for spatial guidance. The combined map is for comparison only and takes the higher available class of the two present-day probability classifications. The display only applies linear smoothing and zoom transitions to pixel edges to reduce blocky jaggies; blended colours in the transition band carry no risk-class meaning. This is not a combined flood probability, nor a flood depth. Blank does not mean no risk.
+            可切换综合风险、仅地表水（RoFSW）或仅河流海洋（RoFRS）。两类独立风险不叠加为洪水水量；降雨模拟只使用 RoFSW 参与空间引导。综合图仅供对比，取两套现状概率分级中较高的可用等级。地图显示端仅对像素边缘做线性平滑和缩放过渡，减少块状锯齿；过渡带的混合颜色没有独立风险等级含义。不是合并洪水概率，也不是洪水深度。空白不代表无风险。
           </div>
-          <div id="floodStatus" class="layerStatus" role="status" aria-live="polite">Off</div>
+          <div id="floodStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem" id="networkItem">
           <label class="layerRow">
             <span class="layerName">
-              <strong>Terrain-derived drainage network</strong>
-              <small>Terrain-derived drainage network · full upper Thames 50 m catchment analysis</small>
+              <strong>地形推导排水网络</strong>
+              <small>Terrain-derived drainage network · 完整 Thames 上游 50 m 汇水分析</small>
             </span>
             <input id="networkToggle" type="checkbox" autocomplete="off" disabled>
           </label>
           <div class="rangeRow">
-            <span>Opacity</span>
-            <input id="networkOpacity" aria-label="Drainage network opacity" type="range" min="0" max="1" step="0.05" value="0.9">
+            <span>透明度</span>
+            <input id="networkOpacity" aria-label="排水网络透明度" type="range" min="0" max="1" step="0.05" value="0.9">
             <span id="networkOpacityValue">90%</span>
           </div>
           <div class="layerOptions">
-            <label for="networkThreshold">Minimum contributing area · dynamic threshold</label>
+            <label for="networkThreshold">最小汇水面积 · 动态阈值</label>
           </div>
           <div class="rangeRow networkThresholdRow">
-            <span>Threshold</span>
-            <input id="networkThreshold" aria-label="Minimum contributing area threshold" type="range"
+            <span>阈值</span>
+            <input id="networkThreshold" aria-label="最小汇水面积阈值" type="range"
               min="0" max="50" step="0.001" value="1">
             <div class="networkThresholdEdit">
-              <input id="networkThresholdInput" type="number" aria-label="Type the minimum contributing area threshold (km²)"
+              <input id="networkThresholdInput" type="number" aria-label="手动输入最小汇水面积阈值（平方千米）"
                 min="0" max="50" step="0.001" value="1.000" inputmode="decimal" autocomplete="off"
-                title="Type 0–50 by hand, to three decimal places, then press Enter">
+                title="可手动输入 0–50，精确至小数点后三位，按 Enter 确认">
               <span aria-hidden="true">km²</span>
             </div>
           </div>
-          <div class="networkLegend" aria-label="Blue graded by contributing area">
+          <div class="networkLegend" aria-label="蓝色按汇水面积分级">
             <span><i style="--swatch:#4ba9ff"></i>0.25–1</span>
             <span><i style="--swatch:#2398ff"></i>1–5</span>
             <span><i style="--swatch:#00b7e4"></i>5–25</span>
@@ -1104,16 +1104,16 @@
             <span><i style="--swatch:#70fff1"></i>≥100 km²</span>
           </div>
           <div class="layerMeta">
-            The threshold runs from 0.000 to 50.000 km² in 0.001 km² steps and is applied directly to the raw full upper Thames 50 m flow accumulation cells; only after thresholding does the screen display apply bilinear resampling and soft feathering, so edges stay continuous and less blocky. Display smoothing does not change the 50 m hydrology result and creates no second network dataset. Blue is not ponding extent.
+            阈值可在 0.000–50.000 km² 间以 0.001 km² 步长调节；直接对完整 Thames 上游 50 m 累积汇水原始像元应用当前阈值；阈值判断完成后才在屏幕显示端进行双线性重采样与柔和羽化，使边缘连续、减少块状像素感。显示平滑不改变 50 m 水文分析结果，也不生成第二套网络数据。蓝色不是积水范围。
           </div>
-          <div id="networkStatus" class="layerStatus" role="status" aria-live="polite">Off</div>
+          <div id="networkStatus" class="layerStatus" role="status" aria-live="polite">已关闭</div>
         </div>
 
         <div class="layerItem">
           <label class="layerRow">
             <span class="layerName">
-              <strong>70 KM study area</strong>
-              <small>Centred on Charing Cross · turn on to focus the study area</small>
+              <strong>70 KM 研究范围</strong>
+              <small>Charing Cross 中心 · 开启后聚焦研究区</small>
             </span>
             <input id="focus70Toggle" type="checkbox" autocomplete="off" disabled>
           </label>
@@ -1123,182 +1123,182 @@
 
       <div class="divider"></div>
       <button class="sectionToggle" id="parcelGeneratorLaunch" type="button" disabled
-        title="Open Parcel Generator with the real site currently selected">
-        <span>Parcel Generator · site generation</span>
+        title="使用当前圈选的真实场地打开 Parcel Generator">
+        <span>Parcel Generator · 场地生成</span>
         <span class="sectionToggleIcon" aria-hidden="true">↗</span>
       </button>
       <div class="divider"></div>
       <button class="sectionToggle" id="floodSimTaskToggle" type="button"
-        aria-expanded="false" aria-controls="floodSimTaskList" title="Expand local flood simulation">
-        <span id="floodSimTaskTitle">Local flood simulation</span>
+        aria-expanded="false" aria-controls="floodSimTaskList" title="展开局部洪涝模拟">
+        <span id="floodSimTaskTitle">局部洪涝模拟</span>
         <span class="sectionToggleIcon" aria-hidden="true">⌄</span>
       </button>
       <div class="layerList sectionCollapsed" id="floodSimTaskList" role="group" aria-labelledby="floodSimTaskTitle">
         <div class="layerItem" id="localFloodSimItem">
           <div class="layerRow" id="localFloodSelectHeader">
             <span class="layerName">
-              <strong>① Select an urban study site</strong>
-              <small>Selected area · OS Terrain 50 terrain · OSM solid building obstacles</small>
+              <strong>① 选择城市研究地块</strong>
+              <small>圈选范围 · OS Terrain 50 地形 · OSM 实体建筑障碍</small>
             </span>
           </div>
           <div class="simButtonRow" id="localFloodSelectActions">
-            <button id="localFloodDraw" type="button" disabled>Select area</button>
-            <button id="localFloodFinish" class="secondary" type="button" disabled title="Finish the current boundary and generate orange buildings now; afterwards you can still drag anchors and press Enter to regenerate">Confirm area</button>
-            <button id="localFloodClear" class="secondary" type="button" disabled>Clear</button>
+            <button id="localFloodDraw" type="button" disabled>圈选区域</button>
+            <button id="localFloodFinish" class="secondary" type="button" disabled title="完成当前边界并立即生成橙色建筑；生成后可继续拖动锚点并按 Enter 重新生成">确定范围</button>
+            <button id="localFloodClear" class="secondary" type="button" disabled>清除</button>
           </div>
           <div class="simButtonRow" id="parcelGeneratorEntry" style="padding-top:0">
-            <button id="parcelGeneratorOpen" class="secondary" style="width:100%;flex:1" type="button" disabled>Parcel Generator · road and parcel generation</button>
+            <button id="parcelGeneratorOpen" class="secondary" style="width:100%;flex:1" type="button" disabled>Parcel Generator · 道路与地块生成</button>
           </div>
           <div class="simParamRow">
-            <span>Rainfall intensity</span>
+            <span>降雨强度</span>
             <input id="localFloodRain" type="range" min="0" max="150" step="5" value="50">
             <span id="localFloodRainValue">50 mm/h</span>
           </div>
           <div class="simParamRow">
-            <span>Infiltration loss</span>
+            <span>下渗损失</span>
             <input id="localFloodInfil" type="range" min="0" max="30" step="0.5" value="0.5">
             <span id="localFloodInfilValue">0.5 mm/h</span>
           </div>
           <div class="simParamRow">
-            <span>Simulation duration</span>
+            <span>模拟时长</span>
             <input id="localFloodDuration" type="range" min="15" max="240" step="15" value="60">
             <span id="localFloodDurationValue">60 min</span>
           </div>
           <div class="layerOptions" style="padding-bottom:6px">
-            <label style="margin-bottom:6px">Isolated site · combined flood analysis</label>
+            <label style="margin-bottom:6px">独立地块 · 联合洪涝分析</label>
             <label style="display:flex;gap:7px;align-items:center;margin-bottom:5px">
               <input id="localFloodFocusEA" type="checkbox" style="width:15px;height:15px">
-              EA present-day flood risk reference (not live water depth)
+              EA 现状洪水风险参考（不代表实时水深）
             </label>
             <label style="display:flex;gap:7px;align-items:center;margin-bottom:5px">
               <input id="localFloodFocusDrainage" type="checkbox" style="width:15px;height:15px">
-              Terrain-derived drainage network reference (uses the threshold above)
+              地形推导排水网络参考（使用上方阈值）
             </label>
             <label style="display:flex;gap:7px;align-items:center">
               <input id="localFloodDrainageGuide" type="checkbox" checked style="width:15px;height:15px">
-              Use catchment paths to guide downhill flow in the simulation
+              模拟中参考汇水路径引导下坡水流
             </label>
-            <div class="terrainMeta">Blue dynamic ponding is computed from rainfall, the 50 m DEM and building obstacles; EA risk is a long-term probability class, and the drainage network is terrain-derived paths. Neither equals water depth or underground drains.</div>
+            <div class="terrainMeta">蓝色动态积水由降雨、50 m DEM 和建筑障碍计算；EA 风险为长期概率分类，排水网络是地形推导路径。两者不等于水深或地下管网。</div>
           </div>
           <div class="simButtonRow">
-            <button id="localFloodRun" type="button" disabled>Run</button>
-            <button id="localFloodPause" class="secondary" type="button" disabled>Pause</button>
-            <button id="localFloodReset" class="secondary" type="button" disabled>Reset water</button>
+            <button id="localFloodRun" type="button" disabled>运行</button>
+            <button id="localFloodPause" class="secondary" type="button" disabled>暂停</button>
+            <button id="localFloodReset" class="secondary" type="button" disabled>重置水体</button>
           </div>
           <label class="layerRow" style="margin-top:8px">
             <span class="layerName">
-              <strong>Hide buildings in selection</strong>
-              <small>Hides buildings inside the red outline visually only · surrounding buildings unchanged</small>
+              <strong>隐藏选区内建筑</strong>
+              <small>仅视觉隐藏红色范围内建筑 · 周边建筑保持原样</small>
             </span>
             <input id="localFloodHideSelectedBuildings" type="checkbox" autocomplete="off" disabled>
           </label>
-          <div class="simLegend" aria-label="Local flood simulation legend">
-            <span><i style="--swatch:#52cfff"></i>Shallow ponding</span>
-            <span><i style="--swatch:#1074de"></i>Deeper ponding</span>
-            <span><i style="--swatch:#ff9f1a"></i>Buildings inside</span>
-            <span><i style="--swatch:#ff3b30"></i>Buildings hit by water</span>
+          <div class="simLegend" aria-label="局部洪涝模拟图例">
+            <span><i style="--swatch:#52cfff"></i>浅积水</span>
+            <span><i style="--swatch:#1074de"></i>较深积水</span>
+            <span><i style="--swatch:#ff9f1a"></i>圈内建筑</span>
+            <span><i style="--swatch:#ff3b30"></i>受水体碰撞建筑</span>
           </div>
-          <div id="localFloodGridInfo" class="simInfo">Waiting for a selected area</div>
-          <div id="localFloodStats" class="simStats">Not run yet</div>
+          <div id="localFloodGridInfo" class="simInfo">等待圈选范围</div>
+          <div id="localFloodStats" class="simStats">尚未运行</div>
           <div class="layerMeta">
-            The simulation first turns real OSM building footprints into solid obstacles, then runs fast mass-conserving rainfall-terrain routing on the OS Terrain 50 elevation model. Buildings hit by water are highlighted in 3D. This is for urban design comparison and visualisation, not an engineering-grade 2D shallow-water model; terrain analysis precision is still 50 m.
+            模拟先用真实 OSM 建筑轮廓生成不可穿透障碍，再按 OS Terrain 50 数值地形进行质量守恒的快速降雨－地形路由。建筑碰撞会在 3D 中高亮。该功能用于城市设计比较与可视化，不是工程级二维浅水方程模型；地形分析精度仍为 50 m。
           </div>
-          <div id="localFloodStatus" class="layerStatus" role="status" aria-live="polite">Waiting for the map to load…</div>
+          <div id="localFloodStatus" class="layerStatus" role="status" aria-live="polite">等待地图加载…</div>
         </div>
 
       </div>
 
       <details class="layerSources">
-        <summary>Data sources, analysis precision and coordinate registration</summary>
-        <p>Basemap: © OpenStreetMap contributors; map tiles by OpenFreeMap.
-          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OSM source</a>
+        <summary>数据来源、分析精度与坐标配准</summary>
+        <p>底图：© OpenStreetMap contributors；OpenFreeMap 提供地图瓦片。
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OSM 来源</a>
         </p>
-        <p>3D building footprints and positions come from the same OSM / OpenFreeMap vector tiles. Heights use the height or floor-count fields where present, otherwise the data source estimate; this is not a surveyed city-wide model.
-          <a href="https://openmaptiles.org/docs/schema/#building" target="_blank" rel="noopener noreferrer">Building data fields</a>
+        <p>3D 建筑轮廓与位置来自同一套 OSM / OpenFreeMap 矢量瓦片。高度按已有高度或层数字段生成，缺失时采用数据源的估计值，不是全城实测模型。
+          <a href="https://openmaptiles.org/docs/schema/#building" target="_blank" rel="noopener noreferrer">建筑数据字段</a>
         </p>
-        <p>Place search: OSM Nominatim returns real latitude and longitude for a name, address or postcode; it only queries when you click Search or press Enter.
+        <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>Terrain: Environment Agency LiDAR Composite DTM 1 m, Open Government Licence. This site stores a terrain overview fetched from the official service on 2026-10-11 and registered to the same EPSG:3857 outer boundary as the catchment map; since v3.21.16 the browser builds Web Mercator XYZ map tiles by zoom level in a local Worker, and no longer requests EA WMS/WMTS while browsing, zooming or tilting in 3D. This local display layer stays complete and continuous, but its visible detail is set by the cached overview resolution and is not the same as loading the 1 m DEM pixel by pixel.
-          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">Official data catalogue</a> · <a href="assets/terrain/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Terrain display metadata</a>
+        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.21.16 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">官方数据目录</a> · <a href="assets/terrain/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
         </p>
-        <p>Contours: extracted live at 10 m intervals with marching squares in a browser Worker, from the OS Terrain 50 · 2026-07 50 m elevation grid held on this site; every 50 m is an index contour. They are derived from the official elevation grid, not the contour vector files published by Ordnance Survey, but use the standard 10 m vertical interval of the OS Terrain 50 contour product.
+        <p>等高线：基于本站已有的 OS Terrain 50 · 2026-07 版 50 m 数值高程网格，在浏览器 Worker 中使用 marching-squares 按 10 m 间隔实时提取；每 50 m 为主等高线。它是官方高程网格的派生等值线显示，不是直接加载 Ordnance Survey 发布的 contour 矢量文件，但采用 OS Terrain 50 contour 产品的标准 10 m 垂直间隔。
           <a href="https://www.ordnancesurvey.co.uk/products/os-terrain-50" target="_blank" rel="noopener noreferrer">OS Terrain 50</a> ·
-          <a href="assets/drainage_area/metadata.json?v=3.21.57" target="_blank" rel="noopener noreferrer">DEM metadata (this site)</a>
+          <a href="assets/drainage_area/metadata.json?v=3.21.57" target="_blank" rel="noopener noreferrer">本站 DEM 元数据</a>
         </p>
-        <p>Drainage network: one full upper Thames 50 m flow accumulation grid (0.0025 km² per cell) is kept in the background as the source for the dynamic threshold only; the interface no longer shows a separate “Contributing area” layer. The “Terrain-derived drainage network” filters this same data live by the minimum contributing area threshold you set, and creates no separate network data.
-          <a href="https://deltares.github.io/pyflwdir/latest/_generated/pyflwdir.from_dem.html" target="_blank" rel="noopener noreferrer">D8 / depression filling method</a> ·
-          <a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Shared hydrology metadata</a>
+        <p>排水网络：后台保留一份完整 Thames 上游 50 m 累积汇水栅格（每格 0.0025 km²），仅作为动态阈值计算源；界面不再单独显示「汇水贡献面积」图层。「地形推导排水网络」直接按用户设置的最小汇水面积阈值实时筛选这同一份数据，不生成独立网络数据。
+          <a href="https://deltares.github.io/pyflwdir/latest/_generated/pyflwdir.from_dem.html" target="_blank" rel="noopener noreferrer">D8 / depression filling 方法</a> ·
+          <a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">共享水文数据元数据</a>
         </p>
-        <p>Source CRS EPSG:27700; source raster 2801 × 2801, bounds E460012–600062 / N110348–250398 (140.05 × 140.05 km). The network is reprojected to the same EPSG:3857 grid as the catchment map and follows OSM zoom and pan directly, with no manual offset. Registration does not change the 50 m resolution of the source analysis. The catchment display uses the full 2868 × 2875 reprojected source grid instead of enlarging a 320 × 321 thumbnail; only display values get local cubic interpolation, keeping NoData and the 70 km clip.<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Catchment display metadata</a></p>
-        <p>Background catchment check: the full upper Thames domain first gets 50 m DEM hydrological conditioning, D8 flow direction and flow accumulation, then is clipped to the London 70 km study area. The official NRFA 39001 Thames at Kingston catchment area is 9,948 km²; this model gives 9,957.1 km² near the gauge, a relative error of about 0.09%, so the check passes.<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
-        <p>The drainage network shows potential terrain-derived paths, not underground drains, water levels or flood extent.</p>
-        <p>Local flood simulation: the elevation model is the same OS Terrain 50 data reprojected to a 50 m DEM in EPSG:3857; building footprints in the selected area come from the current OSM / OpenFreeMap building vector tiles, and footprints stop surface runoff passing through walls; continuous water over building bases is for display and tensor-field planning guidance only and is not counted in the water volume. The browser approximates storm-water spread with fast mass-conserving terrain routing, and highlights a building as flooded when water at its base or next to it is ≥5 cm. This simulation is for comparing urban design options and should not replace an engineering flood model based on 1 m LiDAR, drainage networks and 2D shallow-water equations.<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Terrain data metadata</a></p>
-        <p>Flood: © Environment Agency copyright and/or database right 2025, Open Government Licence v3.0.
-          <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">Rivers / sea RoFRS</a> ·
-          <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">Surface water RoFSW</a> ·
-          <a href="assets/london_flood_risk_metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Flood layer metadata</a>
+        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
+        <p>后台汇水数据校核：完整 Thames 上游分析域先进行 50 m DEM 水文校正、D8 流向与 flow accumulation，再裁出 London 70 km 研究范围。NRFA 39001 Thames at Kingston 官方集水面积为 9,948 km²；本次模型在站点附近得到 9,957.1 km²，相对误差约 0.09%，校核通过。<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
+        <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
+        <p>局部洪涝模拟：数值地形采用同一 OS Terrain 50 数据重新投影到 EPSG:3857 后的 50 m DEM；圈选范围内的建筑轮廓来自当前 OSM / OpenFreeMap building 矢量瓦片，建筑占地阻止地表径流穿墙；建筑底面连续积水仅用于展示与张量场规划导向，不计入实际水量。浏览器采用质量守恒的快速地形路由近似雨洪传播，并以建筑底座自身或相邻积水 ≥5 cm 判定建筑受淹高亮。该模拟用于城市设计方案比较，不应替代基于 1 m LiDAR、排水管网和二维浅水方程的工程洪水模型。<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">地形数据元数据</a></p>
+        <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
+          <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">河流／海洋 RoFRS</a> ·
+          <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">地表水 RoFSW</a> ·
+          <a href="assets/london_flood_risk_metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">洪水图层元数据</a>
         </p>
-        <p>Regional overview fetched from the official WMS on 2026-10-11: EPSG:27700 sampled at 12.5 m and aggregated to 25 m display cells, registered to the same EPSG:3857 outer boundary as the catchment / network. At street scale the official present-day &gt;0 m risk maps are requested directly in OSM EPSG:3857 tile coordinates, taking the higher available class of the two datasets per pixel, with no 25 m aggregation; display pixels shrink with zoom (about 1–3 m at typical London street scale). Both displays use the same legend and 70 km clip; display pixels do not add model precision, and blank does not mean no risk. If the detailed service is unavailable, the overview stays and a notice is shown.</p>
+        <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（伦敦常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂不可用时保留总览并明确提示。</p>
       </details>
 
       <div class="row">
-        <button id="terrainFit" class="secondary">Go to the 70 km study area</button>
+        <button id="terrainFit" class="secondary">定位到 70 km 研究范围</button>
       </div>
 
       <div class="row">
-        <button id="londonBtn" class="secondary">London</button>
-        <button id="locateBtn" class="secondary">Locate me</button>
-        <button id="resetBtn" class="secondary">Reset</button>
+        <button id="londonBtn" class="secondary">伦敦</button>
+        <button id="locateBtn" class="secondary">定位我</button>
+        <button id="resetBtn" class="secondary">重置</button>
       </div>
 
       <div class="apiStats googleOnly">
         <div class="apiStatsTitle">
-          <span>Google API load statistics</span>
-          <button id="resetApiStats" class="statsReset" type="button">Reset</button>
+          <span>Google API 加载统计</span>
+          <button id="resetApiStats" class="statsReset" type="button">清零</button>
         </div>
         <div class="apiStatsGrid">
           <div class="apiStat">
             <span id="apiStatSession" class="apiStatValue">0</span>
-            <span class="apiStatLabel">This session</span>
+            <span class="apiStatLabel">本次会话</span>
           </div>
           <div class="apiStat">
             <span id="apiStatToday" class="apiStatValue">0</span>
-            <span class="apiStatLabel">Today</span>
+            <span class="apiStatLabel">今天</span>
           </div>
           <div class="apiStat">
             <span id="apiStatMonth" class="apiStatValue">0</span>
-            <span class="apiStatLabel">This month</span>
+            <span class="apiStatLabel">本月</span>
           </div>
           <div class="apiStat">
             <span id="apiStatTotal" class="apiStatValue">0</span>
-            <span class="apiStatLabel">Total</span>
+            <span class="apiStatLabel">累计</span>
           </div>
         </div>
         <div class="apiStatsNote">
-          Counts only Google Maps instances this browser created and finished loading; switching to OSM is not counted.
+          仅统计此浏览器成功创建并完成加载的 Google Maps 实例；切换到 OSM 不计数。
         </div>
       </div>
 
-      <div id="status" class="status">Starting the map…</div>
+      <div id="status" class="status">正在初始化地图…</div>
       <div class="note" id="note">
-        Analysis layers are off by default and load when ticked. The map supports 2D / 3D city views and place search; every layer stays registered to real geographic coordinates.</div>
+        分析图层默认关闭，勾选后加载。地图支持 2D / 3D 城市视角与地点搜索；各图层仍按真实地理坐标配准。</div>
     </div>
   </div>
 
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.23.2-english';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.23.2-english';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.23.2-english';
-  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.23.2-english';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.23.2-english';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.23.2-english';
-  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.23.2-english';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.21.15';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.23.1-buildingbase-yearly';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.78-tensor-gap-diagnostic';
+  import {createParcelGenerator} from './scripts/parcel_generator.js?v=1.0.0';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.23.2-english';
+  const APP_VERSION='3.23.1-buildingbase-yearly';
   // Keep the header's version derived from exactly the same runtime build id.
   document.getElementById('appVersionLabel').textContent='OpenStreetMap / OpenFreeMap · v'+APP_VERSION;
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
@@ -1782,12 +1782,12 @@
     $('providerBadge').textContent='OpenStreetMap · no API key';
     $('mapType').disabled=true;
     $('note').textContent=
-      'During development only OpenStreetMap / OpenFreeMap is enabled; the Google Maps API is not loaded.';
+      '开发阶段仅启用 OpenStreetMap / OpenFreeMap；不会加载 Google Maps API。';
   }
 
   window.gm_authFailure=()=>{
     console.error('Google Maps authentication failed.');
-    say('Google Maps key authentication failed; switching to OpenStreetMap…',true);
+    say('Google Maps Key 认证失败，正在自动切换到 OpenStreetMap…',true);
 
     terrainCameraStarted();
 
@@ -1805,7 +1805,7 @@
         const t=setInterval(()=>{
           if(window.google&&window.google.maps){clearInterval(t);resolve();}
         },100);
-        setTimeout(()=>{clearInterval(t);reject(new Error('Google Maps load timed out.'));},20000);
+        setTimeout(()=>{clearInterval(t);reject(new Error('Google Maps 加载超时。'));},20000);
         return;
       }
       googleLoading=true;
@@ -1814,7 +1814,7 @@
       s.async=true;s.defer=true;
       s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(API_KEY)+
         '&loading=async&libraries=maps&v=weekly&language=zh-CN&region=GB&auth_referrer_policy=origin&callback=__initGoogleMap';
-      s.onerror=()=>{googleLoading=false;reject(new Error('Google Maps script failed to download.'))};
+      s.onerror=()=>{googleLoading=false;reject(new Error('Google Maps 脚本下载失败。'))};
       document.head.appendChild(s);
     });
   }
@@ -1829,12 +1829,12 @@
       async function loadDem(){
         if(dem)return dem;
         const response=await fetch(cfg.url,{cache:'force-cache'});
-        if(!response.ok)throw new Error('OS Terrain 50 DEM failed to load ('+response.status+')');
+        if(!response.ok)throw new Error('OS Terrain 50 DEM 加载失败（'+response.status+'）');
 
         const bitmap=await createImageBitmap(await response.blob());
         if(bitmap.width!==cfg.width||bitmap.height!==cfg.height){
           bitmap.close();
-          throw new Error('OS Terrain 50 DEM size mismatch');
+          throw new Error('OS Terrain 50 DEM 尺寸不匹配');
         }
 
         const canvas=new OffscreenCanvas(bitmap.width,bitmap.height);
@@ -2100,7 +2100,7 @@
       const data=event.data||{};
 
       if(data.type==='error'){
-        contourError=data.message||'Contour generation failed';
+        contourError=data.message||'等高线生成失败';
         if(contourEnabled){
           $('contourStatus').textContent=contourError;
           $('contourStatus').className='layerStatus error';
@@ -2123,7 +2123,7 @@
       const count=data.geojson?.features?.length||0;
       const interval=Number(data.interval)||contourIntervalM;
       $('contourStatus').textContent=
-        'Shown · '+interval+' m contour interval · '+count+' elevation levels';
+        '已显示 · '+interval+' m 等高距 · '+count+' 个高程级';
       $('contourStatus').className='layerStatus';
     };
 
@@ -2232,7 +2232,7 @@
         contourHoverPopup
           .setLngLat(event.lngLat)
           .setHTML(
-            '<strong>Contour elevation</strong><br>'+
+            '<strong>等高线高程</strong><br>'+
             Math.round(elevation)+' m'
           )
           .addTo(osmMap);
@@ -2305,7 +2305,7 @@
 
       const requestId=++contourWorkerRequestId;
       $('contourStatus').textContent=
-        requestId===1?'Reading OS Terrain 50…':'Updating contours…';
+        requestId===1?'正在读取 OS Terrain 50…':'正在更新等高线…';
       $('contourStatus').className='layerStatus';
 
       ensureContourWorker().postMessage({
@@ -2336,12 +2336,12 @@
     }
 
     if(contourEnabled&&currentProvider==='osm'){
-      $('contourStatus').textContent='Preparing contours…';
+      $('contourStatus').textContent='准备生成等高线…';
       $('contourStatus').className='layerStatus';
       refreshContourLayer(10);
     }else{
       $('contourStatus').textContent=
-        contourEnabled?'Shown on OpenStreetMap / OpenFreeMap only':'Off';
+        contourEnabled?'仅在 OpenStreetMap / OpenFreeMap 显示':'已关闭';
       $('contourStatus').className='layerStatus';
     }
   }
@@ -2371,7 +2371,7 @@
     }
     terrainViewMode=null;
     terrainLocalError=null;
-    $('terrainStatus').textContent='Off';
+    $('terrainStatus').textContent='已关闭';
     $('terrainStatus').className='layerStatus';
   }
 
@@ -2392,7 +2392,7 @@
     googleTerrainGround=next;
     googleTerrainBounds={...bounds};
     if(old)old.setMap(null);
-    say('EA terrain uses the local cache on this site; live WMS / WMTS is no longer requested.');
+    say('EA 地形使用本站本地缓存，不再请求实时 WMS / WMTS。');
   }
 
   function ensureOsmTerrainLayer(){
@@ -2441,9 +2441,9 @@
 
     $('terrainStatus').className='layerStatus'+(mode==='error'?' error':'');
     $('terrainStatus').textContent=
-      mode==='loaded'?'Shown · local terrain tiles by zoom · no live service needed':
-      mode==='error'?'Local terrain tile loading error; refresh the page to retry':
-      'Generating local terrain tiles…';
+      mode==='loaded'?'已显示 · 本地分级地形瓦片 · 无实时服务依赖':
+      mode==='error'?'本地地形瓦片加载异常；请刷新网页重试':
+      '正在生成本地地形瓦片…';
   }
 
   function applyTerrainOpacity(){
@@ -2552,10 +2552,10 @@
     if(osmMap.getLayer(FLOOD_DETAIL_LAYER)){
       osmMap.setPaintProperty(FLOOD_DETAIL_LAYER,'raster-opacity',ready?floodOpacity:0);
     }
-    if(mode==='detail')setFloodStatus('Shown · EA official street-scale detail · '+(floodDisplayMode==='nearest'?'Discrete classes':'Smooth transition'));
-    else if(mode==='loading')setFloodStatus('Loading official street-scale detail… showing the overview for now');
-    else if(mode==='error')setFloodStatus('Detailed service unavailable, keeping the overview; toggle again to retry',true);
-    else setFloodStatus('Shown · 25 m risk map · '+(floodDisplayMode==='nearest'?'Raw classes':'Smoothed display'));
+    if(mode==='detail')setFloodStatus('已显示 · EA 官方街道精细图 · '+(floodDisplayMode==='nearest'?'离散等级':'平滑过渡'));
+    else if(mode==='loading')setFloodStatus('正在加载官方街道精细图… 暂时显示总览');
+    else if(mode==='error')setFloodStatus('精细服务暂不可用，保留总览；可重新开关重试',true);
+    else setFloodStatus('已显示 · 25 m 风险图 · '+(floodDisplayMode==='nearest'?'原始等级':'平滑显示'));
   }
 
   function handleFloodDetailError(error){
@@ -2585,13 +2585,13 @@
         tasks.push((async()=>{
           if(floodImageUrls.has(key))return floodImageUrls.get(key);
           const response=await fetch(assetUrl('assets/flood_risk/'+(source==='combined'?'flood':source)+'_'+suffix+'.webp'),{cache:'force-cache'});
-          if(!response.ok)throw new Error((source==='combined'?'Combined risk':'Separate EA risk')+' data file not published or failed to load ('+response.status+'). No other source used to fill gaps.');
+          if(!response.ok)throw new Error((source==='combined'?'综合风险':'独立 EA 风险')+'数据文件未发布或加载失败（'+response.status+'）。未使用其他来源填补。');
           const blob=await response.blob();
           const bitmap=await createImageBitmap(blob);
           const valid=bitmap.width===DRAINAGE_3857.baseWidth50m&&
             bitmap.height===DRAINAGE_3857.baseHeight50m;
           bitmap.close?.();
-          if(!valid)throw new Error('Flood raster size does not match the registration grid');
+          if(!valid)throw new Error('洪水栅格尺寸与配准网格不一致');
           const url=URL.createObjectURL(blob);
           if(floodImageUrls.has(key)){
             URL.revokeObjectURL(url);
@@ -2628,14 +2628,14 @@
     $('floodItem').classList.toggle('focusActive',floodEnabled);
     if(!floodEnabled){
       removeFloodLayer();
-      setFloodStatus('Off');
+      setFloodStatus('已关闭');
       return true;
     }
     if(!osmMap||!osmStyleReady){
-      setFloodStatus('Waiting for the map to load…');
+      setFloodStatus('等待地图加载…');
       return false;
     }
-    setFloodStatus('Loading EA present-day flood risk map…');
+    setFloodStatus('正在加载 EA 现状洪水风险图…');
     try{
       const urls=await getFloodImageUrls();
       if(requestId!==floodRequestId||!floodEnabled||!osmStyleReady)return false;
@@ -2666,7 +2666,7 @@
       if(requestId!==floodRequestId||!floodEnabled)return false;
       console.error('EA flood risk:',err);
       removeFloodLayer();
-      setFloodStatus('Failed to load:'+(err?.message||err),true);
+      setFloodStatus('加载失败：'+(err?.message||err),true);
       return false;
     }
   }
@@ -2705,17 +2705,17 @@
       removeNetworkLayer();
       networkTileSeen=false;
       networkDisplayError=null;
-      setNetworkStatus('Off');
+      setNetworkStatus('已关闭');
       return;
     }
     if(!osmMap||!osmStyleReady){
-      setNetworkStatus('Waiting for the map to load…');
+      setNetworkStatus('等待地图加载…');
       return;
     }
 
     networkTileSeen=false;
     networkDisplayError=null;
-    setNetworkStatus('Loading current view · ≥ '+formatNetworkThreshold(networkThreshold)+' km² drainage network…');
+    setNetworkStatus('正在加载当前视野 · ≥ '+formatNetworkThreshold(networkThreshold)+' km² 排水网络…');
 
     const nw=networkCoordinates()[0],se=networkCoordinates()[2];
     const tiles=[networkTileTemplate()];
@@ -2730,7 +2730,7 @@
         minzoom:AREA_MIN_ZOOM,
         maxzoom:AREA_MAX_ZOOM,
         bounds:[nw[0],se[1],se[0],nw[1]],
-        attribution:'Terrain-derived drainage network · full upper Thames 50 m flow accumulation grid'
+        attribution:'地形推导排水网络 · 完整 Thames 上游 50 m 累积汇水栅格'
       });
     }
 
@@ -2776,13 +2776,13 @@
   function syncNetworkStatus(){
     if(!networkEnabled||!osmMap||!osmStyleReady)return;
     if(networkDisplayError){
-      setNetworkStatus('Drainage network display failed:'+networkDisplayError,true);
+      setNetworkStatus('排水网络显示失败：'+networkDisplayError,true);
       return;
     }
     const ready=networkTileSeen&&osmMap.getSource(NETWORK_SOURCE)&&osmMap.isSourceLoaded(NETWORK_SOURCE);
     setNetworkStatus(ready
-      ?'Shown · dynamic threshold ≥ '+formatNetworkThreshold(networkThreshold)+' km² · 50 m raw threshold + smoothed display'
-      :'Loading current view · ≥ '+formatNetworkThreshold(networkThreshold)+' km² drainage network…');
+      ?'已显示 · 动态阈值 ≥ '+formatNetworkThreshold(networkThreshold)+' km² · 50 m 原始阈值 + 平滑过渡显示'
+      :'正在加载当前视野 · ≥ '+formatNetworkThreshold(networkThreshold)+' km² 排水网络…');
   }
 
   function fitGoogleTo70(){
@@ -2888,9 +2888,9 @@
     ensureOsmFocus70();
 
     if(focus70Enabled){
-      say('70 KM focus mode on: the map is limited to the study area and terrain is re-registered to real coordinates.');
+      say('70 KM 聚焦模式已开启：地图限制在研究范围，地形按实际坐标重新配准。');
     }else{
-      say('70 KM focus mode off: free browsing restored.');
+      say('70 KM 聚焦模式已关闭：恢复自由浏览。');
     }
 
     terrainCameraStarted();
@@ -2899,7 +2899,7 @@
 
   async function initGoogle(){
     if(googleMap)return;
-    say('Loading Google Maps…');
+    say('正在加载 Google Maps…');
     try{
       await loadGoogleScript();
       const {Map}=await google.maps.importLibrary('maps');
@@ -2956,10 +2956,10 @@
 
       updateGoogleFocus70();
       updateTerrainLayers();
-      if(currentProvider==='google')say('Google Maps loaded; exact real-location registration is on.');
+      if(currentProvider==='google')say('Google Maps 已加载；真实位置精确配准模式已启用。');
     }catch(err){
       console.error(err);
-      say('Google Maps failed to load; switching to OpenStreetMap…',true);
+      say('Google Maps 加载失败，正在自动切换到 OpenStreetMap…',true);
       setTimeout(()=>{
         const provider=$('provider');
         provider.value='osm';
@@ -2974,7 +2974,7 @@
     const id=String(layer.id||'').toLowerCase();
     const sourceLayer=String(layer['source-layer']||'').toLowerCase();
 
-    // IMPORTANT: the "Hide OSM names / POI labels" switch must only affect the
+    // IMPORTANT: the "隐藏 OSM 名称 / POI 标注" switch must only affect the
     // OpenStreetMap/OpenFreeMap basemap annotation layers. Never hide our own
     // measurement/editing/analysis overlays (red boundary, anchors, edge lengths,
     // area tooltip support, flood/drainage/terrain layers, etc.).
@@ -8023,7 +8023,7 @@
     searchRequestId++;
     searchController?.abort();searchController=null;
     $('placeSearchButton').disabled=!osmStyleReady;
-    $('placeSearchButton').textContent='Search';
+    $('placeSearchButton').textContent='搜索';
   }
 
   function goToPlace(place,button){
@@ -8047,28 +8047,28 @@
       .setPopup(new maplibregl.Popup({offset:25}).setText(place.name)).addTo(osmMap);
     searchMarker.getElement().setAttribute('aria-label',place.name);
     for(const item of $('placeSearchResults').children)item.setAttribute('aria-pressed',String(item===button));
-    setSearchStatus('Located:'+place.name);
+    setSearchStatus('已定位：'+place.name);
     if(window.innerWidth<=600){
       $('panel').classList.add('collapsed');$('collapse').textContent='+';
     }
   }
 
   async function runPlaceSearch(){
-    if(!osmMap||!osmStyleReady){setSearchStatus('The map is loading, please wait.');return;}
+    if(!osmMap||!osmStyleReady){setSearchStatus('地图正在加载，请稍候。');return;}
     const query=$('placeSearchInput').value.trim();
-    if(!query){setSearchStatus('Enter a place name, address or postcode.',true);return;}
+    if(!query){setSearchStatus('请输入地点名称、地址或邮编。',true);return;}
     cancelPlaceSearch();
     const requestId=searchRequestId,controller=new AbortController();
     searchController=controller;
-    $('placeSearchButton').disabled=true;$('placeSearchButton').textContent='Searching…';
-    $('placeSearchResults').replaceChildren();setSearchStatus('Searching…');
+    $('placeSearchButton').disabled=true;$('placeSearchButton').textContent='搜索中…';
+    $('placeSearchResults').replaceChildren();setSearchStatus('正在搜索…');
     const timeout=setTimeout(()=>controller.abort(),18000);
     try{
       const bounds=osmMap.getBounds();
       const viewbox=[bounds.getWest(),bounds.getNorth(),bounds.getEast(),bounds.getSouth()];
       const places=await searchPlaces(query,{signal:controller.signal,viewbox});
       if(requestId!==searchRequestId)return;
-      if(!places.length){setSearchStatus('Place not found; add a city, address or postcode.',true);return;}
+      if(!places.length){setSearchStatus('没有找到该地点，请补充城市、地址或邮编。',true);return;}
       for(const place of places){
         const button=document.createElement('button');
         button.type='button';button.className='searchResult';button.textContent=place.name;
@@ -8079,18 +8079,18 @@
       goToPlace(places[0],$('placeSearchResults').firstElementChild);
     }catch(error){
       if(requestId!==searchRequestId)return;
-      setSearchStatus(error.name==='AbortError'?'Search timed out, please try again.':(error.message||'Search failed, please try again.'),true);
+      setSearchStatus(error.name==='AbortError'?'搜索超时，请重试。':(error.message||'搜索失败，请重试。'),true);
     }finally{
       clearTimeout(timeout);
       if(requestId===searchRequestId){
-        searchController=null;$('placeSearchButton').disabled=false;$('placeSearchButton').textContent='Search';
+        searchController=null;$('placeSearchButton').disabled=false;$('placeSearchButton').textContent='搜索';
       }
     }
   }
 
   function initOSM(){
     if(osmMap)return;
-    say('Loading OpenStreetMap…');
+    say('正在加载 OpenStreetMap…');
     const detailLoader=createFloodDetailLoader({
       center:FOCUS70_CENTER,radius:FOCUS70_RADIUS_M,bounds:DRAINAGE_3857,assetUrl
     });
@@ -8186,11 +8186,11 @@
     });
     osmMap.on('error',e=>{
       if(e.sourceId===NETWORK_SOURCE&&networkEnabled){
-        networkDisplayError=e.error?.message||'Failed to load';
+        networkDisplayError=e.error?.message||'加载失败';
         syncNetworkStatus();
       }
       if(e.sourceId===TERRAIN_TILE_SOURCE&&terrainEnabled){
-        terrainLocalError=e.error?.message||'Local terrain tiles failed to load';
+        terrainLocalError=e.error?.message||'本地地形瓦片加载失败';
         syncTerrainView();
       }
     });
@@ -8249,7 +8249,7 @@
       updateFloodLayer();
       if(currentProvider==='osm'){
         updateTerrainLayers();
-        say('Map connected. Switch to 3D city or search for a place; analysis layers load when ticked.');
+        say('地图已连接。可切换 3D 城市或搜索地点；分析图层勾选后加载。');
         osmMap.once('idle',()=>scheduleStreetVehicleRefresh(0));
       }
     });
@@ -8429,7 +8429,7 @@
         },50);
         updateGoogleFocus70();
           setTimeout(terrainCameraEnded,150);
-        say('Google Maps mode; re-registering terrain to real locations.');
+        say('Google Maps 模式；正在按真实位置重新配准地形。');
       }
     }else{
       $('googleMap').style.display='none';
@@ -8446,7 +8446,7 @@
       if(osmMap&&osmMap.loaded()){
         ensureOsmFocus70();
         setTimeout(terrainCameraEnded,170);
-        say('OpenStreetMap mode; re-registering terrain to real locations.');
+        say('OpenStreetMap 模式；正在按真实位置重新配准地形。');
       }
     }
   }
@@ -8476,7 +8476,7 @@
   });
 
   $('resetApiStats').addEventListener('click',()=>{
-    if(confirm('Clear the Google API load statistics saved in this browser?')){
+    if(confirm('确定清除当前浏览器保存的 Google API 加载统计吗？')){
       resetApiStats();
     }
   });
@@ -8514,19 +8514,19 @@
     const subtitle=$('contourSubtitle');
     if(subtitle){
       subtitle.textContent=
-        'Real elevation data · '+contourIntervalM+
-        ' m contour interval · Ordnance Survey OpenData';
+        '真实高程数据 · '+contourIntervalM+
+        ' m 等高距 · Ordnance Survey OpenData';
     }
 
     if(!contourEnabled){
       $('contourStatus').textContent=
-        'Set · '+contourIntervalM+' m contour interval';
+        '已设置 · '+contourIntervalM+' m 等高距';
       $('contourStatus').className='layerStatus';
       return;
     }
 
     $('contourStatus').textContent=
-      'Generating '+contourIntervalM+' m contours…';
+      '正在生成 '+contourIntervalM+' m 等高线…';
     $('contourStatus').className='layerStatus';
     refreshContourLayer(0);
   });
@@ -8539,8 +8539,8 @@
     }
     if(osmMap?.getLayer(FLOOD_DETAIL_LAYER))osmMap.setPaintProperty(FLOOD_DETAIL_LAYER,'raster-resampling',floodDisplayMode);
     if(floodEnabled)setFloodStatus(floodDisplayMode==='nearest'
-      ?'Using raw discrete classes (nearest); pixel edges are not smoothed'
-      :'Using smooth transitions; blended colours are not new official risk classes');
+      ?'已使用原始离散等级（nearest），像素边界不进行视觉平滑'
+      :'已使用平滑过渡；混合色不是新的官方风险等级');
   });
 
   $('floodRiskSource').addEventListener('change',e=>{
@@ -8548,7 +8548,7 @@
     floodRequestId++;
     removeFloodLayer();
     if(floodEnabled)updateFloodLayer();
-    else setFloodStatus('Selected '+e.target.options[e.target.selectedIndex].text+' · layer not on');
+    else setFloodStatus('已选 '+e.target.options[e.target.selectedIndex].text+' · 图层未开启');
   });
 
   $('floodToggle').addEventListener('change',e=>{
@@ -8672,8 +8672,8 @@
   };
 
   $('locateBtn').onclick=()=>{
-    if(!navigator.geolocation){say('This browser does not support location.',true);return;}
-    say('Locating…');
+    if(!navigator.geolocation){say('浏览器不支持定位。',true);return;}
+    say('正在定位…');
     navigator.geolocation.getCurrentPosition(async pos=>{
       const p={lat:pos.coords.latitude,lng:pos.coords.longitude};
       if(currentProvider==='google'){
@@ -8682,7 +8682,7 @@
         googleMap.panTo(p);googleMap.setZoom(15);
           sharedView={lat:p.lat,lng:p.lng,zoom:15,source:currentProvider};
         if(googleMarker)googleMarker.setMap(null);
-        googleMarker=new google.maps.Marker({position:p,map:googleMap,title:'Current location'});
+        googleMarker=new google.maps.Marker({position:p,map:googleMap,title:'当前位置'});
       }else{
         initOSM();
         osmMap.flyTo({center:[p.lng,p.lat],zoom:15});
@@ -8690,8 +8690,8 @@
         if(osmMarker)osmMarker.remove();
         osmMarker=new maplibregl.Marker().setLngLat([p.lng,p.lat]).addTo(osmMap);
       }
-      say('Location found.');
-    },err=>say('Location failed:'+err.message,true),{
+      say('定位成功。');
+    },err=>say('定位失败：'+err.message,true),{
       enableHighAccuracy:true,timeout:10000,maximumAge:60000
     });
   };
@@ -8702,7 +8702,7 @@
     const nextCollapsed=!analysisLayerList.classList.contains('sectionCollapsed');
     analysisLayerList.classList.toggle('sectionCollapsed',nextCollapsed);
     layerListToggle.setAttribute('aria-expanded',String(!nextCollapsed));
-    layerListToggle.title=nextCollapsed?'Expand analysis layers':'Collapse analysis layers';
+    layerListToggle.title=nextCollapsed?'展开分析图层':'折叠分析图层';
     requestAnimationFrame(()=>{
       if(osmMap&&currentProvider==='osm')osmMap.resize();
     });
@@ -8714,7 +8714,7 @@
     const nextCollapsed=!floodSimTaskList.classList.contains('sectionCollapsed');
     floodSimTaskList.classList.toggle('sectionCollapsed',nextCollapsed);
     floodSimTaskToggle.setAttribute('aria-expanded',String(!nextCollapsed));
-    floodSimTaskToggle.title=nextCollapsed?'Expand local flood simulation':'Collapse local flood simulation';
+    floodSimTaskToggle.title=nextCollapsed?'展开局部洪涝模拟':'折叠局部洪涝模拟';
     requestAnimationFrame(()=>{
       if(osmMap&&currentProvider==='osm')osmMap.resize();
     });
@@ -8843,7 +8843,7 @@
     }
     panel.classList.toggle('collapsed',collapsing);
     $('collapse').textContent=collapsing?'+':'−';
-    $('collapse').setAttribute('aria-label',collapsing?'Expand control panel':'Collapse control panel');
+    $('collapse').setAttribute('aria-label',collapsing?'展开控制面板':'折叠控制面板');
 
     if(!collapsing&&panelExpandedWidth){
       requestAnimationFrame(()=>applyPanelWidth(panelExpandedWidth,false));

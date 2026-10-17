@@ -1,8 +1,8 @@
-import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.23.2-english';
-import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.23.2-english';
-import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.23.2-english';
-import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.23.2-english';
-import {buildTensorGapDiagnostic} from './hydro_tensor_gap_diagnostic.js?v=3.23.2-english';
+import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
+import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
+import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
+import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
+import {buildTensorGapDiagnostic} from './hydro_tensor_gap_diagnostic.js?v=3.22.78-tensor-gap-diagnostic';
 /* v3.22.76-tensor-particle-balance · DISPLAY ONLY. Current computed eigenfield,
    original streamline geometry and flood physics are unchanged. Particle
    sampling and visual brightness are spatially balanced. Blue-violet colours encode artistic visual hierarchy only,
@@ -236,18 +236,18 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.23.2-english',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.23.1-buildingbase-yearly',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
         tensorBusy=false;
-        status('Tensor calculation Worker failed:'+(e.message||'check the browser console'));
+        status('张量计算 Worker 失败：'+(e.message||'检查浏览器控制台'));
       };
       worker.onmessage=({data})=>{
         if(disposed||worker!==current||!enabled||!data)return;
         if(data.requestId===tensorActiveRequest)tensorBusy=false;
         if(data.requestId!==requestId)return;
-        if(data.type==='error'){status('Tensor field calculation failed:'+data.message);return}
+        if(data.type==='error'){status('张量场计算失败：'+data.message);return}
         if(data.type!=='result'||!data.fields)return;
         const n=data.cols*data.rows;
         const fields={};
@@ -267,7 +267,7 @@ export function createHydroTensorRenderer(args){
       };
       return true;
     }catch(error){
-      status('Tensor Worker did not start:'+error.message);
+      status('张量 Worker 未启动：'+error.message);
       return false;
     }
   }
@@ -277,8 +277,8 @@ export function createHydroTensorRenderer(args){
     // the next hydrological tensor is being calculated. Keep it on screen.
     if(requestTimer){clearTimeout(requestTimer);requestTimer=0}
     if(!enabled||!flow||!context||disposed)return;
-    status(scenario.year+' · computing direction field'+(geometrySnapshot?
-      ' (keeping '+geometrySnapshot.scenario.year+' geometry; not updated yet)':', no line-field result yet'));
+    status(scenario.year+' 年 · 正在计算方向场'+(geometrySnapshot?
+      '（暂留 '+geometrySnapshot.scenario.year+' 年几何；尚未更新）':'，尚无线场结果'));
     requestTimer=setTimeout(()=>{
       requestTimer=0;if(!enabled||!flow||!context||disposed)return;
       // Drop an obsolete expensive tensor solve rather than queueing it ahead
@@ -291,7 +291,7 @@ export function createHydroTensorRenderer(args){
       if(!n||n>70000)return;
       const grid=context.grid;
       if(!validHydroGrid(grid,flow.cols,flow.rows)||!sameHydroGrid(grid,flow.grid)){
-        status('Tensor input is missing a matching raw flood grid');return;
+        status('张量输入缺少匹配的原始洪水网格');return;
       }
       submitted={context,depth,scenario:{...scenario},parameters:{...settings}};
       const request={
@@ -385,42 +385,42 @@ export function createHydroTensorRenderer(args){
     previewBaseSettings={...settings};
     prepareParticlePaths();
     drawLines(growthTo);renderedFraction=growthTo;
-    status((computed.scenario?.year??timelineYear)+' · real tensor direction preview shown '+candidates.length+
-      ' lines; long streamlines are integrating in the background, the preview is not the final curve');
+    status((computed.scenario?.year??timelineYear)+' 年 · 已显示真实张量方向预览 '+candidates.length+
+      ' 条；长流线正在后台积分，预览并非最终曲线');
     return true;
   }
   function geometryStatus(){
     if(!geometryDiagnostics)return;
     const d=geometryDiagnostics,r=d.ribbons;
-    const reasons={no_network_above_threshold:'No catchment cells on this site reach the threshold',
-      network_mask_covers_site:'The catchment threshold mask covers almost the whole site, so separate channels cannot be found',
-      no_supported_skeleton:'No continuous skeleton to extract',no_supported_seeds:'Skeleton seeds lack direction support',
-      integration_blocked_or_ambiguous:'Integration blocked by boundary, obstacle or ambiguous direction',
-      all_below_physical_length:'No integration reached the physical length requirement',spacing_or_length_rejection:'Rejected by spacing or length filter'};
+    const reasons={no_network_above_threshold:'本场地无达到阈值的汇水格',
+      network_mask_covers_site:'汇水阈值掩膜几乎覆盖全场，无法定位独立通道',
+      no_supported_skeleton:'没有可连续提取的骨架',no_supported_seeds:'骨架种子缺少方向支持',
+      integration_blocked_or_ambiguous:'积分受边界、障碍或方向歧义阻断',
+      all_below_physical_length:'积分均未达到物理长度要求',spacing_or_length_rejection:'间距或长度筛选淘汰'};
     const a=d.field.primary,b=d.field.secondary,pct=v=>(100*(v||0)).toFixed(1)+'%';
     const wet=result?.diagnostics?.rainfallResponse;
-    const wetText=wet?(' · flooded cells (≥2cm) '+wet.wetCells20mm+
+    const wetText=wet?(' · 受淹格(≥2cm) '+wet.wetCells20mm+
       ' / '+(result?.diagnostics?.counts?.valid||0)+
-      ' · mean ponding '+wet.meanSiteDepthMm.toFixed(1)+'mm'):'';
+      ' · 平均积水 '+wet.meanSiteDepthMm.toFixed(1)+'mm'):'';
 
-    status((geometrySnapshot?.scenario?.year??2026)+' · direction evidence '+d.supportedDirectionCells+'/'+d.validCells+' cells ('+pct(d.directionEvidenceRatio)+')'+
-      '\nPrimary/secondary lines '+(a?.finalLines??0)+' / '+(b?.finalLines??0)+
-      ' · whole-site coverage '+pct(a?.wholeValidCoverage)+' / '+pct(b?.wholeValidCoverage)+wetText+
-      ' · evidence-area coverage '+pct(a?.supportedCoverage)+' / '+pct(b?.supportedCoverage)+
-      '\nMean length '+(a?.meanLengthM??0).toFixed(1)+' / '+(b?.meanLengthM??0).toFixed(1)+'m'+
-      ' · median '+(a?.medianLengthM??0).toFixed(1)+' / '+(b?.medianLengthM??0).toFixed(1)+'m'+
+    status((geometrySnapshot?.scenario?.year??2026)+' 年 · 方向证据 '+d.supportedDirectionCells+'/'+d.validCells+' 格（'+pct(d.directionEvidenceRatio)+'）'+
+      '\n主/次线 '+(a?.finalLines??0)+' / '+(b?.finalLines??0)+
+      ' · 全场覆盖 '+pct(a?.wholeValidCoverage)+' / '+pct(b?.wholeValidCoverage)+wetText+
+      ' · 证据区覆盖 '+pct(a?.supportedCoverage)+' / '+pct(b?.supportedCoverage)+
+      '\n长度均值 '+(a?.meanLengthM??0).toFixed(1)+' / '+(b?.meanLengthM??0).toFixed(1)+'m'+
+      ' · 中位 '+(a?.medianLengthM??0).toFixed(1)+' / '+(b?.medianLengthM??0).toFixed(1)+'m'+
       ' · <50m '+(a?.under50m??0)+' / '+(b?.under50m??0)+
-      '\nSeeds '+(a?.candidateSeeds??0)+' / '+(b?.candidateSeeds??0)+
-      ' · integrated '+(a?.integrationSucceeded??0)+' / '+(b?.integrationSucceeded??0)+
-      ' · length rejected '+(a?.lengthRejected??0)+' / '+(b?.lengthRejected??0)+
-      '\nCurvature stops '+(a?.curvatureStops??0)+' / '+(b?.curvatureStops??0)+
-      ' · confidence/interpolation stops '+(a?.confidenceStops??0)+' / '+(b?.confidenceStops??0)+
-      ' · spacing stops '+(a?.spacingStops??0)+' / '+(b?.spacingStops??0)+
-      ' · seed spacing rejected '+(a?.seedSpacingRejected??0)+' / '+(b?.seedSpacingRejected??0)+
-      '\nSkeleton '+r.validSkeletonCells+
-      ' cells → seeds '+r.seedCount+' → integrated '+r.integrationSucceeded+' ('+r.integratedPieces+' pieces)'+
-      ' → length rejected '+r.lengthRejected+' → final bundles '+r.finalBundles+
-      (r.reason?' · '+(reasons[r.reason]||r.reason):'')+' · DEM 50m (curves are interpolated for display)');
+      '\n种子 '+(a?.candidateSeeds??0)+' / '+(b?.candidateSeeds??0)+
+      ' · 积分成功 '+(a?.integrationSucceeded??0)+' / '+(b?.integrationSucceeded??0)+
+      ' · 长度淘汰 '+(a?.lengthRejected??0)+' / '+(b?.lengthRejected??0)+
+      '\n曲率停止 '+(a?.curvatureStops??0)+' / '+(b?.curvatureStops??0)+
+      ' · 置信/插值停止 '+(a?.confidenceStops??0)+' / '+(b?.confidenceStops??0)+
+      ' · 间距停止 '+(a?.spacingStops??0)+' / '+(b?.spacingStops??0)+
+      ' · 种子间距淘汰 '+(a?.seedSpacingRejected??0)+' / '+(b?.seedSpacingRejected??0)+
+      '\n骨架 '+r.validSkeletonCells+
+      ' 格 → 种子 '+r.seedCount+' → 积分成功 '+r.integrationSucceeded+'（'+r.integratedPieces+' 段）'+
+      ' → 长度淘汰 '+r.lengthRejected+' → 最终线束 '+r.finalBundles+
+      (r.reason?' · '+(reasons[r.reason]||r.reason):'')+' · DEM 50m（曲线为插值显示）');
   }
   function buildLines(packet,unpacked){
     renderGeo=gridRenderGeometry(packet.grid);
@@ -476,13 +476,13 @@ export function createHydroTensorRenderer(args){
     if(geometryBusy||!geometryPending||disposed||!enabled)return;
     if(!geometryWorker){
       try{
-        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.23.2-english',import.meta.url),{type:'module'});
+        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.22.59-tensor-3d-performance',import.meta.url),{type:'module'});
         const active=geometryWorker;
         active.onmessage=({data})=>{
           if(disposed||geometryWorker!==active)return;
           geometryBusy=false;geometryActiveId=0;
           if(data.type==='geometry-error'&&data.id===geometryDesired){
-            status('Current direction integration failed; keeping the valid streamlines shown:'+data.message);
+            status('当前方向积分失败，继续保留已显示的有效流线：'+data.message);
           }else if(data.type==='geometry-result'&&data.id===geometryDesired&&enabled){
             const packet=data.packet,unpacked=unpackTensorGeometryPacket(packet);
             // A Worker may legitimately fail to integrate long lines from
@@ -506,7 +506,7 @@ export function createHydroTensorRenderer(args){
                 ribbonCount:unpacked.ribbons.length});
             }else{
               geometryDiagnostics=packet.diagnostics;
-              status('Long streamline integration returned nothing; keeping the direction preview, check confidence and stop reasons');
+              status('长流线积分结果为空；保留方向预览，检查置信度及积分终止原因');
             }
           }
           pumpGeometry();
@@ -515,10 +515,10 @@ export function createHydroTensorRenderer(args){
           if(disposed||geometryWorker!==active)return;
           geometryBusy=false;geometryActiveId=0;
           active.terminate();geometryWorker=null;
-          status('Streamline Worker failed, keeping the visible direction preview:'+(event.message||'please check the data'));
+          status('流线 Worker 失败，保留可见方向预览：'+(event.message||'请检查数据'));
           pumpGeometry();
         };
-      }catch(error){status('Streamline Worker did not start:'+error.message);return}
+      }catch(error){status('流线 Worker 未启动：'+error.message);return}
     }
     const job=geometryPending;geometryPending=null;geometryBusy=true;
     geometryActiveId=job.id;geometryStartedAt=performance.now();
@@ -545,7 +545,7 @@ export function createHydroTensorRenderer(args){
         geometryActiveId=0;pumpGeometry();
       },180);
     }
-    status((scenario?.year??2026)+' · updating real two-direction streamlines, keeping the current view…');
+    status((scenario?.year??2026)+' 年 · 更新真实双方向流线，保留当前画面…');
     pumpGeometry();
   }
   // Static parcel geometry is camera-independent. MapLibre reprojects existing
@@ -913,7 +913,7 @@ export function createHydroTensorRenderer(args){
     if(solverChanged){
       if(controlsGeometryTimer){clearTimeout(controlsGeometryTimer);controlsGeometryTimer=0}
       queueSolve();
-      status(timelineYear+' · recalculating directions with new terrain / catchment / ponding weights…');
+      status(timelineYear+' 年 · 正在按新地形／汇水／积水权重重算方向…');
     }else if(geometryChanged&&result){
       drawLines(yearGrowth);renderedFraction=yearGrowth; // paint-only geometry preview
       if(controlsGeometryTimer)clearTimeout(controlsGeometryTimer);
@@ -921,7 +921,7 @@ export function createHydroTensorRenderer(args){
         controlsGeometryTimer=0;
         if(enabled&&result&&!disposed)queueGeometry();
       },240);
-      status('Previewing parameters · '+timelineYear+' streamlines recalculating…');
+      status('参数预览中 · '+timelineYear+' 年流线重算中…');
     }else if(modeChanged||visibilityChanged)restart();
   }
   function setField(data,spatialContext,meta={}){
@@ -931,7 +931,7 @@ export function createHydroTensorRenderer(args){
     const grid=meta.grid||spatialContext?.grid;
     const oldContext=context,oldDepth=depth,oldScenario=scenario,oldGrid=context?.grid,oldThreshold=drainageThresholdKm2;
     if(!validHydroGrid(grid,data.cols,data.rows)){
-      status('Raw flood grid missing; estimated grids are not mixed in');return;
+      status('缺少原始洪水网格；不混用估算网格');return;
     }
     const flowCandidate={
       cols:data.cols,rows:data.rows,grid,
@@ -956,7 +956,7 @@ export function createHydroTensorRenderer(args){
     }
     if(meta.depthMm){
       const d=new Uint16Array(meta.depthMm);
-      if(d.length!==n){status('Water depth does not match the raw flood grid');return;}
+      if(d.length!==n){status('水深与原始洪水网格不匹配');return;}
       depth=d;
     }else depth=null;
     drainageThresholdKm2=Number(meta.drainageThresholdKm2??1);
@@ -1025,7 +1025,7 @@ export function createHydroTensorRenderer(args){
     lastRenderedYear=2026;yearGrowth=revealForYear(timelineYear);growthFrom=yearGrowth;growthTo=yearGrowth;
     stop();src()?.setData(empty());ribbonSource()?.setData(empty());
     dots()?.setData(empty());invalidateUploaded();
-    status('Waiting for DEM / catchment / rainfall data');
+    status('等待 DEM / 汇水 / 雨水计算数据');
   }
   function exportStructuredData(){
     if(!result)return null;
@@ -1103,7 +1103,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.23.2-english',
+    return {schema:'london-tensor-site-v1',version:'3.23.1-buildingbase-yearly',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       requestedScenario:{...scenario},

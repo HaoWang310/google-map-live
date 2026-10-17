@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#141b24">
-<title>London Map · free detailed 3D building preview</title>
+<title>London Map · 免费精细 3D 建筑预览</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css">
 <style>
   :root{color-scheme:dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
@@ -37,35 +37,35 @@
 </style>
 </head>
 <body>
-<div id="map" aria-label="London free 3D building preview"></div>
+<div id="map" aria-label="伦敦免费建筑三维预览"></div>
 <section class="panel">
   <div class="eyebrow">LONDON MAP / 3D CITY LAB</div>
-  <h1>Detailed buildings · free preview</h1>
-  <p>Real OSM building footprints and heights + procedural facade windows. No paid Mapbox / Google API; no guide lines or building wireframes.</p>
-  <span class="pill">MapLibre / OpenFreeMap · no API key needed</span>
-  <label for="place">London preview locations</label>
+  <h1>精细建筑 · 免费预览</h1>
+  <p>真实 OSM 建筑轮廓与高度 + 程序化立面窗格。无 Mapbox / Google 付费 API；无辅助线或建筑线框。</p>
+  <span class="pill">MapLibre / OpenFreeMap · 无需密钥</span>
+  <label for="place">伦敦预览地点</label>
   <select id="place">
-    <option value="stpauls">St Paul's Cathedral</option>
-    <option value="city">City of London</option>
-    <option value="canary">Canary Wharf</option>
-    <option value="kings">King's Cross</option>
-    <option value="southbank">South Bank</option>
+    <option value="stpauls">St Paul's · 圣保罗大教堂</option>
+    <option value="city">City of London · 金融城</option>
+    <option value="canary">Canary Wharf · 金丝雀码头</option>
+    <option value="kings">King's Cross · 国王十字</option>
+    <option value="southbank">South Bank · 南岸</option>
   </select>
   <div class="row">
-    <button id="day" class="active" type="button">Day lighting</button>
-    <button id="night" type="button">Night lighting</button>
-    <button id="view" class="active" type="button">3D view</button>
+    <button id="day" class="active" type="button">日间光照</button>
+    <button id="night" type="button">夜间光照</button>
+    <button id="view" class="active" type="button">3D 视角</button>
   </div>
   <div class="divider"></div>
   <div class="switchrow">
-    <label for="facades">Building facade windows (procedural)</label>
+    <label for="facades">建筑立面窗格（程序生成）</label>
     <input id="facades" type="checkbox" checked>
   </div>
-  <p class="subline">Windows and materials are visual only and do not show real window positions. The map shows no development guide lines, grid lines or building wireframes.</p>
-  <div id="status" class="status" role="status">Loading London map and building data…</div>
-  <a class="back" href="./">← Back to the London Map main app</a>
+  <p class="subline">窗户与材质仅为视觉表达，不代表真实建筑窗户位置。地图不显示开发辅助线、网格线或建筑线框。</p>
+  <div id="status" class="status" role="status">加载伦敦地图和建筑数据…</div>
+  <a class="back" href="./">← 返回 London Map 主程序</a>
 </section>
-<div class="hint">Rotate the view: right-drag or Ctrl + drag. Scroll to zoom. Works best close up to buildings.</div>
+<div class="hint">拖动旋转视角：右键拖动或 Ctrl + 拖动。滚轮缩放。近距离建筑展示效果最佳。</div>
 <script src="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.js"></script>
 <script>
 (()=>{
@@ -95,7 +95,7 @@ map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-r
 function setStatus(message){status.textContent=message;}
 function firstSymbol(){return map.getStyle().layers.find(layer=>layer.type==='symbol')?.id;}
 function setView(value){
- state.view3d=value;document.getElementById('view').textContent=value?'3D view':'2D view';
+ state.view3d=value;document.getElementById('view').textContent=value?'3D 视角':'2D 视角';
  document.getElementById('view').classList.toggle('active',value);
  map.easeTo({pitch:value?64:0,bearing:value?-27:0,duration:680});
  ['preview-buildings','preview-roofs','preview-facades'].forEach(id=>{
@@ -175,13 +175,13 @@ const cap=(n,min,max)=>Math.max(min,Math.min(max,n));
 function createFacadeWindows(){
  if(!map.getSource(source)||!map.getSource(facadeSource)||!state.facades||!state.view3d||map.getZoom()<15.7){
   map.getSource(facadeSource)?.setData({type:'FeatureCollection',features:[]});
-  if(!state.facades)setStatus('Facade windows off.');
-  else if(!state.view3d)setStatus('2D plan mode: facade detail hidden.');
-  else if(map.getZoom()<15.7)setStatus('Zoom in to street-block scale to see facade detail.');
+  if(!state.facades)setStatus('立面窗格已关闭。');
+  else if(!state.view3d)setStatus('2D 平面模式：立面细节已隐藏。');
+  else if(map.getZoom()<15.7)setStatus('请放大到街区尺度，查看建筑立面细节。');
   return;
  }
  const visible=map.querySourceFeatures(source,{sourceLayer:'building'});
- if(!visible.length){setStatus('Reading building tiles…');return;}
+ if(!visible.length){setStatus('正在读取建筑瓦片…');return;}
  const focus=merc(map.getCenter().lng,map.getCenter().lat);
  const pixelRad=map.getZoom()>17.2?370:map.getZoom()>16.3?470:600;
  const maxFacades=5200;
@@ -248,7 +248,7 @@ function createFacadeWindows(){
  }
  map.getSource(facadeSource)?.setData({type:'FeatureCollection',features});
  state.windows=features.length;state.buildings=count;
- setStatus('Generated '+count+' nearby buildings with facade detail · '+features.length+' window panes.');
+ setStatus('已生成 '+count+' 栋附近建筑的立面细节 · '+features.length+' 个窗格。');
 }
 let timer=0;
 function schedule(){clearTimeout(timer);timer=setTimeout(createFacadeWindows,320);}
@@ -272,7 +272,7 @@ map.on('load',()=>{
   map.on('sourcedata',event=>{
    if(event.sourceId===source&&state.facades&&state.view3d)schedule();
   });
- }catch(error){console.error(error);setStatus('3D mode failed to start:'+error.message);}
+ }catch(error){console.error(error);setStatus('3D 模式初始化失败：'+error.message);}
 });
 map.on('error',e=>{console.warn('3D preview map error',e.error);});
 window.addEventListener('beforeunload',()=>clearTimeout(timer));

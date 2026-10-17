@@ -102,7 +102,7 @@ assert.equal(tensor.diagnostics.obstacleCells,41);
 const ui=read('./local_flood_ui.js');
 assert.ok(ui.includes('geodesicRingAreaM2(ring)'),
   'selected area must use actual earth geometry');
-assert.ok(ui.includes('continuing as an open site with 0 buildings'),
+assert.ok(ui.includes('按 0 栋建筑的开放地块继续运行'),
   'zero-building rural plots must remain valid');
 console.log('PASS conservative roof runoff, ground-metre statistics and building impact');
 console.log('PASS continuous tensor design axes, non-physical base fill, rural plots and real area selection');
