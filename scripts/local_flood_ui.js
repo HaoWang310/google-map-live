@@ -2,6 +2,7 @@ import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.23.3-water-antialias';
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.23.3-water-antialias';
 import {smoothWetDepths} from './flood_water_visual.js?v=3.23.3-water-antialias';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.23.4-existing-elements';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -909,6 +910,13 @@ export function createLocalFloodUI({
   let focusSiteSerial=0;
   let focusAppliedThreshold=null;
   let focusThresholdTimer=null;
+  // Independent site editing: decisions are a planning overlay, never a
+  // change to the original OSM geometry or the flood solver's obstacles.
+  let focusSiteDetails=null;
+  let sitePlanMode=false,sitePlanSelectedId=null,sitePlanStorage=null;
+  let sitePlanDecisions={};
+  let sitePlanShowRoads=true,sitePlanShowGreens=true;
+  const sitePlanFeatureIndex=new Map();
   let siteRainData=null,siteRainRequest=0,rainfallMode='manual',manualFourHourMm=null;
   let lastHydroFrame=null,hydroState='ready';
   let futureYear=2026, floodMode='rain-risk', climateScenario='central', externalStageM=null,siteTerrainMinM=null;
@@ -1386,6 +1394,9 @@ export function createLocalFloodUI({
   const FOCUS_BUILDINGS='focus-building-source';
   const FOCUS_ROADS='focus-roads-source';
   const FOCUS_GREEN='focus-green-source';
+  const FOCUS_PLAN_ROAD='focus-plan-road-outline';
+  const FOCUS_PLAN_GREEN='focus-plan-green-outline';
+  const FOCUS_PLAN_BUILDING='focus-plan-building-outline';
   const FOCUS_WATER='focus-water-source';
   const FOCUS_2D='focus-building-fill';
   const FOCUS_3D='focus-building-extrusion';
@@ -1839,6 +1850,7 @@ export function createLocalFloodUI({
           const major=/motorway|trunk|primary|secondary/i.test(cls);
           const kind=pedestrian?'pedestrian':major?'major':'street';
           const width=focusRoadWidthMetres(p,cls);
+          const elementId=siteElementId('road',dedupe);
           // Build ground footprints in metres before clipping. Pixel-width
           // centerlines are not a scaled representation of carriageway area.
           const lines=kind&&feature.geometry.type==='LineString'
@@ -1860,7 +1872,7 @@ export function createLocalFloodUI({
                 if(!inside)continue;
                 roads.push({
                   type:'Feature',
-                  properties:{class:cls,kind,part,widthMetres:width},
+                  properties:{class:cls,kind,part,widthMetres:width,elementId,elementType:'road',elementName:String(p.name||cls||'原有道路'),widthEstimated:!Boolean(p.width||p.est_width)},
                   geometry:inside
                 });
               }
@@ -1877,12 +1889,14 @@ export function createLocalFloodUI({
             (layerName==='landuse'&&/park|grass|forest|garden|cemetery|recreation|pitch|playground|village_green|meadow|allotment|farmland/i.test(cls));
           if(!isWater&&!isGreen)continue;
           const output=isWater?waters:greens;
+          const elementType=layerName==='park'||/^(park|garden|recreation_ground)$/.test(cls)?'park':'green';
+          const elementId=siteElementId(elementType,dedupe);
           if(output.length>=2500)continue;
           const inside=splitBuildingBySelection(feature.geometry,siteRing).inside;
           if(!inside)continue;
           output.push({
             type:'Feature',
-            properties:{class:cls},
+            properties:{class:cls,elementId,elementType,elementName:String(p.name||cls||'原有绿地'),osmSourceLayer:layerName},
             geometry:inside
           });
         }
@@ -4016,13 +4030,16 @@ export function createLocalFloodUI({
       }
 
       const insideKey=key+'|inside';
+      const elementId=siteElementId('building',groupId);
       const insideScene={
         type:'Feature',
         properties:{
           simHeight:height,
           simBase:base,
           selected:true,
-          impacted:false
+          impacted:false,
+          elementId,elementType:'building',
+          elementName:String(p.name||'原有建筑')
         },
         geometry:split.inside
       };
