@@ -2439,7 +2439,27 @@ export function createLocalFloodUI({
             'fill-extrusion-base':['get','simBase'],
             'fill-extrusion-opacity':1,
             'fill-extrusion-vertical-gradient':false
-          }}
+          }},
+        // Planning decision outlines are an optional DISPLAY overlay.
+        // Red/grey buildings, flood-depth textures and solver barriers remain.
+        ...[
+          [FOCUS_PLAN_ROAD,FOCUS_ROADS,['==',['get','part'],'surface']],
+          [FOCUS_PLAN_GREEN,FOCUS_GREEN,null],
+          [FOCUS_PLAN_BUILDING,FOCUS_BUILDINGS,null]
+        ].map(([id,source,filter])=>({
+          id,type:'line',source,
+          ...(filter?{filter}:{}),
+          layout:{visibility:'none','line-cap':'round','line-join':'round'},
+          paint:{
+            'line-color':['case',['boolean',['get','planSelected'],false],
+              '#f6c453',['match',['get','planDecision'],
+                'keep','#43d49a','remove','#ff778c','#8796a3']],
+            'line-width':['case',['boolean',['get','planSelected'],false],3.6,
+              ['==',['get','planDecision'],'pending'],1,2.5],
+            'line-opacity':['case',['boolean',['get','planSelected'],false],1,
+              ['==',['get','planDecision'],'pending'],.25,.95]
+          }
+        }))
       ]
     };
   }
