@@ -2152,6 +2152,11 @@ export function createLocalFloodUI({
   }
   function switchSpongeTool(type){
     if(!SPONGE_DESIGN_OPTIONS[type])return;
+    if(type!=='navigate'&&sitePlanMode){
+      sitePlanMode=false;
+      syncSitePlanLayers();
+      updateSitePlanHud();
+    }
     spongeTool=type;
     for(const btn of isolateViewerElement?.querySelectorAll('[data-sponge-tool]')||[]){
       const on=btn.dataset.spongeTool===type;
@@ -2163,6 +2168,10 @@ export function createLocalFloodUI({
     redrawSpongeSite();
   }
   function onSpongeMapClick(event){
+    if(sitePlanMode){
+      pickSitePlanElement(event);
+      return;
+    }
     if(!isolatedSelection||!SPONGE_DESIGN_OPTIONS[spongeTool]||
       spongeTool==='navigate')return;
     const p=[event.lngLat.lng,event.lngLat.lat];
@@ -2260,6 +2269,7 @@ export function createLocalFloodUI({
     // Reference overlays are independent of flood/tensor presentation mode.
     // Re-apply their checkbox state, never hide a requested drainage layer.
     updateFocusAnalysisLayers();
+    syncSitePlanLayers();
     // Mode switching must never modify the hydraulic solver or request undated water.
   }
 
@@ -2483,8 +2493,12 @@ export function createLocalFloodUI({
     delete window.getLondonHydroTensorDiagnostics;
     delete window.getLondonHydroTensorGeometryData;
     delete window.getLondonHydroTensorSiteSnapshot;
+    delete window.getLondonSitePlanningData;
     isolateViewer=null;
     volumetricWater=null;
+    focusSiteDetails=null;
+    sitePlanFeatureIndex.clear();
+    sitePlanMode=false;sitePlanSelectedId=null;
     if(viewer){
       try{viewer.remove();}catch(error){
         console.warn('Isolated viewer removal failed',error);
@@ -2926,6 +2940,19 @@ export function createLocalFloodUI({
       '</div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">03 · 显示</div>',
       '<label class="site-hydro-check"><input id="siteHudShowBuildings" type="checkbox" checked> 显示场地内建筑（仅视觉；积水可覆盖建筑地面占地）</label>',
+      '<div class="site-hydro-section-title" style="margin:9px 0 4px">现有城市元素 · OSM 设计保留</div>',
+      '<label class="site-hydro-check"><input id="siteHudPlanShowRoads" type="checkbox" checked> 显示原有道路</label>',
+      '<label class="site-hydro-check"><input id="siteHudPlanShowGreens" type="checkbox" checked> 显示原有公园 / 绿地</label>',
+      '<button type="button" class="site-vector-mode" id="siteHudPlanToggle" aria-pressed="false">✥ 选择原有元素</button>',
+      '<div class="site-hydro-mini" id="siteHudPlanCount">正在获取 OSM 场地元素…</div>',
+      '<div class="site-hydro-mini" id="siteHudPlanSelected" style="color:#f6c453;font-weight:600">尚未选中元素</div>',
+      '<div class="site-hydro-tool-grid" style="margin-top:6px">',
+      '<button type="button" class="site-hydro-tool" id="siteHudPlanKeep">✓ 保留</button>',
+      '<button type="button" class="site-hydro-tool" id="siteHudPlanRemove">✕ 移除 / 改造</button>',
+      '<button type="button" class="site-hydro-tool" id="siteHudPlanPending">◌ 待定</button>',
+      '<button type="button" class="site-hydro-tool" id="siteHudPlanExport">↓ 导出规划 GeoJSON</button>',
+      '</div>',
+      '<div class="site-hydro-mini" id="siteHudPlanHint">开启选择模式，单击道路、公园、绿地或建筑；绿色为保留，粉红为移除，黄色为当前选中。这里只记录规划方案，不修改 OSM 或洪涝模拟。</div>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
       '<label class="site-hydro-check"><input id="siteHudShowShallow" type="checkbox" checked> 显示浅湿润（1–20 mm；默认开启，不增加真实降雨量）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
@@ -3045,7 +3072,34 @@ export function createLocalFloodUI({
       if(mapToggle)mapToggle.checked=hideSelectedBuildings;
       publishBuildingScene();
       updateFocusBuildings();
+      syncSitePlanLayers();
     };
+    for(const [id,key] of [['siteHudPlanShowRoads','roads'],['siteHudPlanShowGreens','greens']]){
+      const checkbox=siteHud(id);
+      if(!checkbox)continue;
+      checkbox.checked=key==='roads'?sitePlanShowRoads:sitePlanShowGreens;
+      checkbox.onchange=e=>{
+        if(key==='roads')sitePlanShowRoads=e.target.checked;
+        else sitePlanShowGreens=e.target.checked;
+        syncSitePlanLayers();
+      };
+    }
+    siteHud('siteHudPlanToggle').onclick=()=>toggleSitePlanMode(!sitePlanMode);
+    for(const [id,status] of [['siteHudPlanKeep','keep'],['siteHudPlanRemove','remove'],
+      ['siteHudPlanPending','pending']]){
+      siteHud(id).onclick=()=>setSitePlanDecision(status);
+    }
+    siteHud('siteHudPlanExport').onclick=()=>{
+      const result=exportSitePlanGeoJSON();
+      const blob=new Blob([JSON.stringify(result)],{type:'application/geo+json'});
+      const url=URL.createObjectURL(blob),anchor=document.createElement('a');
+      anchor.href=url;anchor.download='LondonMap_Existing_Elements.geojson';
+      anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setSiteHud('siteHudPlanHint','已导出 '+result.features.length+
+        ' 个场地要素片段（含设计状态）。文件不是完整的 OSM 官方要素库。');
+    };
+    updateSitePlanHud();
+    syncSitePlanLayers();
     updateSiteHydroDashboard();
     const clearPreviousFloodVisuals=()=>{
       cancelAnimationFrame(waterBlendHandle);
@@ -3593,6 +3647,7 @@ export function createLocalFloodUI({
     let viewer;
     try{
       const details=collectFocusMapDetails();
+      loadSitePlan(details);
       viewer=new maplibregl.Map({
         container:el,style:focusStyle(details),
         center:map.getCenter().toArray(),zoom:map.getZoom(),
@@ -3709,15 +3764,20 @@ export function createLocalFloodUI({
         floodSettings:{futureYear,displayMode,floodMode,climateScenario,rainPreset,
           externalStageM,stormProfile,criticalDurationMin,rainfallMode,manualFourHourMm},
         display:{...hydroDisplay,tensorShowBuildings},
+        existingSitePlan:exportSitePlanGeoJSON(),
         visualAcceptance:{status:'pending',reason:'This export captures source arrays and camera; it does not certify screenshots or whole-site visual acceptance.'}};
     };
     window.getLondonHydroVectorFieldData=window.getLondonHydroTensorFieldData;
+    window.getLondonSitePlanningData=()=>exportSitePlanGeoJSON();
     mountSiteHydroDashboard(el);
     focusAppliedThreshold=focusContextSettings().threshold;
     lastFlowUpdateAt=0;
     switchSpongeTool('navigate');
     viewer.on('pitch',setFocusPitchMode);
     viewer.on('click',onSpongeMapClick);
+    viewer.on('mousemove',()=>{
+      if(sitePlanMode&&viewer.getCanvas())viewer.getCanvas().style.cursor='crosshair';
+    });
     viewer.once('load',()=>{
       if(isolateViewer!==viewer||!isolatedSelection)return;
       // First fit the parcel from its local geometry, then start the optional
@@ -3726,6 +3786,7 @@ export function createLocalFloodUI({
       installFocusFloodVolume(viewer);
       setFocusPitchMode();
       syncFocusFootprintVisibility();
+      syncSitePlanLayers();
       updateFocusAnalysisLayers();
       // Controls can be toggled before the map style finishes loading.
       // Rehydrate the vector layers once their GeoJSON sources are ready.
