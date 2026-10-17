@@ -1,6 +1,7 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.23.1-buildingbase-yearly';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.23.1-buildingbase-yearly';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.23.3-water-antialias';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.23.3-water-antialias';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.23.3-water-antialias';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -293,6 +294,9 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
   const valid=frame.validMask?new Uint8Array(frame.validMask):null;
   const contacts=frame.contactMask?new Uint8Array(frame.contactMask):null;
   if(depths.length!==width*height)return false;
+  // Once per source frame, not once per output pixel: Gaussian sigma ~0.85
+  // native cells, filtered strictly inside the solver's existing wet mask.
+  const displayDepth=smoothWetDepths(depths,width,height,valid,wetThreshold*1000);
   const image=context.createImageData(outWidth,outHeight);
   const dest=image.data;
   const palette=[
@@ -318,15 +322,15 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       const u=(x+.5)*width/outWidth-.5;
       const x0=Math.floor(u),tx=u-x0;
       const nearest=index(Math.round(u),Math.round(v));
-      // Buildings and site perimeter retain the exact native solver mask.
-      if(valid&&!valid[nearest])continue;
-      const nearestIsWet=depths[nearest]>=wetThreshold*1000;
+      // No visual water is introduced into a native dry / invalid solver cell.
+      // At a wet cell's perimeter the alpha is feathered inward by 1-2
+      // DISPLAY pixels below, without spreading outside the wet topology.
+      if((valid&&!valid[nearest])||depths[nearest]<wetThreshold*1000)continue;
+      const nativeX=Math.round(u),nativeY=Math.round(v);
       const i00=index(x0,y0),i10=index(x0+1,y0);
       const i01=index(x0,y0+1),i11=index(x0+1,y0+1);
-      const a=valid&&!valid[i00]?0:depths[i00]/1000;
-      const b=valid&&!valid[i10]?0:depths[i10]/1000;
-      const c=valid&&!valid[i01]?0:depths[i01]/1000;
-      const d=valid&&!valid[i11]?0:depths[i11]/1000;
+      const a=displayDepth[i00],b=displayDepth[i10];
+      const c=displayDepth[i01],d=displayDepth[i11];
       const w00=(1-tx)*(1-ty),w10=tx*(1-ty),w01=(1-tx)*ty,w11=tx*ty;
       const wa=a>=wetThreshold?1:0,wb=b>=wetThreshold?1:0;
       const wc=c>=wetThreshold?1:0,wd=d>=wetThreshold?1:0;
@@ -341,12 +345,11 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       if(occupancy<=0.16)continue;
       const wetMean=(w00*wa*a+w10*wb*b+w01*wc*c+w11*wd*d)/
         Math.max(0.000001,occupancy);
-      const depth=nearestIsWet?
-        0.30*depths[nearest]/1000+0.70*wetMean:wetMean;
+      const depth=wetMean; // Bilinear filtered depth; no nearest-cell banding.
       let lo=palette[0],hi=palette[palette.length-1];
       for(let k=1;k<palette.length;k++)
         if(depth<=palette[k][0]){lo=palette[k-1];hi=palette[k];break;}
-      const t=smooth(lo[0],hi[0],depth);
+      const t=Math.max(0,Math.min(1,(depth-lo[0])/Math.max(.000001,hi[0]-lo[0])));
       const rim=1-smooth(.0015,.044,depth);
       const ripples=Math.sin(u*.56+v*.19-clock*.95)*.55+
         Math.sin(u*.26-v*.67+clock*1.15)*.45;
@@ -360,12 +363,26 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       let alpha=shallow
         ?((avg?.48:.52)+.18*smooth(.001,.020,depth))
         :(.66+.26*smooth(.020,.60,depth));
-      // Continuous visual shoreline: low-alpha fringe only in valid, dry
-      // neighbouring pixels. Invalid and building pixels stay transparent.
-      alpha*=smooth(.16,.85,occupancy)*(nearestIsWet?1:.38);
-      // Stop hard-edged 10m building/site masks from producing visible
-      // square steps on small parcels. Fade only WITHIN valid cells.
-      alpha*=smooth(.10,.95,maskCoverage);
+      // Sub-cell coverage rounds the staircase, while the native dry cells
+      // remain completely transparent. A true 1.5px feather runs INWARD
+      // from wet/dry and valid/invalid edges, independent of source resolution.
+      alpha*=smooth(.18,.78,occupancy)*smooth(.18,.85,maskCoverage);
+      const neighbourWet=(xx,yy)=>{
+        if(xx<0||yy<0||xx>=width||yy>=height)return false;
+        const j=yy*width+xx;
+        return (!valid||valid[j])&&depths[j]>=wetThreshold*1000;
+      };
+      const fx=u-nativeX,fy=v-nativeY;
+      let edgePx=Infinity;
+      if(fx>=0&&!neighbourWet(nativeX+1,nativeY))
+        edgePx=Math.min(edgePx,(0.5-fx)*outWidth/width);
+      if(fx<=0&&!neighbourWet(nativeX-1,nativeY))
+        edgePx=Math.min(edgePx,(0.5+fx)*outWidth/width);
+      if(fy>=0&&!neighbourWet(nativeX,nativeY+1))
+        edgePx=Math.min(edgePx,(0.5-fy)*outHeight/height);
+      if(fy<=0&&!neighbourWet(nativeX,nativeY-1))
+        edgePx=Math.min(edgePx,(0.5+fy)*outHeight/height);
+      if(Number.isFinite(edgePx))alpha*=smooth(0,1.5,edgePx);
       if(alpha<.004)continue;
       // Contrast is a categorical comparison of actual solver depths;
       // highlight never changes the physical depth or water mesh height.
@@ -447,16 +464,17 @@ function createFloodVolumeLayer(maplibregl,bounds){
           'uniform float u_time;',
           'uniform float u_shallow;',
           'out vec4 fragColor;',
+          'float depthMix(float a,float b,float x){return clamp((x-a)/(b-a),0.0,1.0);}',
           'void main(){',
           'float depth=max(v_meta.z,0.0);',
           'vec3 water=vec3(0.81569,0.90588,1.00000);',
-          'water=mix(water,vec3(0.61176,0.80000,1.00000),smoothstep(0.001,0.020,depth));',
-          'water=mix(water,vec3(0.31765,0.55294,0.80784),smoothstep(0.020,0.050,depth));',
-          'water=mix(water,vec3(0.17647,0.40784,0.67059),smoothstep(0.050,0.150,depth));',
-          'water=mix(water,vec3(0.11373,0.29804,0.54510),smoothstep(0.150,0.300,depth));',
-          'water=mix(water,vec3(0.07451,0.20392,0.40392),smoothstep(0.300,0.600,depth));',
-          'water=mix(water,vec3(0.04706,0.13333,0.29020),smoothstep(0.600,0.900,depth));',
-          'water=mix(water,vec3(0.02353,0.08627,0.19608),smoothstep(0.900,1.200,depth));',
+          'water=mix(water,vec3(0.61176,0.80000,1.00000),depthMix(0.001,0.020,depth));',
+          'water=mix(water,vec3(0.31765,0.55294,0.80784),depthMix(0.020,0.050,depth));',
+          'water=mix(water,vec3(0.17647,0.40784,0.67059),depthMix(0.050,0.150,depth));',
+          'water=mix(water,vec3(0.11373,0.29804,0.54510),depthMix(0.150,0.300,depth));',
+          'water=mix(water,vec3(0.07451,0.20392,0.40392),depthMix(0.300,0.600,depth));',
+          'water=mix(water,vec3(0.04706,0.13333,0.29020),depthMix(0.600,0.900,depth));',
+          'water=mix(water,vec3(0.02353,0.08627,0.19608),depthMix(0.900,1.200,depth));',
           'float deep=smoothstep(0.04,0.85,depth);',
           'float ripple=sin(v_meta.x*1.15+v_meta.y*0.35-u_time*1.8)*0.52+',
           '  sin(v_meta.y*0.62-v_meta.x*0.46+u_time*1.3)*0.32+',
@@ -570,6 +588,8 @@ function createFloodVolumeLayer(maplibregl,bounds){
       const buffer=data.depthMm;
       const depths=new Uint16Array(buffer);
       const contacts=data.contactMask?new Uint8Array(data.contactMask):null;
+      const validCells=data.validMask?new Uint8Array(data.validMask):null;
+      const displaySource=smoothWetDepths(depths,widths,rows,validCells,1);
       const compare=Boolean(this.showContrast&&data.comparisonMask)?
         new Uint8Array(data.comparisonMask):null;
       if(depths.length!==widths*rows)return;
@@ -592,7 +612,7 @@ function createFloodVolumeLayer(maplibregl,bounds){
           let peak=0,sum=0,amount=0,hit=0,hasNew=false,hasDeep=false;
           for(let y=rr*stride;y<Math.min(rows,(rr+1)*stride);y++){
             for(let x=cc*stride;x<Math.min(widths,(cc+1)*stride);x++){
-              const i=y*widths+x,d=depths[i]/1000;
+              const i=y*widths+x,d=displaySource[i];
               peak=Math.max(peak,d);
               sum+=d;amount++;
               if(contacts?.[i])hit++;
@@ -617,10 +637,10 @@ function createFloodVolumeLayer(maplibregl,bounds){
         this.displayDepth[i]+=Math.max(-0.06,Math.min(0.06,(sampled[i]-this.displayDepth[i])*.28));
       }
       sampled.set(this.displayDepth);
-      // Two low-pass passes only on display depths. Dry solver cells stay dry.
-      // A nine-tap kernel smooths diagonal corners as well as orthogonal steps.
+      // One lightweight mesh-space pass after the wet-only source prefilter;
+      // two passes here over-smoothed narrow channels and cost extra time.
       const meshSoft=new Float32Array(sampled.length);
-      for(let pass=0;pass<2;pass++){
+      for(let pass=0;pass<1;pass++){
         for(let row=0;row<meshRows;row++)for(let col=0;col<meshCols;col++){
           const idx=row*meshCols+col,value=sampled[idx];
           if(value<=0){meshSoft[idx]=0;continue;}
@@ -658,11 +678,14 @@ function createFloodVolumeLayer(maplibregl,bounds){
       // More detailed visual contours on small sites. <=120k display nodes;
       // the DEM and flood calculation grids are never resampled as input.
       const displayCells=meshCols*meshRows;
-      const subdivisions=displayCells<=1200?6:
-        displayCells<=2500?5:displayCells<=5000?4:
-        displayCells<=12000?3:displayCells<=30000?2:1;
+      // Denser anti-aliased contours for small sites; enforce a hard upper
+      // bound on display nodes, avoiding GPU stalls on large parcels.
+      const preferredSubdivisions=displayCells<=1200?8:
+        displayCells<=2500?6:displayCells<=5000?5:
+        displayCells<=12000?4:displayCells<=30000?3:2;
+      const subdivisions=Math.max(1,Math.min(preferredSubdivisions,
+        Math.floor(Math.sqrt(115000/displayCells))));
       const renderCols=meshCols*subdivisions,renderRows=meshRows*subdivisions;
-      const validCells=data.validMask?new Uint8Array(data.validMask):null;
       // Bilinear source-grid mask coverage; used only for the rendering
       // alpha at an edge. Native building collision/terrain are untouched.
       const maskAt=(u,v)=>{
