@@ -1911,6 +1911,177 @@ export function createLocalFloodUI({
   }
 
 
+  // These GeoJSON polygons come from already-loaded OSM-derived OpenFreeMap
+  // tiles, not from a complete historical OSM data export. A road selection
+  // is a tile-visible way/fragment; boundaries are clipped to the site.
+  function sitePlanFeatures(){
+    const visible=[];
+    for(const feature of focusSiteDetails?.roads?.features||[]){
+      if(feature.properties?.part==='surface')visible.push(feature);
+    }
+    visible.push(...(focusSiteDetails?.greens?.features||[]));
+    visible.push(...[...sceneFeatures.values()].filter(x=>x.properties?.selected));
+    return visible;
+  }
+  function loadSitePlan(details){
+    focusSiteDetails=details;
+    sitePlanSelectedId=null;sitePlanMode=false;
+    sitePlanStorage=sitePlanStorageKey(polygon?.[0]);
+    sitePlanDecisions={};
+    try{
+      const saved=sitePlanStorage?localStorage.getItem(sitePlanStorage):null;
+      if(saved)sitePlanDecisions=normalizeSiteDecisions(JSON.parse(saved));
+    }catch(error){
+      console.warn('场地保留方案的本地记录不可用；仍可导出 GeoJSON',error);
+    }
+    sitePlanFeatureIndex.clear();
+    for(const feature of sitePlanFeatures()){
+      const id=feature.properties?.elementId;
+      if(id&&!sitePlanFeatureIndex.has(id))
+        sitePlanFeatureIndex.set(id,{
+          id,type:feature.properties.elementType,
+          name:feature.properties.elementName||feature.properties.class||id
+        });
+    }
+    refreshSitePlanProperties(false);
+  }
+  function refreshSitePlanProperties(updateSources=true){
+    const all=[
+      ...(focusSiteDetails?.roads?.features||[]),
+      ...(focusSiteDetails?.greens?.features||[]),
+      ...[...sceneFeatures.values()].filter(f=>f.properties?.selected)
+    ];
+    for(const feature of all){
+      const p=feature.properties||{};
+      const id=p.elementId;
+      if(!id)continue;
+      p.planDecision=sitePlanDecisions[id]||'pending';
+      p.planSelected=id===sitePlanSelectedId;
+    }
+    visualSelectedBuildingCache=null;
+    if(updateSources&&isolateViewer){
+      isolateViewer.getSource(FOCUS_ROADS)?.setData(focusSiteDetails.roads);
+      isolateViewer.getSource(FOCUS_GREEN)?.setData(focusSiteDetails.greens);
+      updateFocusBuildings();
+    }
+    syncSitePlanLayers();
+    updateSitePlanHud();
+  }
+  function syncSitePlanLayers(){
+    const viewer=isolateViewer;
+    if(!viewer)return;
+    for(const [id,show] of [
+      ['focus-road-casing',sitePlanShowRoads],
+      ['focus-road-surface',sitePlanShowRoads],
+      ['focus-green-ground',sitePlanShowGreens],
+      [FOCUS_PLAN_ROAD,sitePlanShowRoads&&sitePlanMode],
+      [FOCUS_PLAN_GREEN,sitePlanShowGreens&&sitePlanMode],
+      [FOCUS_PLAN_BUILDING,sitePlanMode&&!hideSelectedBuildings]
+    ]){
+      if(viewer.getLayer(id)){
+        const visibility=show?'visible':'none';
+        if(viewer.getLayoutProperty(id,'visibility')!==visibility)
+          viewer.setLayoutProperty(id,'visibility',visibility);
+      }
+    }
+  }
+  function updateSitePlanHud(){
+    const selected=sitePlanFeatureIndex.get(sitePlanSelectedId);
+    const counts={keep:0,remove:0,pending:0};
+    for(const item of sitePlanFeatureIndex.values()){
+      counts[sitePlanDecisions[item.id]||'pending']++;
+    }
+    setSiteHud('siteHudPlanCount',
+      '已提取 '+sitePlanFeatureIndex.size+' 个可选元素 · 保留 '+counts.keep+
+      ' / 移除 '+counts.remove+' / 待定 '+counts.pending);
+    setSiteHud('siteHudPlanSelected',selected?
+      ({road:'道路',park:'公园',green:'绿地',building:'建筑'}[selected.type]||'元素')+
+      ' · '+selected.name+' · '+siteDecisionLabel(sitePlanDecisions[selected.id]):'尚未选中元素');
+    for(const status of ['keep','remove','pending']){
+      const button=siteHud('siteHudPlan'+status[0].toUpperCase()+status.slice(1));
+      if(button){
+        button.disabled=!selected;
+        const active=Boolean(selected&&(sitePlanDecisions[selected.id]||'pending')===status);
+        button.classList.toggle('active',active);
+        button.setAttribute('aria-pressed',String(active));
+      }
+    }
+    const toggle=siteHud('siteHudPlanToggle');
+    if(toggle){
+      toggle.textContent=sitePlanMode?'✓ 退出元素选择':'✥ 选择原有元素';
+      toggle.setAttribute('aria-pressed',String(sitePlanMode));
+      toggle.classList.toggle('active',sitePlanMode);
+    }
+  }
+  function toggleSitePlanMode(on){
+    sitePlanMode=Boolean(on);
+    if(sitePlanMode)switchSpongeTool('navigate');
+    if(isolateViewer?.getCanvas())
+      isolateViewer.getCanvas().style.cursor=sitePlanMode?'crosshair':'grab';
+    refreshSitePlanProperties(false);
+    setSiteHud('siteHudPlanHint',sitePlanMode?
+      '点击地块内道路、公园、绿地或建筑，再设置保留、移除或待定；右键仍可旋转。':
+      '选择模式已关闭，已保存的规划决策不会删除。');
+  }
+  function setSitePlanDecision(status){
+    if(!sitePlanFeatureIndex.has(sitePlanSelectedId)||!['keep','remove','pending'].includes(status))return;
+    if(status==='pending')delete sitePlanDecisions[sitePlanSelectedId];
+    else sitePlanDecisions[sitePlanSelectedId]=status;
+    try{
+      if(sitePlanStorage)localStorage.setItem(sitePlanStorage,JSON.stringify(sitePlanDecisions));
+    }catch(error){
+      console.warn('本地存储不可用，可通过 GeoJSON 导出保存规划方案',error);
+      setSiteHud('siteHudPlanHint','浏览器无法本地保存，请点击「导出规划 GeoJSON」备份。');
+    }
+    refreshSitePlanProperties();
+  }
+  function pickSitePlanElement(event){
+    if(!sitePlanMode||!isolateViewer)return;
+    const visibleLayers=[
+      FOCUS_3D,FOCUS_2D,'focus-road-surface','focus-green-ground'
+    ].filter(id=>isolateViewer.getLayer(id)&&
+      isolateViewer.getLayoutProperty(id,'visibility')!=='none');
+    const hits=isolateViewer.queryRenderedFeatures(event.point,{layers:visibleLayers});
+    const priority={building:0,park:1,green:2,road:3};
+    const candidates=hits.filter(f=>sitePlanFeatureIndex.has(f.properties?.elementId)&&
+      ((f.properties.elementType==='road'&&sitePlanShowRoads)||
+       ((f.properties.elementType==='park'||f.properties.elementType==='green')&&sitePlanShowGreens)||
+       (f.properties.elementType==='building'&&!hideSelectedBuildings)));
+    candidates.sort((a,b)=>(priority[a.properties.elementType]??9)-
+      (priority[b.properties.elementType]??9));
+    if(!candidates.length){
+      sitePlanSelectedId=null;
+      refreshSitePlanProperties();
+      setSiteHud('siteHudPlanHint','该位置没有可选的已加载 OSM 元素；可放大或调整视角后重试。');
+      return;
+    }
+    sitePlanSelectedId=candidates[0].properties.elementId;
+    refreshSitePlanProperties();
+    setSiteHud('siteHudPlanHint','已选中元素。点击「保留」「移除 / 改造」或「待定」设置方案。');
+  }
+  function exportSitePlanGeoJSON(){
+    const features=sitePlanFeatures().map(feature=>({
+      type:'Feature',
+      properties:{...feature.properties,
+        designDecision:sitePlanDecisions[feature.properties.elementId]||'pending',
+        sourceAttribution:'© OpenStreetMap contributors / OpenFreeMap vector tiles',
+        displayOnlyRoadWidth:feature.properties.elementType==='road'
+          ?feature.properties.widthEstimated!==false:undefined},
+      geometry:feature.geometry
+    }));
+    return {
+      type:'FeatureCollection',
+      name:'LondonMap_Existing_Elements_Design',
+      metadata:{coordinateSystem:'EPSG:4326',source:'OpenFreeMap vector tiles (OSM-derived)',
+        completeness:'Visible loaded vector tile fragments; not a guaranteed full OSM extract',
+        originalOSMUnchanged:true,hydrologyUnchanged:true,
+        selectedSite:{type:'Polygon',coordinates:structuredClone(polygon)},
+        exportedAt:new Date().toISOString()},
+      features
+    };
+  }
+
+
   const SPONGE_DESIGN_OPTIONS={
     navigate:{label:'导航 / 旋转',radiusM:0,color:'#5cbbc5'},
     rainGarden:{label:'雨水花园',radiusM:12,color:'#3da99f'},
