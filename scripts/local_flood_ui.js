@@ -1974,15 +1974,22 @@ export function createLocalFloodUI({
       ['focus-road-casing',sitePlanShowRoads],
       ['focus-road-surface',sitePlanShowRoads],
       ['focus-green-ground',sitePlanShowGreens],
-      [FOCUS_PLAN_ROAD,sitePlanShowRoads&&sitePlanMode],
-      [FOCUS_PLAN_GREEN,sitePlanShowGreens&&sitePlanMode],
-      [FOCUS_PLAN_BUILDING,sitePlanMode&&!hideSelectedBuildings]
+      [FOCUS_PLAN_ROAD,sitePlanShowRoads&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
+      [FOCUS_PLAN_GREEN,sitePlanShowGreens&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
+      [FOCUS_PLAN_BUILDING,!hideSelectedBuildings&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)]
     ]){
       if(viewer.getLayer(id)){
         const visibility=show?'visible':'none';
         if(viewer.getLayoutProperty(id,'visibility')!==visibility)
           viewer.setLayoutProperty(id,'visibility',visibility);
       }
+    }
+    // Unclassified geometry remains unobtrusive outside selection mode;
+    // explicit keep/remove decisions remain visible after the tool closes.
+    for(const id of [FOCUS_PLAN_ROAD,FOCUS_PLAN_GREEN,FOCUS_PLAN_BUILDING]){
+      if(viewer.getLayer(id))viewer.setPaintProperty(id,'line-opacity',
+        ['case',['boolean',['get','planSelected'],false],1,
+          ['==',['get','planDecision'],'pending'],sitePlanMode?.24:0,.95]);
     }
   }
   function updateSitePlanHud(){
@@ -2015,6 +2022,7 @@ export function createLocalFloodUI({
   }
   function toggleSitePlanMode(on){
     sitePlanMode=Boolean(on);
+    if(!sitePlanMode)sitePlanSelectedId=null;
     if(sitePlanMode)switchSpongeTool('navigate');
     if(isolateViewer?.getCanvas())
       isolateViewer.getCanvas().style.cursor=sitePlanMode?'crosshair':'grab';
