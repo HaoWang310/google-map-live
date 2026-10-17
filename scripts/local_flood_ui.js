@@ -315,6 +315,11 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
   const lerp=(a,b,t)=>a+(b-a)*t;
   const smooth=(a,b,t)=>{const x=Math.max(0,Math.min(1,(t-a)/(b-a)));return x*x*(3-2*x);};
   const clock=performance.now()/1000;
+  const neighbourWet=(xx,yy)=>{
+    if(xx<0||yy<0||xx>=width||yy>=height)return false;
+    const j=yy*width+xx;
+    return (!valid||valid[j])&&depths[j]>=wetThreshold*1000;
+  };
   for(let y=0;y<outHeight;y++){
     const v=(y+.5)*height/outHeight-.5;
     const y0=Math.floor(v),ty=v-y0;
@@ -367,11 +372,6 @@ function renderSoftWaterCanvas(context,frame,outWidth,outHeight,options={}){
       // remain completely transparent. A true 1.5px feather runs INWARD
       // from wet/dry and valid/invalid edges, independent of source resolution.
       alpha*=smooth(.18,.78,occupancy)*smooth(.18,.85,maskCoverage);
-      const neighbourWet=(xx,yy)=>{
-        if(xx<0||yy<0||xx>=width||yy>=height)return false;
-        const j=yy*width+xx;
-        return (!valid||valid[j])&&depths[j]>=wetThreshold*1000;
-      };
       const fx=u-nativeX,fy=v-nativeY;
       let edgePx=Infinity;
       if(fx>=0&&!neighbourWet(nativeX+1,nativeY))
@@ -589,10 +589,10 @@ function createFloodVolumeLayer(maplibregl,bounds){
       const depths=new Uint16Array(buffer);
       const contacts=data.contactMask?new Uint8Array(data.contactMask):null;
       const validCells=data.validMask?new Uint8Array(data.validMask):null;
+      if(depths.length!==widths*rows)return;
       const displaySource=smoothWetDepths(depths,widths,rows,validCells,1);
       const compare=Boolean(this.showContrast&&data.comparisonMask)?
         new Uint8Array(data.comparisonMask):null;
-      if(depths.length!==widths*rows)return;
       const nw=maplibregl.MercatorCoordinate.fromLngLat(bounds[0]);
       const ne=maplibregl.MercatorCoordinate.fromLngLat(bounds[1]);
       const sw=maplibregl.MercatorCoordinate.fromLngLat(bounds[3]);
