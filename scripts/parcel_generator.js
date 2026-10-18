@@ -64,7 +64,9 @@ const STYLE = `
 .pg{position:fixed;inset:0;z-index:2147483200;background:#000;color:#e2f0f7;
  font:12px/1.5 system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
 .pg *{box-sizing:border-box}
-.pg-map{position:absolute;inset:0}
+.pg-map{position:absolute;inset:0;z-index:0;touch-action:pan-x pan-y}
+.pg-map canvas.maplibregl-canvas{cursor:grab}
+.pg-map canvas.maplibregl-canvas:active{cursor:grabbing}
 .pg-top,.pg-bottom,.pg-panel{position:absolute;background:#112232f2;
  border:1px solid #3d5a71;border-radius:11px;z-index:3}
 .pg-top{top:10px;left:12px;right:12px;display:flex;align-items:center;gap:12px;padding:11px 14px}
@@ -209,6 +211,15 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1500);
  }
+ function fitSite(){
+  if(!viewer||!ring)return;
+  const lng=ring.map(p=>p[0]),lat=ring.map(p=>p[1]);
+  viewer.resize();
+  viewer.fitBounds([[Math.min(...lng),Math.min(...lat)],
+    [Math.max(...lng),Math.max(...lat)]],{
+    padding:{top:100,bottom:95,left:335,right:295},maxZoom:18,duration:250
+  });
+ }
  function addLayers(){
   if(!viewer||!ring)return;
   const lng=ring.map(p=>p[0]),lat=ring.map(p=>p[1]);
@@ -227,9 +238,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
        0,'#81d4ac',5,'#e6c35b',15,'#da6c51'],'circle-opacity':.7}});
   viewer.addLayer({id:'pg-outline',type:'line',source:'pg-boundary',
    paint:{'line-color':'#ff5353','line-width':2.5,'line-dasharray':[2,1]}});
-  viewer.fitBounds([[Math.min(...lng),Math.min(...lat)],[Math.max(...lng),Math.max(...lat)]],{
-    padding:{top:100,bottom:90,left:330,right:290},maxZoom:17.5,duration:0
-  });
+  fitSite();
  }
  async function audit(){
   const id=++current;
@@ -286,7 +295,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    '<div class="pg-map" id="pg-map"></div>'+
    '<header class="pg-top"><div class="pg-brand">LONDON 2100 · PARCEL GENERATOR'+
    '<small>HYDRO — AGRI — TENSOR — WOOL / SITE PLANNING</small></div>'+
-   '<span class="pg-badge" id="pg-active-step">STEP 01 / 07 · REAL DATA</span>'+
+   '<span class="pg-badge" id="pg-active-step">STEP 05 / 07 · ROAD NETWORK</span>'+
    '<button type="button" class="pg-exit" id="pg-exit">✕ 返回 London Map (Esc)</button></header>'+
    '<nav class="pg-panel pg-left"><div class="pg-label">GENERATION PIPELINE</div>'+steps+
    '<div class="pg-section" id="pg-site-audit-panel"><div class="pg-label">STEP 01 · SITE AUDIT</div>'+
@@ -319,11 +328,12 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
       '<tr><td>'+v[0]+'</td><td>'+v[1]+'</td></tr>').join('')+'</table>'+
    '<p class="pg-note">坐标计算为 EPSG:27700。当前采用 OSGB36 Helmert 近似，未加载 OSTN15 校正格网，不能用于测绘级定界。</p></div></aside>'+
    '<div class="pg-subtitle">红色范围 = 当前真实场地 · OSM 道路与绿地仅作基础地图参照</div>'+
-   '<footer class="pg-bottom"><button type="button" id="pg-export">导出 STEP01 GeoJSON</button>'+
-   '<button type="button" id="pg-open-road">STEP 05 · Generate and Optimise the Road Network</button>'+
-   '<button disabled title="尚未建立有效路网与保护边界">Generate Parcels</button>'+
-   '<button disabled>Compare Scenarios</button>'+
-   '<span class="pg-note">阶段开发：首先检查数据，再生成具有可追溯依据的道路及地块。</span></footer>');
+   '<footer class="pg-bottom"><button type="button" id="pg-open-road">进入 STEP 05</button>'+
+   '<button type="button" id="pg-generate-shortcut" title="真实张量数据校验通过后才会生成">① 生成道路网络</button>'+
+   '<button type="button" id="pg-fit-site">◎ 重新定位场地</button>'+
+   '<button type="button" id="pg-export">导出 STEP01</button>'+
+   '<button disabled title="STEP 06 尚未开发">Generate Parcels</button>'+
+   '<span class="pg-note" id="pg-footer-hint">STEP 05 可通过左侧导入场地张量；地图可拖动和滚轮缩放。</span></footer>');
   document.body.append(root);
   roadUI=createParcelRoadUI({root,getMap:()=>viewer,getRing:()=>ring,
     onStatus:(text,bad)=>{if(bad)console.warn('[Parcel STEP05]',text);}});
@@ -335,10 +345,24 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
     byId('pg-active-step').textContent=roads?'STEP 05 / 07 · ROAD NETWORK':'STEP 01 / 07 · REAL DATA';
     for(const i of [1,5])byId('pg-step-'+i).classList.toggle('on',i===number);
     roadUI.setActive(roads);
+    if(roads){
+      const panel=byId('pg-road-panel');
+      if(panel?.parentElement)panel.parentElement.scrollTop=0;
+      byId('pg-footer-hint').textContent=roadUI.isReady?
+        '真实张量数据已就绪：点击「① 生成道路网络」。':
+        '未检测到有效2100张量：请在左侧导入同一场地JSON。';
+    }else byId('pg-footer-hint').textContent='STEP 01 · 实际场地数据。地图可拖动和滚轮缩放。';
+    // Resizing after a panel switch keeps the independent MapLibre canvas interactive.
+    requestAnimationFrame(()=>viewer?.resize());
   };
   byId('pg-step-1').onclick=()=>selectStep(1);
   byId('pg-step-5').onclick=()=>selectStep(5);
   byId('pg-open-road').onclick=()=>selectStep(5);
+  byId('pg-generate-shortcut').onclick=()=>{
+    selectStep(5);
+    roadUI.generateInitial();
+  };
+  byId('pg-fit-site').onclick=fitSite;
   for(const id of ['pg-pop','pg-self','pg-food','pg-yield'])byId(id)?.addEventListener('input',updateDemand);
   updateDemand();
   byId('pg-exit').onclick=exit;
@@ -351,10 +375,22 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
   try{
    viewer=new maplibregl.Map({container:byId('pg-map'),
      style:'https://tiles.openfreemap.org/styles/liberty',
-     center:ring[0],zoom:15,pitch:0,antialias:true});
+     center:ring[0],zoom:15,pitch:0,antialias:true,
+     dragPan:true,scrollZoom:true,doubleClickZoom:true,dragRotate:true,
+     keyboard:true,touchZoomRotate:true,cooperativeGestures:false});
+   viewer.dragPan.enable();viewer.scrollZoom.enable();
+   viewer.dragRotate.enable();viewer.doubleClickZoom.enable();
    viewer.addControl(new maplibregl.NavigationControl({showCompass:true}),'top-right');
-   viewer.once('load',()=>{addLayers();roadUI?.attachMap();});
+   viewer.once('load',()=>{
+     addLayers();roadUI?.attachMap();viewer.resize();
+   });
+   viewer.on('error',error=>{
+     console.warn('Parcel MapLibre:',error?.error||error);
+   });
   }catch(e){status('底图创建失败：'+e.message,true);}
+  // The entry point itself is named "道路与地块生成": show its runnable
+  // STEP 05 immediately, with STEP 01 still available from the left tab.
+  selectStep(5);
   audit();
  }
  return {open,close:exit,get isOpen(){return Boolean(root);}};
