@@ -1902,7 +1902,7 @@ export function createLocalFloodUI({
                   type:'Feature',
                   properties:{class:cls,kind,part,widthMetres:width,elementId,elementType:'road',elementName:String(p.name||cls||'原有道路'),widthEstimated:!Boolean(p.width||p.est_width),
                     roadAxisX:mercator(b[0],b[1])[0]-mercator(a[0],a[1])[0],
-                    roadAxisY:mercator(b[0],b[1])[1]-mercator(a[0],a[1])[1]},
+                    roadAxisY:mercator(a[0],a[1])[1]-mercator(b[0],b[1])[1]},
                   geometry:inside
                 });
               }
@@ -2050,9 +2050,15 @@ export function createLocalFloodUI({
     for(const item of sitePlanFeatureIndex.values()){
       counts[sitePlanDecisions[item.id]||'pending']++;
     }
+    const categoryCounts={road:0,park:0,green:0,building:0};
+    for(const item of sitePlanFeatureIndex.values()){
+      if(categoryCounts[item.type]!==undefined)categoryCounts[item.type]++;
+    }
     setSiteHud('siteHudPlanCount',
-      '已提取 '+sitePlanFeatureIndex.size+' 个可选元素 · 保留 '+counts.keep+
-      ' / 移除 '+counts.remove+' / 待定 '+counts.pending);
+      'OSM 可选：道路 '+categoryCounts.road+' · 公园 '+categoryCounts.park+
+      ' · 其他绿地 '+categoryCounts.green+' · 建筑 '+categoryCounts.building+
+      '；保留 '+counts.keep+' / 移除 '+counts.remove+' / 待定 '+counts.pending+
+      (!categoryCounts.road?' · 当前无可用道路瓦片，请重新进入场地或放大底图后重试。':''));
     setSiteHud('siteHudPlanSelected',selected?
       ({road:'道路',park:'公园',green:'绿地',building:'建筑'}[selected.type]||'元素')+
       ' · '+selected.name+' · '+siteDecisionLabel(sitePlanDecisions[selected.id]):'尚未选中元素');
