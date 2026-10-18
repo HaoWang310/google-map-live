@@ -17,6 +17,7 @@ for(const [source,dependency] of [
   ['index.html','scripts/local_flood_ui.js'],
   ['scripts/local_flood_ui.js','local_flood_sim.js'],
   ['scripts/local_flood_ui.js','hydro_tensor_field.js'],
+  ['scripts/local_flood_ui.js','parcel_road_ui.js'],
   ['scripts/local_flood_sim.js','local_flood_worker.js'],
   ['scripts/hydro_tensor_field.js','hydro_tensor_worker.js'],
   ['index.html','scripts/parcel_generator.js'],
