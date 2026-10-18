@@ -35,6 +35,17 @@ export function readSiteTensor(input,ring){
  const valid=decoded(f.validMask,n,'validMask');
  const depth=decoded(snapshot.depthMm,n,'depthMm');
  const drainage=decoded(f.drainageMask,n,'drainageMask');
+ // If the export carries the original selected polygon, verify the exact
+ // parcel rather than only accepting any other site inside the same raster.
+ const original=input?.selection?.coordinates?.[0];
+ if(original?.length>=4){
+  const a=ring.slice(0,-1).map(merc);
+  const b=original.slice(0,-1).map(merc);
+  const near=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1])*
+    Math.cos(ring[0][1]*Math.PI/180)<3.0;
+  if(!a.every(p=>b.some(q=>near(p,q)))||!b.every(p=>a.some(q=>near(p,q))))
+   throw Error('导入 JSON 属于另一块地块，请使用当前红色框选场地的张量/洪涝结果');
+ }
  const polygon=ring.map(merc);
  const minX=grid.left,maxX=grid.left+cols*grid.cellProjectedM;
  const maxY=grid.top,minY=grid.top-rows*grid.cellProjectedM;
