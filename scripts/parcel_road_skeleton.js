@@ -38,7 +38,9 @@ function nearestCells(domain){
 function candidateNodes(domain,parameters){
  const {w,h,safe,depth,hydro,groundCell}=domain,area=w*h*groundCell*groundCell;
  const density=clamp(Number(parameters.roadDensity??55)/100,.1,1);
+ const farmContinuity=clamp(Number(parameters.agriculturalContinuity??75)/100,0,1);
  const targetSpacing=clamp(Math.sqrt(area)/(4+7*density),groundCell*7,groundCell*30);
+ // More continuous agricultural land = fewer candidate service nodes.
  const step=Math.max(3,Math.round(targetSpacing/groundCell));
  const candidates=[];
  // Symmetric lattice only selects anchor *regions*, not roads. Real local
@@ -56,7 +58,10 @@ function candidateNodes(domain,parameters){
     if(s>best){best=s;pick=i}
    }
   if(pick<0)continue;
-  candidates.push({i:pick,role:domain.certainty[pick]>.15&&depth[pick]<.04?
+  const residential=domain.certainty[pick]>.15&&depth[pick]<.04;
+  if(!residential&&((Math.floor(x/step)*7+Math.floor(y/step)*11)%10)<Math.round(8*farmContinuity))
+    continue; // Preserve larger unfragmented potential agricultural blocks.
+  candidates.push({i:pick,role:residential?
    'candidate_residential':'candidate_agricultural',
     evidence:'dryness and DEM tensor confidence; not validated zoning'});
  }
@@ -114,6 +119,8 @@ export function initialRoadSkeleton(domain,parameters={},progress=()=>{}){
   anchors=candidateNodes(domain,parameters);
  if(access.length<2)throw Error('安全场地边缘不足以生成可靠道路出入口');
  const usedNodes=[...access],core=anchors.filter(x=>x.role==='candidate_residential');
+ const reconnect=clamp(Number(parameters.reconnectionStrength??60)/100,0,1);
+ const agriculture=clamp(Number(parameters.agriculturalContinuity??75)/100,0,1);
  if(core.length)usedNodes.push(core[Math.floor(core.length/2)].i);
  if(usedNodes.length<3)throw Error('无法识别可连接的公共/居住候选节点');
  function add(a,b,kind){
@@ -138,6 +145,7 @@ export function initialRoadSkeleton(domain,parameters={},progress=()=>{}){
  }
  // Add a few loops between nearby access nodes instead of a spanning tree.
  for(let i=0;i<access.length;i++){
+  if(i%3===0&&reconnect<.5)continue;
   const a=access[i],b=access[(i+1)%access.length];
   if(length(domain.toPoint(a),domain.toPoint(b))*domain.scale>groundCell*8)
    add(a,b,'main');
@@ -156,7 +164,8 @@ export function initialRoadSkeleton(domain,parameters={},progress=()=>{}){
    if(dd<d){d=dd;best=i}
   }
   if(best<0||d*domain.scale<groundCell*3)continue;
-  if(a.role==='candidate_agricultural'&&d*domain.scale<groundCell*(12-branching*3))continue;
+  if(a.role==='candidate_agricultural'&&(
+     agriculture>.85||(d*domain.scale<groundCell*(12+agriculture*9-branching*3))))continue;
   add(a.i,best,'secondary');
  }
  progress(.53,'次级道路与公共节点连接完成');
@@ -174,7 +183,7 @@ export function initialRoadSkeleton(domain,parameters={},progress=()=>{}){
    if(d>localSpacing*.7&&d<localSpacing*2.8)candidates.push({b,d});
   }
   candidates.sort((x,y)=>x.d-y.d);
-  for(const pair of candidates.slice(0,2)){
+  for(const pair of candidates.slice(0,reconnect>.45?2:1)){
    if(add(a,pair.b,'local'))generated++;
    if(generated>Math.round(22+Number(parameters.roadDensity??55)*.65))break;
   }
