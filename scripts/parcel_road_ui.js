@@ -41,7 +41,10 @@ function geoJSON(output){
     ...f,properties:{...f.properties,layer:'land_use_candidate'}}))
   ]};
 }
-export function createParcelRoadUI({root,getMap,getRing,onStatus}){
+export function createParcelRoadUI({
+ root,getMap,getRing,onStatus,onDone=()=>{},onReset=()=>{},
+ boundarySource='pg-boundary',outlineLayer='pg-outline',autoHandoff=true
+}){
  const el=id=>root?.querySelector('#'+id);
  let worker=null,serial=0,ready=false,result=null,active=false,pending=false;
  let loadedSource=null;
@@ -105,6 +108,7 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
       result.diagnostics.lengthKm+' km，'+result.diagnostics.junctions+
       ' 个路口 · '+(data.result.mode==='optimise'?'Wool 优化':'初始道路骨架'));
     updateMap();
+    onDone(result);
    }else if(data.type==='error'){
     pending=false;
     for(const id of ['pg-road-generate','pg-road-wool'])el(id).disabled=!ready;
@@ -119,10 +123,10 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
  const names={main:'pg-road-main',secondary:'pg-road-secondary',
   local:'pg-road-local',reserved:'pg-road-reserved',footprints:'pg-road-footprints'};
  function layers(){
-  const map=getMap();if(!map||!map.isStyleLoaded()||!map.getSource('pg-boundary'))return false;
+  const map=getMap();if(!map||!map.isStyleLoaded()||!map.getSource(boundarySource))return false;
   if(!map.getLayer('pg-road-backdrop'))map.addLayer({
-   id:'pg-road-backdrop',type:'fill',source:'pg-boundary',
-   layout:{visibility:'none'},paint:{'fill-color':'#08090a','fill-opacity':1}},'pg-outline');
+   id:'pg-road-backdrop',type:'fill',source:boundarySource,
+   layout:{visibility:'none'},paint:{'fill-color':'#08090a','fill-opacity':1}},outlineLayer);
   for(const [kind,id] of Object.entries(names)){
    if(!map.getSource(id))map.addSource(id,{type:'geojson',data:empty()});
    if(!map.getLayer(id))map.addLayer({
@@ -134,7 +138,7 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
      {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#eeeeee':'#a8b1bd',
       'line-width':kind==='main'?5.5:kind==='secondary'?2.75:1.0,
       'line-opacity':kind==='main'?1:.9}
-   },'pg-outline');
+   },outlineLayer);
   }
   return true;
  }
@@ -195,6 +199,7 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
   el('pg-road-wool').onclick=()=>generate('optimise');
   el('pg-road-reset').onclick=()=>{
    result=null;pending=false;
+   onReset();
    if(worker){worker.terminate();worker=null;}
    ready=false;
    el('pg-road-progressbar').style.width='0';
@@ -212,9 +217,9 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
    result,'application/json');
   // Automatic same-tab handoff after closing the flood/tensor selection
   // workspace. The worker rejects stale or mismatched parcel snapshots.
-  const previous=window.__londonParcelTensorHandoff;
-  if(previous){
-   acceptSnapshot(previous,'London Map 当前会话张量/洪涝计算结果');
+  if(autoHandoff){
+   const previous=window.__londonParcelTensorHandoff;
+   if(previous)acceptSnapshot(previous,'London Map 当前会话张量/洪涝计算结果');
   }
  }
  function setActive(value){
@@ -228,7 +233,20 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
   }
  }
  function generateInitial(){generate('generate')}
+ function loadSnapshot(snapshot,label='Hydro Lab 实时计算的张量与洪涝结果'){
+  acceptSnapshot(snapshot,label);
+ }
+ function loadResult(precomputed){
+  if(!precomputed||precomputed.schema!=='london-road-step05-v1')
+   throw Error('STEP 05 道路成果格式不正确');
+  result=precomputed;ready=true;pending=false;
+  for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package']){
+   const control=el(id);if(control)control.disabled=false;
+  }
+  inform('已载入 Hydro Lab 生成的 STEP 05 道路网络 · '+(result.diagnostics?.roadCount||0)+' 条');
+  updateMap();
+ }
  function dispose(){serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
- return {mount,setActive,attachMap:updateMap,generateInitial,dispose,
+ return {mount,setActive,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,dispose,
   get isReady(){return ready},get result(){return result}};
 }
