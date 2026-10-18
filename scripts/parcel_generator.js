@@ -336,7 +336,11 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    '<span class="pg-note" id="pg-footer-hint">STEP 05 可通过左侧导入场地张量；地图可拖动和滚轮缩放。</span></footer>');
   document.body.append(root);
   roadUI=createParcelRoadUI({root,getMap:()=>viewer,getRing:()=>ring,
-    onStatus:(text,bad)=>{if(bad)console.warn('[Parcel STEP05]',text);}});
+    onStatus:(message,bad)=>{
+      const hint=byId('pg-footer-hint');
+      if(hint)hint.textContent=message;
+      if(bad)console.warn('[Parcel STEP05]',message);
+    }});
   roadUI.mount(byId('pg-road-panel'));
   const selectStep=number=>{
     const roads=number===5;
