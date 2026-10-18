@@ -1,0 +1,37 @@
+name: Parcel Generator STEP 05 regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/parcel_generator.js'
+      - 'scripts/parcel_road_ui.js'
+      - 'scripts/parcel_road_constraints.js'
+      - 'scripts/parcel_road_skeleton.js'
+      - 'scripts/parcel_wool_solver.js'
+      - 'scripts/parcel_road_topology.js'
+      - 'scripts/parcel_road_worker.js'
+      - 'scripts/test_parcel_step05.mjs'
+      - 'diagnostics/tensor-audit.json'
+      - '.github/workflows/parcel-step05-regression.yml'
+  workflow_dispatch:
+jobs:
+  parcel-road:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check isolated STEP 05 modules
+        run: |
+          node --check scripts/parcel_generator.js
+          node --check scripts/parcel_road_ui.js
+          node --check scripts/parcel_road_constraints.js
+          node --check scripts/parcel_road_skeleton.js
+          node --check scripts/parcel_wool_solver.js
+          node --check scripts/parcel_road_topology.js
+          node --check scripts/parcel_road_worker.js
+      - name: Verify real London coordinates, source gate, Wool and STEP 06 handoff
+        run: node scripts/test_parcel_step05.mjs
