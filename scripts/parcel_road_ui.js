@@ -54,21 +54,21 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
   <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
  </label>
  <div class="pg-note" id="pg-road-source">尚未导入真实场地。STEP 05 不会使用虚构数据。</div>
- <div class="pg-section"><div class="pg-label">WOOL / FLOOD / URBAN CONTROL</div>
+ <div class="pg-section"><div class="pg-label">GENERATE / OPTIMISE · 道路生成</div>
+ <div class="pg-road-actions">
+ <button id="pg-road-generate" disabled>① 生成道路网络</button>
+ <button id="pg-road-wool" disabled>② Wool 优化</button>
+ <button id="pg-road-reset">重置路网</button>
+ </div>
+ <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
+ <div class="pg-status" id="pg-road-status">正在等待真实张量与水深数据。数据校验通过后即可生成。</div>
+ </div>
+ <div class="pg-section"><div class="pg-label">WOOL / FLOOD / URBAN CONTROL · 参数</div>
  ${PARAMETERS.map(([k,label,v,min,max])=>`
   <label class="pg-road-param"><span>${label} <output id="pg-road-val-${k}">${v}</output></span>
    <input type="range" id="pg-road-${k}" min="${min}" max="${max}" step="5" value="${v}"></label>`).join('')}
  <label class="pg-road-param"><span>普通道路水深阈值（米）</span>
   <input id="pg-road-floodLimitM" type="number" min=".03" max=".6" step=".01" value=".15" style="width:68px"></label></div>
- <div class="pg-section"><div class="pg-label">GENERATE / OPTIMISE</div>
- <div class="pg-road-actions">
- <button id="pg-road-generate" disabled>① Generate Road Network</button>
- <button id="pg-road-wool" disabled>② Optimise Wool</button>
- <button id="pg-road-reset">Reset</button>
- </div>
- <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
- <div class="pg-status" id="pg-road-status">等待真实张量与水深数据。</div>
- </div>
  <div class="pg-section"><div class="pg-label">VISIBILITY / HIERARCHY</div>
  ${[['main','Main Roads (主道路)'],['secondary','Secondary Roads (次道路)'],
   ['local','Local Roads (支路)'],['reserved','Flood / ecological reserves'],
@@ -108,6 +108,7 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
    }else if(data.type==='error'){
     pending=false;
     for(const id of ['pg-road-generate','pg-road-wool'])el(id).disabled=!ready;
+    el('pg-road-source').textContent='⚠ 张量/洪涝数据未通过校验，请查看下方错误提示并重新导入。';
     inform('STEP 05 失败：'+data.message,true);
    }else if(data.type==='cleared'){
     result=null;pending=false;updateMap();
@@ -147,7 +148,10 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
    const check=el('pg-road-show-'+kind);
    map.setLayoutProperty(id,'visibility',active&&result&&check?.checked?'visible':'none');
   }
-  map.setLayoutProperty('pg-road-backdrop','visibility',active?'visible':'none');
+  // Do NOT black out the site before there are any computed roads.
+  // Keep the original OSM streets and parks navigable during import/preview.
+  map.setLayoutProperty('pg-road-backdrop','visibility',
+    active&&Boolean(result)?'visible':'none');
   if(map.getLayer('pg-slope'))map.setLayoutProperty('pg-slope','visibility','none');
  }
  function params(){
@@ -213,7 +217,18 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
    acceptSnapshot(previous,'London Map 当前会话张量/洪涝计算结果');
   }
  }
- function setActive(value){active=Boolean(value);updateMap()}
+ function setActive(value){
+  active=Boolean(value);
+  updateMap();
+  if(active){
+   const readyMessage=result?'路网已生成，可拖动地图或查看各道路层级。':
+     ready?'点击左侧「① 生成道路网络」开始计算。':
+     '先完成 2100 年洪涝与张量计算，或从左侧导入真实场地诊断 JSON。';
+   inform(readyMessage);
+  }
+ }
+ function generateInitial(){generate('generate')}
  function dispose(){serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
- return {mount,setActive,attachMap:updateMap,dispose,get result(){return result}};
+ return {mount,setActive,attachMap:updateMap,generateInitial,dispose,
+  get isReady(){return ready},get result(){return result}};
 }
