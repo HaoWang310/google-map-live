@@ -2590,6 +2590,15 @@ export function createLocalFloodUI({
     if(focusThresholdTimer)clearTimeout(focusThresholdTimer);
     focusThresholdTimer=null;
     const viewer=isolateViewer;
+    // Same-tab handoff: keep the last computed tensor/2100 flood snapshot
+    // in MEMORY only for STEP 05. Never upload, persist or fabricate arrays.
+    try{
+      const snapshot=hydroVector?.exportSiteSnapshot?.();
+      if(snapshot&&polygon?.[0]?.length>3){
+        window.__londonParcelTensorHandoff={
+          ...snapshot,selection:{type:'Polygon',coordinates:structuredClone(polygon)}};
+      }
+    }catch(error){console.warn('STEP05 张量场交接尚未就绪',error);}
     hydroVector?.dispose();
     hydroVector=null;
     delete window.getLondonHydroVectorFieldData;
