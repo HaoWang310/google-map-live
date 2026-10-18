@@ -162,18 +162,19 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
     '建立真实数据约束及初始分级道路骨架…');
   ensureWorker();worker.postMessage({type:mode,id:++serial,params:params()});
  }
+ function acceptSnapshot(parsed,label){
+  if(!root)return;
+  ready=false;result=null;pending=false;updateMap();
+  ensureWorker();
+  inform('正在核对 '+label+' 的2100年张量、洪涝结果与场地配准…');
+  worker.postMessage({type:'source',id:++serial,snapshot:parsed,ring:getRing()});
+  loadedSource=label;
+ }
  async function importSource(file){
   if(!file)return;
   if(file.size>75*1024*1024){inform('JSON 文件超过 75MB，请缩小场地。',true);return}
-  ready=false;result=null;pending=false;updateMap();
-  try{
-   const parsed=JSON.parse(await file.text());
-   if(!root)return;
-   ensureWorker();
-   inform('正在验证 JSON 与当前场地的地理配准…');
-   worker.postMessage({type:'source',id:++serial,snapshot:parsed,ring:getRing()});
-   loadedSource=file.name;
-  }catch(e){inform('场地 JSON 读取失败：'+e.message,true)}
+  try{acceptSnapshot(JSON.parse(await file.text()),file.name);}
+  catch(e){inform('场地 JSON 读取失败：'+e.message,true)}
  }
  function mount(target){
   target.innerHTML=html();
@@ -201,6 +202,12 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
    geoJSON(result),'application/geo+json');
   el('pg-road-package').onclick=()=>result&&saveFile('London_2100_STEP05_Topology.json',
    result,'application/json');
+  // Automatic same-tab handoff after closing the flood/tensor selection
+  // workspace. The worker rejects stale or mismatched parcel snapshots.
+  const previous=window.__londonParcelTensorHandoff;
+  if(previous){
+   acceptSnapshot(previous,'London Map 当前会话张量/洪涝计算结果');
+  }
  }
  function setActive(value){active=Boolean(value);updateMap()}
  function dispose(){serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
