@@ -34,7 +34,11 @@ function geoJSON(output){
    ...output.roadPolygons.features.map(f=>({
     ...f,properties:{...f.properties,layer:'road_polygon'}})),
    ...output.reservedFloodEcologicalCorridors.features.map(f=>({
-    ...f,properties:{...f.properties,layer:'reserved_flood_corridor'}}))
+    ...f,properties:{...f.properties,layer:'reserved_flood_corridor'}})),
+   ...output.accessPublicNodes.features.map(f=>({
+    ...f,properties:{...f.properties,layer:'access_candidate'}})),
+   ...output.candidateNodes.features.map(f=>({
+    ...f,properties:{...f.properties,layer:'land_use_candidate'}}))
   ]};
 }
 export function createParcelRoadUI({root,getMap,getRing,onStatus}){
@@ -45,7 +49,7 @@ export function createParcelRoadUI({root,getMap,getRing,onStatus}){
    onStatus?.(msg,bad);}
  const html=()=>`
  <div class="pg-label">STEP 05 · Generate and Optimise the Road Network</div>
- <p class="pg-note">必须导入同一红色场地从 London Map 导出的 2100 年真实张量/洪涝诊断 JSON；不会生成随机道路。</p>
+ <p class="pg-note">先在 London Map 完成洪涝与 2100 张量计算；返回地图后将自动交接场地。也可在「04 · 水文张量场 → 导出真实场地诊断」保存 JSON 并在此导入。不同场地的数据会被拒绝，不会用随机路网代替。</p>
  <label class="pg-option" style="display:block">导入真实张量＋洪涝场地
   <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
  </label>
