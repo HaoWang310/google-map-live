@@ -13,9 +13,16 @@ function solve(data){
   const inside=new Uint8Array(data.inside);
   const barrier=new Uint8Array(data.obstacle);
   const depth=new Uint16Array(data.depthMm);
+  // Planning constraints are a separate optional input. They NEVER alter the
+  // physical runoff obstacle/depth arrays or the DEM.
+  const retained=data.retainedMask?new Uint8Array(data.retainedMask):new Uint8Array(n);
+  const retainedRoadX=data.retainedRoadX?new Float32Array(data.retainedRoadX):new Float32Array(n);
+  const retainedRoadY=data.retainedRoadY?new Float32Array(data.retainedRoadY):new Float32Array(n);
+  const retainedRoadWeight=data.retainedRoadWeight?new Float32Array(data.retainedRoadWeight):new Float32Array(n);
   const flowX=new Int8Array(data.vx),flowY=new Int8Array(data.vy);
   const flowPower=new Uint8Array(data.intensity);
-  if([terrain,accumulation,inside,barrier,depth,flowX,flowY,flowPower]
+  if([terrain,accumulation,inside,barrier,depth,flowX,flowY,flowPower,
+    retained,retainedRoadX,retainedRoadY,retainedRoadWeight]
     .some(a=>a.length!==n))throw Error('Tensor input grid mismatch');
   const cfg=data.config||{};
   const wt=clamp(Number(cfg.terrainWeight??35)/100,0,1);
@@ -71,7 +78,7 @@ function solve(data){
   // Guide field deliberately covers real building footprints, unlike the
   // physical flood solver. The DEM remains the source of orientation across
   // those footprints so the design lines do not terminate at facades.
-  const valid=i=>i>=0&&i<n&&inside[i]!==0&&Number.isFinite(terrain[i]);
+  const valid=i=>i>=0&&i<n&&inside[i]!==0&&Number.isFinite(terrain[i])&&!retained[i];
   // Decode the raster's LOG upstream-area encoding to a normalized log rank,
   // never treat codes as rainfall volume or an actual measured drain flow.
   for(let i=0;i<n;i++){
@@ -201,6 +208,7 @@ function solve(data){
   // Construct two orthogonal hydrographic principal axes as a symmetric
   // 2nd-order tensor. Each directional cue is an undirected line orientation
   // (cos(2theta), sin(2theta)), not a random motion or street network.
+  const retainedConstraint=new Float32Array(n);
   const rainfallInfluence=new Float32Array(n);
   const hydroIntensity=new Float32Array(n);
   const floodConstraint=new Float32Array(n);
@@ -239,6 +247,35 @@ function solve(data){
     if(terrainRegional>EPS)addAxis(Math.atan2(terrainCoarseY[i],terrainCoarseX[i]),terrainRegional,sum);
     if(drainageCueWeight[i]>EPS)addAxis(Math.atan2(drainageY[i],drainageX[i]),drainageCueWeight[i],sum);
     if(hydraulicCueWeight[i]>EPS)addAxis(Math.atan2(hydY[i],hydX[i]),hydraulicCueWeight[i],sum);
+    // Retained road surface cells favor their recorded real OSM segment
+    // axis. Intersections merge as undirected doubled angles.
+    const roadN=retainedRoadWeight[i];
+    if(roadN>0){
+      const mag=Math.hypot(retainedRoadX[i],retainedRoadY[i]);
+      if(mag>1e-6){
+        const alignment=.95*Math.min(1,roadN);
+        // roadX/Y already encode cos(2theta),sin(2theta).
+        sum[0]+=alignment*retainedRoadX[i]/mag;
+        sum[1]+=alignment*retainedRoadY[i]/mag;
+        sum[2]+=alignment;
+        retainedConstraint[i]=1;
+      }
+    }
+    // Kept buildings/parks cannot be crossed by design streamlines; a
+    // nearby field aligns with the local preserved boundary tangent.
+    let normalX=0,normalY=0,neighbours=0;
+    for(const [ox,oy] of [[-1,0],[1,0],[0,-1],[0,1]]){
+      const xx=x+ox,yy=y+oy;
+      if(xx<0||yy<0||xx>=w||yy>=h)continue;
+      if(retained[yy*w+xx]){
+        normalX+=ox;normalY+=oy;neighbours++;
+      }
+    }
+    if(neighbours&&Math.hypot(normalX,normalY)>0){
+      const boundaryWeight=.72;
+      addAxis(Math.atan2(normalY,normalX)+Math.PI/2,boundaryWeight,sum);
+      retainedConstraint[i]=Math.max(retainedConstraint[i],.85);
+    }
     const strengths=[terrainCueWeight[i],drainageCueWeight[i],hydraulicCueWeight[i]];
     const strongest=Math.max(...strengths);
     dominantProcess[i]=strongest>EPS?1+strengths.indexOf(strongest):0;
@@ -386,6 +423,11 @@ function solve(data){
     drainageDirectionMethod:'local accumulation-ridge PCA; undirected; not D8 connectivity',
     diagnostics:{counts,drainageD8Available:false,groundMetreBasis:true,
       obstacleCells,buildingFootprintsPassable:true,
+      retainedPlanning: {enabled:retained.some(Boolean)||retainedRoadWeight.some(v=>v>0),
+        excludedCells:retained.reduce((a,v)=>a+(v?1:0),0),
+        roadGuidedCells:retainedRoadWeight.reduce((a,v)=>a+(v>0?1:0),0),
+        effect:'kept OSM areas exclude design streamlines; kept roads guide tensor axes',
+        hydrologyInputsUnchanged:true},
     physicalRunoffBuildingsImpermeable:true,
     tensorContinuityAcrossBuildings:'design-only (real DEM + visually filled base depth)',continuityRadiusM:continuityRadius,regularizationIterations:smooth>0?iterations:0,
       hierarchy:'regional DEM (150m support), local DEM (50m support), accumulation ridge, local depth head',
@@ -413,7 +455,7 @@ function solve(data){
       anisotropy,directionContinuity,obstacleConstraint,dominantProcess,
       corridorRank,corridorAxisX,corridorAxisY,
       corridorDistance,trunkMask,secondaryX,secondaryY,
-      rainfallInfluence,hydroIntensity,floodConstraint,
+      rainfallInfluence,hydroIntensity,floodConstraint,retainedConstraint,
       basePrimaryX,basePrimaryY,baseConfidence,baseIntensity}};
   return out;
 }
