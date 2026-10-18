@@ -10,7 +10,7 @@ const point=[-0.25,51.47],p=merc(point),step=10;
 const grid={left:p[0]-55,top:p[1]+55,cellProjectedM:step};
 const square=(x,y,r=4)=>({type:'Polygon',coordinates:[[
   [x-r,y-r],[x+r,y-r],[x+r,y+r],[x-r,y+r],[x-r,y-r]
-].map(([dx,dy])=>[point[0]+dx/(R*Math.cos(point[1]*DEG))*180/Math.PI,point[1]+dy/R*180/Math.PI])]});
+].map(([dx,dy])=>[point[0]+dx/R*180/Math.PI,point[1]+dy*Math.cos(point[1]*DEG)/R*180/Math.PI])]});
 const keep=[
   {type:'Feature',properties:{elementType:'building',elementId:'building:one',planDecision:'keep'},geometry:square(0,0)},
   {type:'Feature',properties:{elementType:'road',elementId:'road:one',part:'surface',planDecision:'keep',
