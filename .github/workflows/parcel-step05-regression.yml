@@ -11,6 +11,7 @@ on:
       - 'scripts/parcel_road_topology.js'
       - 'scripts/parcel_road_worker.js'
       - 'scripts/test_parcel_step05.mjs'
+      - 'scripts/test_parcel_step05_navigation.mjs'
       - 'diagnostics/tensor-audit.json'
       - '.github/workflows/parcel-step05-regression.yml'
   workflow_dispatch:
@@ -33,5 +34,7 @@ jobs:
           node --check scripts/parcel_wool_solver.js
           node --check scripts/parcel_road_topology.js
           node --check scripts/parcel_road_worker.js
+      - name: Verify STEP 05 map interaction and entry navigation
+        run: node scripts/test_parcel_step05_navigation.mjs
       - name: Verify real London coordinates, source gate, Wool and STEP 06 handoff
         run: node scripts/test_parcel_step05.mjs
