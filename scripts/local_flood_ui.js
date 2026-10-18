@@ -913,6 +913,7 @@ export function createLocalFloodUI({
   // Independent site editing: decisions are a planning overlay, never a
   // change to the original OSM geometry or the flood solver's obstacles.
   let focusSiteDetails=null;
+  let preparedSiteDetails=null; // Snapshot while the city map is fitted to ALL site tiles.
   let sitePlanMode=false,sitePlanSelectedId=null,sitePlanStorage=null;
   let sitePlanDecisions={};
   let sitePlanShowRoads=true,sitePlanShowGreens=true;
@@ -1825,12 +1826,33 @@ export function createLocalFloodUI({
       if(!descriptors.has(key))descriptors.set(key,{source:layer.source,layerName});
     }
 
+    // The underlying city map must be queried BEFORE its top-down site camera
+    // is restored. Also query rendered road/park layers: not every OSM style
+    // exposes all feature classes through the same dedicated building source.
+    const renderedByLayer=new Map();
+    try{
+      const styleLayers=(map.getStyle()?.layers||[]).filter(layer=>
+        descriptors.has(String(layer.source)+'|'+String(layer['source-layer']))&&
+        ['line','fill'].includes(layer.type)&&
+        map.getLayoutProperty(layer.id,'visibility')!=='none');
+      const layerIds=styleLayers.map(layer=>layer.id);
+      if(layerIds.length){
+        const box=[[0,0],[map.getCanvas().clientWidth,map.getCanvas().clientHeight]];
+        for(const item of map.queryRenderedFeatures(box,{layers:layerIds})||[]){
+          const k=String(item.source)+'|'+String(item.sourceLayer||item.layer?.['source-layer']||'');
+          if(!descriptors.has(k))continue;
+          if(!renderedByLayer.has(k))renderedByLayer.set(k,[]);
+          renderedByLayer.get(k).push(item);
+        }
+      }
+    }catch(error){console.warn('OSM rendered road/park fallback unavailable',error);}
     for(const {source,layerName} of descriptors.values()){
       let items=[];
       try{items=map.querySourceFeatures(source,{sourceLayer:layerName})||[];}
       catch(error){continue;}
       const maxItems=layerName==='transportation'?9000:3000;
-      for(const feature of items.slice(0,maxItems)){
+      const merged=items.concat(renderedByLayer.get(source+'|'+layerName)||[]);
+      for(const feature of merged.slice(0,maxItems)){
         if(!feature?.geometry)continue;
         if(!boxesIntersect(
           layerName==='transportation'?roadSelectionBox:selectionBox,
@@ -1906,7 +1928,12 @@ export function createLocalFloodUI({
     return {
       roads:collection(roads),
       greens:collection(greens),
-      waters:collection(waters)
+      waters:collection(waters),
+      diagnostics:{
+        roadSurfaces:roads.filter(f=>f.properties?.part==='surface').length,
+        greenAreas:greens.length,waterAreas:waters.length,
+        renderedFallbackClasses:[...renderedByLayer.keys()]
+      }
     };
   }
 
@@ -3674,7 +3701,7 @@ export function createLocalFloodUI({
 
     let viewer;
     try{
-      const details=collectFocusMapDetails();
+      const details=preparedSiteDetails||collectFocusMapDetails();
       loadSitePlan(details);
       viewer=new maplibregl.Map({
         container:el,style:focusStyle(details),
@@ -4058,6 +4085,7 @@ export function createLocalFloodUI({
     simulator?.pause();
     siteRainRequest++;siteRainData=null;
     prepared=false;
+    preparedSiteDetails=null;
     clearSelectedBuildingStates();
     removeWaterLayers();
     if(!keepSelection){
@@ -4472,7 +4500,17 @@ export function createLocalFloodUI({
     await onceIdle(map,5200);
 
     let topDown=queryBuildings(bounds,ring);
-
+    preparedSiteDetails=collectFocusMapDetails();
+    // Recover late-arriving road/park vector tiles while the original map
+    // still covers the ENTIRE site, before restoring the user's camera.
+    if(!preparedSiteDetails.diagnostics.roadSurfaces){
+      await new Promise(resolve=>setTimeout(resolve,280));
+      await onceIdle(map,1400);
+      const retrySite=collectFocusMapDetails();
+      if(retrySite.diagnostics.roadSurfaces>preparedSiteDetails.diagnostics.roadSurfaces||
+         retrySite.diagnostics.greenAreas>preparedSiteDetails.diagnostics.greenAreas)
+        preparedSiteDetails=retrySite;
+    }
     // Prefer whichever pass actually found more clipped buildings.
     if((topDown.selected?.length||0)>(queried.selected?.length||0)){
       queried=topDown;
