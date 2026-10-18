@@ -277,8 +277,11 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
      config:{bounds:demBounds,width:demWidth,height:demHeight}});
   }catch(error){if(id===current)status('无法完成 STEP 01：'+(error.message||error),true);}
  }
- function open({polygon}){
+ function open({polygon,roadNetwork=null}){
   exit();
+  const finalMode=roadNetwork?.schema==='london-road-step05-v1'&&
+    Array.isArray(roadNetwork.roadTopologyGraph?.edges)&&
+    roadNetwork.roadTopologyGraph.edges.length>0;
   if(!polygon?.[0]||polygon[0].length<4)throw Error('请先闭合红框地块');
   ring=closeRing(polygon[0]);
   if(ring.some(p=>!p.every(Number.isFinite)))throw Error('所选地块地理坐标无效');
@@ -286,16 +289,20 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
   root=document.createElement('div');root.className='pg';
   const style=document.createElement('style');style.textContent=STYLE;root.append(style);
   const steps=PIPELINE.map((step,i)=>'<button type="button" id="pg-step-'+(i+1)+
-    '" class="pg-step '+(i===0?'on':'')+'" '+(i!==0&&i!==4?'disabled':'')+
+    '" class="pg-step '+((finalMode?i===5:i===0)?'on':'')+'" '+
+    ((i!==0&&!(finalMode&&i===5))?'disabled':'')+
     '><strong>'+String(i+1).padStart(2,'0')+'</strong>　'+
     (i===4?'Generate and Optimise the Road Network':step[0])+
     ' <small>'+step[1]+'</small> '+
-    (i===4?'· 可运行（需要真实张量输入）':i?'· 待实现':'· 当前阶段')+'</button>').join('');
+    (i===4?(finalMode?'· 已于 Hydro Lab 完成':'· 请先在 Hydro Lab 完成'):
+      i===5&&finalMode?'· 已接收道路数据':i?'· 待实现':'· 场地基础信息')+
+    '</button>').join('');
   root.insertAdjacentHTML('beforeend',
    '<div class="pg-map" id="pg-map"></div>'+
    '<header class="pg-top"><div class="pg-brand">LONDON 2100 · PARCEL GENERATOR'+
    '<small>HYDRO — AGRI — TENSOR — WOOL / SITE PLANNING</small></div>'+
-   '<span class="pg-badge" id="pg-active-step">STEP 05 / 07 · ROAD NETWORK</span>'+
+   '<span class="pg-badge" id="pg-active-step">'+
+     (finalMode?'STEP 06 / 07 · PARCEL HANDOFF':'STEP 01 / 07 · SITE DATA')+'</span>'+
    '<button type="button" class="pg-exit" id="pg-exit">✕ 返回 London Map (Esc)</button></header>'+
    '<nav class="pg-panel pg-left"><div class="pg-label">GENERATION PIPELINE</div>'+steps+
    '<div class="pg-section" id="pg-site-audit-panel"><div class="pg-label">STEP 01 · SITE AUDIT</div>'+
@@ -305,7 +312,18 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    '<p class="pg-note" id="pg-projection">正在转换英国国家格网坐标…</p>'+
    '<div class="pg-section"><div class="pg-label">DATA STATUS</div>'+
    '<div class="pg-status" id="pg-status">等待数据检查…</div></div></div>'+
-   '<section class="pg-section" id="pg-road-panel" hidden></section></nav>'+
+   '<section class="pg-section" id="pg-road-panel" hidden></section>'+
+   '<section class="pg-section" id="pg-final-panel" hidden>'+
+   '<div class="pg-label">STEP 06 · PARCEL SUBDIVISION · 输入检查</div>'+
+   '<p class="pg-note">已收到 Hydro Lab 完成的 STEP 05 道路方案。这一步暂时展示与核对数据，未执行最终地块几何切割。</p>'+
+   '<div class="pg-stat"><small>已生成道路中心线</small><b id="pg-final-roadcount">—</b></div>'+
+   '<div class="pg-line">总道路长度 <strong id="pg-final-length">—</strong></div>'+
+   '<div class="pg-line">拓扑节点 / 边 <strong id="pg-final-topology">—</strong></div>'+
+   '<div class="pg-line">路面条带 <strong id="pg-final-strips">—</strong></div>'+
+   '<div class="pg-line">洪涝保留区 <strong id="pg-final-flood">—</strong></div>'+
+   '<button type="button" id="pg-final-export">↓ 导出 STEP 05 完整数据包</button>'+
+   '<p class="pg-note">STEP 06 后续应进行道路占地并集与裁切、真实封闭街区提取及住宅／农业／湿地功能分配，不能将路面条带误当作已切分地块。</p>'+
+   '</section></nav>'+
    '<aside class="pg-panel pg-right"><div class="pg-label">OS TERRAIN 50</div>'+
    '<div class="pg-stat"><small>真实高程范围</small><b id="pg-elev">—</b></div>'+
    '<div class="pg-stat"><small>DEM 推导平均坡度</small><b id="pg-slope">—</b></div>'+
@@ -328,8 +346,9 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
       '<tr><td>'+v[0]+'</td><td>'+v[1]+'</td></tr>').join('')+'</table>'+
    '<p class="pg-note">坐标计算为 EPSG:27700。当前采用 OSGB36 Helmert 近似，未加载 OSTN15 校正格网，不能用于测绘级定界。</p></div></aside>'+
    '<div class="pg-subtitle">红色范围 = 当前真实场地 · OSM 道路与绿地仅作基础地图参照</div>'+
-   '<footer class="pg-bottom"><button type="button" id="pg-open-road">进入 STEP 05</button>'+
-   '<button type="button" id="pg-generate-shortcut" title="真实张量数据校验通过后才会生成">① 生成道路网络</button>'+
+   '<footer class="pg-bottom"><button type="button" id="pg-open-road" '+(finalMode?'hidden':'')+'>查看 STEP 05 说明</button>'+
+   '<button type="button" id="pg-generate-shortcut" '+(finalMode?'hidden':'')+
+      ' title="STEP 05 已移动到 Hydro Lab，请在那里生成">STEP 05 请返回 Hydro Lab</button>'+
    '<button type="button" id="pg-fit-site">◎ 重新定位场地</button>'+
    '<button type="button" id="pg-export">导出 STEP01</button>'+
    '<button disabled title="STEP 06 尚未开发">Generate Parcels</button>'+
@@ -345,28 +364,42 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
   const selectStep=number=>{
     const roads=number===5;
     byId('pg-road-panel').hidden=!roads;
-    byId('pg-site-audit-panel').hidden=roads;
-    byId('pg-active-step').textContent=roads?'STEP 05 / 07 · ROAD NETWORK':'STEP 01 / 07 · REAL DATA';
-    for(const i of [1,5])byId('pg-step-'+i).classList.toggle('on',i===number);
-    roadUI.setActive(roads);
-    if(roads){
-      const panel=byId('pg-road-panel');
-      if(panel?.parentElement)panel.parentElement.scrollTop=0;
-      byId('pg-footer-hint').textContent=roadUI.isReady?
-        '真实张量数据已就绪：点击「① 生成道路网络」。':
-        '未检测到有效2100张量：请在左侧导入同一场地JSON。';
+    byId('pg-site-audit-panel').hidden=number!==1;
+    byId('pg-final-panel').hidden=number!==6;
+    byId('pg-active-step').textContent=number===6?'STEP 06 / 07 · PARCEL HANDOFF':
+      roads?'STEP 05 / 07 · ROAD NETWORK':'STEP 01 / 07 · REAL DATA';
+    for(const i of [1,5,6])byId('pg-step-'+i).classList.toggle('on',i===number);
+    roadUI.setActive(number===6&&finalMode);
+    if(number===6){
+      byId('pg-footer-hint').textContent='已接收 STEP 05 完整道路方案。STEP 06 地块分割尚未执行。';
+    }else if(roads){
+      byId('pg-footer-hint').textContent='STEP 05 已迁移至 Hydro Lab，请在张量场后完成再进入此页面。';
     }else byId('pg-footer-hint').textContent='STEP 01 · 实际场地数据。地图可拖动和滚轮缩放。';
     // Resizing after a panel switch keeps the independent MapLibre canvas interactive.
     requestAnimationFrame(()=>viewer?.resize());
   };
   byId('pg-step-1').onclick=()=>selectStep(1);
-  byId('pg-step-5').onclick=()=>selectStep(5);
-  byId('pg-open-road').onclick=()=>selectStep(5);
-  byId('pg-generate-shortcut').onclick=()=>{
-    selectStep(5);
-    roadUI.generateInitial();
-  };
+  // STEP 05 calculations are now exclusively in the Hydro Lab workspace.
+  byId('pg-open-road').onclick=()=>status('请返回 Hydro Lab，在水文张量场后完成 STEP 05。');
+  byId('pg-generate-shortcut').onclick=()=>status('道路生成已移动到 Hydro Lab，请返回该界面。');
   byId('pg-fit-site').onclick=fitSite;
+  if(finalMode){
+    byId('pg-final-roadcount').textContent=String(roadNetwork.diagnostics?.roadCount??0)+' 条';
+    byId('pg-final-length').textContent=String(roadNetwork.diagnostics?.lengthKm??0)+' km';
+    byId('pg-final-topology').textContent=
+      String(roadNetwork.roadTopologyGraph?.nodes?.length??0)+' / '+
+      String(roadNetwork.roadTopologyGraph?.edges?.length??0);
+    byId('pg-final-strips').textContent=String(roadNetwork.roadPolygons?.features?.length??0);
+    byId('pg-final-flood').textContent=
+      String(roadNetwork.reservedFloodEcologicalCorridors?.features?.length??0)+' 个栅格片段';
+    byId('pg-final-export').onclick=()=>{
+      const blob=new Blob([JSON.stringify(roadNetwork,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),link=document.createElement('a');
+      link.href=url;link.download='London_2100_STEP05_for_STEP06.json';
+      link.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
+    };
+    roadUI.loadResult(roadNetwork);
+  }
   for(const id of ['pg-pop','pg-self','pg-food','pg-yield'])byId(id)?.addEventListener('input',updateDemand);
   updateDemand();
   byId('pg-exit').onclick=exit;
@@ -392,9 +425,9 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
      console.warn('Parcel MapLibre:',error?.error||error);
    });
   }catch(e){status('底图创建失败：'+e.message,true);}
-  // The entry point itself is named "道路与地块生成": show its runnable
-  // STEP 05 immediately, with STEP 01 still available from the left tab.
-  selectStep(5);
+  // STEP 05 belongs to Hydro Lab. After completion this viewer receives the
+  // resulting graph as STEP 06 input, without silently regenerating any roads.
+  selectStep(finalMode?6:1);
   audit();
  }
  return {open,close:exit,get isOpen(){return Boolean(root);}};
