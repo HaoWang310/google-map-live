@@ -1394,6 +1394,8 @@ export function createLocalFloodUI({
   const FOCUS_SITE='focus-site-source';
   const FOCUS_BUILDINGS='focus-building-source';
   const FOCUS_ROADS='focus-roads-source';
+  const FOCUS_ROAD_VISIBLE='focus-existing-roads-visible';
+  const FOCUS_GREEN_VISIBLE='focus-existing-greens-visible';
   const FOCUS_GREEN='focus-green-source';
   const FOCUS_PLAN_ROAD='focus-plan-road-outline';
   const FOCUS_PLAN_GREEN='focus-plan-green-outline';
@@ -1894,7 +1896,9 @@ export function createLocalFloodUI({
                 if(!inside)continue;
                 roads.push({
                   type:'Feature',
-                  properties:{class:cls,kind,part,widthMetres:width,elementId,elementType:'road',elementName:String(p.name||cls||'原有道路'),widthEstimated:!Boolean(p.width||p.est_width)},
+                  properties:{class:cls,kind,part,widthMetres:width,elementId,elementType:'road',elementName:String(p.name||cls||'原有道路'),widthEstimated:!Boolean(p.width||p.est_width),
+                    roadAxisX:mercator(b[0],b[1])[0]-mercator(a[0],a[1])[0],
+                    roadAxisY:mercator(b[0],b[1])[1]-mercator(a[0],a[1])[1]},
                   geometry:inside
                 });
               }
@@ -2001,6 +2005,8 @@ export function createLocalFloodUI({
       ['focus-road-casing',sitePlanShowRoads],
       ['focus-road-surface',sitePlanShowRoads],
       ['focus-green-ground',sitePlanShowGreens],
+      [FOCUS_ROAD_VISIBLE,sitePlanShowRoads],
+      [FOCUS_GREEN_VISIBLE,sitePlanShowGreens],
       [FOCUS_PLAN_ROAD,sitePlanShowRoads&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
       [FOCUS_PLAN_GREEN,sitePlanShowGreens&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
       [FOCUS_PLAN_BUILDING,!hideSelectedBuildings&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)]
@@ -2073,7 +2079,8 @@ export function createLocalFloodUI({
   function pickSitePlanElement(event){
     if(!sitePlanMode||!isolateViewer)return;
     const visibleLayers=[
-      FOCUS_3D,FOCUS_2D,'focus-road-surface','focus-green-ground'
+      FOCUS_3D,FOCUS_2D,FOCUS_ROAD_VISIBLE,FOCUS_GREEN_VISIBLE,
+      'focus-road-surface','focus-green-ground'
     ].filter(id=>isolateViewer.getLayer(id)&&
       isolateViewer.getLayoutProperty(id,'visibility')!=='none');
     const hits=isolateViewer.queryRenderedFeatures(event.point,{layers:visibleLayers});
@@ -2452,6 +2459,16 @@ export function createLocalFloodUI({
         // The dashed red boundary is a ground-level graphic, not an overlay
         // painted across roofs/walls. Extruded buildings must draw after it
         // for physically correct occlusion from every camera bearing.
+        // Existing land use remains visible over the blue flood texture.
+        // The preservation editor operates on the same clipped GeoJSON.
+        {id:FOCUS_ROAD_VISIBLE,type:'fill',source:FOCUS_ROADS,
+          filter:['==',['get','part'],'surface'],
+          layout:{visibility:'visible'},
+          paint:{'fill-color':'#e1ebed','fill-opacity':.82}},
+        {id:FOCUS_GREEN_VISIBLE,type:'fill',source:FOCUS_GREEN,
+          layout:{visibility:'visible'},
+          paint:{'fill-color':['match',['get','elementType'],'park','#63bd8f','#8cb875'],
+            'fill-opacity':.72}},
         {id:'focus-parcel-border',type:'line',source:FOCUS_SITE,
           paint:{'line-color':'#ef4444','line-width':2.6,'line-dasharray':[2,1]}},
         {id:FOCUS_2D,type:'fill',source:FOCUS_BUILDINGS,
@@ -2523,7 +2540,9 @@ export function createLocalFloodUI({
     const volume=createFloodVolumeLayer(maplibregl,focusWaterBounds);
     volumetricWater=volume;
     try{
-      viewer.addLayer(volume,FOCUS_FOOTPRINT_FILL);
+      // Composite the flood volume underneath visible OSM roads/parks;
+      // this is *display order*, not physical flood flow routing.
+      viewer.addLayer(volume,FOCUS_ROAD_VISIBLE);
       if(volume.failed)throw new Error(volume.failed);
       if(lastHydroFrame?.depthMm)volume.updateFrame(lastHydroFrame,true);
       volume.animate=hydroState==='running';
