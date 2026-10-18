@@ -1254,6 +1254,17 @@ export function createLocalFloodUI({
       return false;
     }
     const peak=tensorPeakFrame();
+    // A new tensor solve invalidates an earlier STEP05 proposal.
+    // Never permit old roads to be passed forward after a parameter change.
+    if(hydroRoadResult||hydroRoadActive){
+      hydroRoadUI?.resetRoads();
+      hydroRoadResult=null;hydroRoadActive=false;
+      const mount=siteHud('siteHudStep05Controls');
+      if(mount)mount.style.display='none';
+      setSiteHud('siteHudStep05Status','张量场已更新；需要完成 STEP04 后重新生成道路。');
+      const begin=siteHud('siteHudStep05Begin');
+      if(begin)begin.textContent='⑤ 读取张量 · 进入道路生成';
+    }
     // The exact chosen OSM planning state is fixed for this tensor run.
     // Water is still supplied from the cached hydrology frames even when
     // the blue display was hidden during site-element selection.
@@ -3257,6 +3268,8 @@ export function createLocalFloodUI({
         return;
       }
       hydroRoadActive=true;
+      hydroRoadResult=null;
+      siteHud('siteHudStep05Final').disabled=true;
       hydroRoadUI?.setActive(true);
       siteHud('siteHudStep05Controls').style.display='block';
       siteHud('siteHudStep05Begin').textContent='返回 STEP 04 张量场';
@@ -3372,6 +3385,14 @@ export function createLocalFloodUI({
       map.triggerRepaint();isolateViewer?.triggerRepaint();
     };
     const resetFuture=()=>{
+      if(hydroRoadResult||hydroRoadActive){
+        hydroRoadUI?.resetRoads();
+        hydroRoadResult=null;hydroRoadActive=false;
+        const mount=siteHud('siteHudStep05Controls');
+        if(mount)mount.style.display='none';
+        const begin=siteHud('siteHudStep05Begin');
+        if(begin)begin.textContent='⑤ 读取张量 · 进入道路生成';
+      }
       stopTensorSequence();hydroDisplay.flow=false;
       if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
       updateHydroLayerVisibility();
