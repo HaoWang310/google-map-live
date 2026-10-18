@@ -1252,6 +1252,10 @@ export function createLocalFloodUI({
       return false;
     }
     const peak=tensorPeakFrame();
+    // The exact chosen OSM planning state is fixed for this tensor run.
+    // Water is still supplied from the cached hydrology frames even when
+    // the blue display was hidden during site-element selection.
+    hydroVector?.setPlanningFeatures(sitePlanFeatures());
     if(annualPlaying)stopAnnual();
     stopTensorSequence();
     tensorContext=null;
@@ -1976,6 +1980,20 @@ export function createLocalFloodUI({
     }
     refreshSitePlanProperties(false);
   }
+  function updatePlanBuildingColours(){
+    const viewer=isolateViewer;
+    if(!viewer)return;
+    const active=sitePlanMode||Object.keys(sitePlanDecisions).length>0;
+    const planPaint=active?['case',
+      ['boolean',['get','planSelected'],false],'#ffd35c',
+      ['==',['get','planDecision'],'keep'],'#44cfa0',
+      ['==',['get','planDecision'],'remove'],'#ff778c',
+      buildingColourExpression()]:buildingColourExpression();
+    for(const id of [FOCUS_2D,FOCUS_3D])
+      if(viewer.getLayer(id))viewer.setPaintProperty(id,
+        id===FOCUS_3D?'fill-extrusion-color':'fill-color',
+        hydroDisplay.flow?'#8b929d':planPaint);
+  }
   function refreshSitePlanProperties(updateSources=true){
     const all=[
       ...(focusSiteDetails?.roads?.features||[]),
@@ -1996,6 +2014,7 @@ export function createLocalFloodUI({
       updateFocusBuildings();
     }
     syncSitePlanLayers();
+    updatePlanBuildingColours();
     updateSitePlanHud();
   }
   function syncSitePlanLayers(){
@@ -2065,6 +2084,10 @@ export function createLocalFloodUI({
       '选择模式已关闭，已保存的规划决策不会删除。');
   }
   function setSitePlanDecision(status){
+    if(hydroDisplay.flow){
+      setSiteHud('siteHudPlanHint','张量场已生成；请点击底部「重置」返回规划选择，再修改保留状态并重新生成。');
+      return;
+    }
     if(!sitePlanFeatureIndex.has(sitePlanSelectedId)||!['keep','remove','pending'].includes(status))return;
     if(status==='pending')delete sitePlanDecisions[sitePlanSelectedId];
     else sitePlanDecisions[sitePlanSelectedId]=status;
@@ -2312,6 +2335,7 @@ export function createLocalFloodUI({
     // Re-apply their checkbox state, never hide a requested drainage layer.
     updateFocusAnalysisLayers();
     syncSitePlanLayers();
+    updatePlanBuildingColours();
     // Mode switching must never modify the hydraulic solver or request undated water.
   }
 
@@ -3017,6 +3041,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section-title" style="margin:9px 0 4px">现有城市元素 · OSM 设计保留</div>',
       '<label class="site-hydro-check"><input id="siteHudPlanShowRoads" type="checkbox" checked> 显示原有道路</label>',
       '<label class="site-hydro-check"><input id="siteHudPlanShowGreens" type="checkbox" checked> 显示原有公园 / 绿地</label>',
+      '<button type="button" class="site-vector-mode" id="siteHudPlanBegin">① 隐藏洪水 · 选择现状元素</button>',
       '<button type="button" class="site-vector-mode" id="siteHudPlanToggle" aria-pressed="false">✥ 选择原有元素</button>',
       '<div class="site-hydro-mini" id="siteHudPlanCount">正在获取 OSM 场地元素…</div>',
       '<div class="site-hydro-mini" id="siteHudPlanSelected" style="color:#f6c453;font-weight:600">尚未选中元素</div>',
@@ -3026,7 +3051,8 @@ export function createLocalFloodUI({
       '<button type="button" class="site-hydro-tool" id="siteHudPlanPending">◌ 待定</button>',
       '<button type="button" class="site-hydro-tool" id="siteHudPlanExport">↓ 导出规划 GeoJSON</button>',
       '</div>',
-      '<div class="site-hydro-mini" id="siteHudPlanHint">开启选择模式，单击道路、公园、绿地或建筑；绿色为保留，粉红为移除，黄色为当前选中。这里只记录规划方案，不修改 OSM 或洪涝模拟。</div>',
+      '<button type="button" class="site-vector-mode" id="siteHudPlanGenerate" style="margin-top:8px">② 以保留元素为约束生成张量场</button>',
+      '<div class="site-hydro-mini" id="siteHudPlanHint">先完成洪涝模拟，点击隐藏水面并选择现有道路、建筑、公园。保留的建筑／公园为规划避让区，保留道路为张量方向引导；移除和待定不施加规划约束。洪涝求解始终不变。</div>',
       '<label class="site-hydro-check"><input id="siteHudShowDepth" type="checkbox" checked> 水深</label>',
       '<label class="site-hydro-check"><input id="siteHudShowShallow" type="checkbox" checked> 显示浅湿润（1–20 mm；默认开启，不增加真实降雨量）</label>',
       '<label class="site-hydro-check"><input id="siteHudShowVolume" type="checkbox" checked> 3D 立体动态水体 · 波纹 / 接触水花</label>',
@@ -3159,6 +3185,36 @@ export function createLocalFloodUI({
       };
     }
     siteHud('siteHudPlanToggle').onclick=()=>toggleSitePlanMode(!sitePlanMode);
+    siteHud('siteHudPlanBegin').onclick=()=>{
+      // Hide graphics only: cached water-depth and DEM arrays remain intact.
+      hydroDisplay.depth=false;
+      siteHud('siteHudShowDepth').checked=false;
+      syncFocusFloodWaterRendering();
+      toggleSitePlanMode(true);
+      setSiteHud('siteHudPlanHint','洪涝水面已隐藏，计算结果保留。请点击原有元素，设置保留或改造，然后生成张量场。');
+    };
+    siteHud('siteHudPlanGenerate').onclick=()=>{
+      if(!sitePlanFeatureIndex.size){
+        setSiteHud('siteHudPlanHint','尚无可选 OSM 元素；请先检查场地数据是否加载完成。');
+        return;
+      }
+      if(hydroDisplay.flow){
+        setSiteHud('siteHudPlanHint','张量场正在使用当前保留方案。重置后可以重新编辑并生成。');
+        return;
+      }
+      if(!tensorPeakFrame()&&futureYear<2100){
+        setSiteHud('siteHudPlanHint','请先完成洪涝演变到 2100 年并确保洪涝结果已经计算完成。');
+        return;
+      }
+      toggleSitePlanMode(false);
+      if(startTensorSequence()){
+        hydroDisplay.flow=true;
+        siteHud('siteHudShowFlow').checked=true;
+        updateHydroLayerVisibility();
+        syncTensorTransport();
+        setSiteHud('siteHudPlanHint','已将保留道路和保留建筑／公园作为规划约束送入张量场；洪涝水文数据不变。');
+      }else setSiteHud('siteHudPlanHint','张量场准备失败，请检查洪涝模拟和 2100 年数据。');
+    };
     for(const [id,status] of [['siteHudPlanKeep','keep'],['siteHudPlanRemove','remove'],
       ['siteHudPlanPending','pending']]){
       siteHud(id).onclick=()=>setSitePlanDecision(status);
