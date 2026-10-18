@@ -1,5 +1,6 @@
 
-/* Parcel Generator — Stage 01. No road / parcel solution is claimed yet. */
+/* Parcel Generator: STEP 01 audit preserved, independent STEP 05 road module. */
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.0-step05-wool';
 const CRS27700='+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +towgs84=446.448,-125.157,542.06,0.1502,0.2470,0.8421,-20.4894 +units=m +no_defs';
 const get=(parent,id)=>parent?.querySelector(id);
 const closeRing=points=>{
@@ -97,6 +98,14 @@ const STYLE = `
 .pg-option input{accent-color:#45bdcc}
 .pg-field{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0}
 .pg-field input{width:105px;min-width:0;padding:6px;color:#ebfaff;background:#1c3547;border:1px solid #51758a;border-radius:5px}
+.pg-road-param{display:flex;flex-direction:column;gap:4px;margin:9px 0;color:#cae1e9;font-size:11px}
+.pg-road-param>span{display:flex;justify-content:space-between}
+.pg-road-param input[type=range]{width:100%;accent-color:#b6cfde}
+.pg-road-param output{font-variant-numeric:tabular-nums;color:#fff}
+.pg-road-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
+.pg-road-actions button{font-size:11px;padding:8px 5px}
+.pg-road-progress{height:5px;background:#182e3c;border-radius:8px;overflow:hidden;margin:11px 0}
+.pg-road-progress>div{height:100%;width:0;background:#dbeef7;transition:width .15s}
 @media(max-width:950px){.pg-left{width:240px}.pg-right{width:220px}}
 @media(max-width:680px){.pg-left{width:43vw;left:4px;padding:8px}
  .pg-right{width:38vw;right:4px;padding:8px}.pg-panel{top:72px;bottom:115px}
@@ -119,6 +128,7 @@ const SOURCES=[
 ];
 export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,demHeight}){
  let root=null,viewer=null,worker=null,current=0,ring=null,bng=null,terrain=null,demand=null;
+ let roadUI=null;
  const byId=id=>get(root,'#'+id);
  function status(message,error=false){
   const el=byId('pg-status');if(el){el.textContent=message;el.classList.toggle('error',error);}
@@ -126,6 +136,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
  function exit(){
   current++;
   worker?.terminate();worker=null;
+  roadUI?.dispose();roadUI=null;
   viewer?.remove();viewer=null;
   root?.remove();root=null;ring=null;bng=null;terrain=null;demand=null;
   document.removeEventListener('keydown',key,true);
@@ -265,23 +276,27 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
   validateSimpleBoundary(ring);
   root=document.createElement('div');root.className='pg';
   const style=document.createElement('style');style.textContent=STYLE;root.append(style);
-  const steps=PIPELINE.map((p,i)=>'<button type="button" class="pg-step '+(i===0?'on':'')+
-    '" '+(i?'disabled':'')+'><strong>'+String(i+1).padStart(2,'0')+'</strong>　'+
-    p[0]+' <small>'+p[1]+'</small> '+(i?'· 待实现':'· 当前阶段')+'</button>').join('');
+  const steps=PIPELINE.map((step,i)=>'<button type="button" id="pg-step-'+(i+1)+
+    '" class="pg-step '+(i===0?'on':'')+'" '+(i!==0&&i!==4?'disabled':'')+
+    '><strong>'+String(i+1).padStart(2,'0')+'</strong>　'+
+    (i===4?'Generate and Optimise the Road Network':step[0])+
+    ' <small>'+step[1]+'</small> '+
+    (i===4?'· 可运行（需要真实张量输入）':i?'· 待实现':'· 当前阶段')+'</button>').join('');
   root.insertAdjacentHTML('beforeend',
    '<div class="pg-map" id="pg-map"></div>'+
    '<header class="pg-top"><div class="pg-brand">LONDON 2100 · PARCEL GENERATOR'+
    '<small>HYDRO — AGRI — TENSOR — WOOL / SITE PLANNING</small></div>'+
-   '<span class="pg-badge">STEP 01 / 07 · REAL DATA</span>'+
+   '<span class="pg-badge" id="pg-active-step">STEP 01 / 07 · REAL DATA</span>'+
    '<button type="button" class="pg-exit" id="pg-exit">✕ 返回 London Map (Esc)</button></header>'+
    '<nav class="pg-panel pg-left"><div class="pg-label">GENERATION PIPELINE</div>'+steps+
-   '<div class="pg-section"><div class="pg-label">STEP 01 · SITE AUDIT</div>'+
+   '<div class="pg-section" id="pg-site-audit-panel"><div class="pg-label">STEP 01 · SITE AUDIT</div>'+
    '<p class="pg-note">使用已圈选的真实多边形；不生成虚构地块、道路或农业适宜性评分。</p>'+
    '<div class="pg-stat"><small>场地面积 · EPSG:27700</small><b id="pg-area">核算中…</b></div>'+
    '<div class="pg-line">边界周长 <strong id="pg-perimeter">—</strong></div>'+
    '<p class="pg-note" id="pg-projection">正在转换英国国家格网坐标…</p>'+
    '<div class="pg-section"><div class="pg-label">DATA STATUS</div>'+
-   '<div class="pg-status" id="pg-status">等待数据检查…</div></div></div></nav>'+
+   '<div class="pg-status" id="pg-status">等待数据检查…</div></div></div>'+
+   '<section class="pg-section" id="pg-road-panel" hidden></section></nav>'+
    '<aside class="pg-panel pg-right"><div class="pg-label">OS TERRAIN 50</div>'+
    '<div class="pg-stat"><small>真实高程范围</small><b id="pg-elev">—</b></div>'+
    '<div class="pg-stat"><small>DEM 推导平均坡度</small><b id="pg-slope">—</b></div>'+
@@ -305,11 +320,25 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    '<p class="pg-note">坐标计算为 EPSG:27700。当前采用 OSGB36 Helmert 近似，未加载 OSTN15 校正格网，不能用于测绘级定界。</p></div></aside>'+
    '<div class="pg-subtitle">红色范围 = 当前真实场地 · OSM 道路与绿地仅作基础地图参照</div>'+
    '<footer class="pg-bottom"><button type="button" id="pg-export">导出 STEP01 GeoJSON</button>'+
-   '<button disabled title="尚未有张量场、道路约束和 Wool 求解器">Generate Road Network</button>'+
+   '<button type="button" id="pg-open-road">STEP 05 · Generate and Optimise the Road Network</button>'+
    '<button disabled title="尚未建立有效路网与保护边界">Generate Parcels</button>'+
    '<button disabled>Compare Scenarios</button>'+
    '<span class="pg-note">阶段开发：首先检查数据，再生成具有可追溯依据的道路及地块。</span></footer>');
   document.body.append(root);
+  roadUI=createParcelRoadUI({root,getMap:()=>viewer,getRing:()=>ring,
+    onStatus:(text,bad)=>{if(bad)console.warn('[Parcel STEP05]',text);}});
+  roadUI.mount(byId('pg-road-panel'));
+  const selectStep=number=>{
+    const roads=number===5;
+    byId('pg-road-panel').hidden=!roads;
+    byId('pg-site-audit-panel').hidden=roads;
+    byId('pg-active-step').textContent=roads?'STEP 05 / 07 · ROAD NETWORK':'STEP 01 / 07 · REAL DATA';
+    for(const i of [1,5])byId('pg-step-'+i).classList.toggle('on',i===number);
+    roadUI.setActive(roads);
+  };
+  byId('pg-step-1').onclick=()=>selectStep(1);
+  byId('pg-step-5').onclick=()=>selectStep(5);
+  byId('pg-open-road').onclick=()=>selectStep(5);
   for(const id of ['pg-pop','pg-self','pg-food','pg-yield'])byId(id)?.addEventListener('input',updateDemand);
   updateDemand();
   byId('pg-exit').onclick=exit;
@@ -324,7 +353,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
      style:'https://tiles.openfreemap.org/styles/liberty',
      center:ring[0],zoom:15,pitch:0,antialias:true});
    viewer.addControl(new maplibregl.NavigationControl({showCompass:true}),'top-right');
-   viewer.once('load',addLayers);
+   viewer.once('load',()=>{addLayers();roadUI?.attachMap();});
   }catch(e){status('底图创建失败：'+e.message,true);}
   audit();
  }
