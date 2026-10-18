@@ -1,4 +1,5 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
+import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.23.5-retained-tensor';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
@@ -257,7 +258,8 @@ export function createHydroTensorRenderer(args){
           if(fields[key].length!==n)return;
         }
         if(!submitted||!sameHydroGrid(data.grid,submitted.context.grid))return;
-        result={...data,fields,context:submitted.context,depth:submitted.depth,parameters:submitted.parameters};
+        result={...data,fields,context:submitted.context,depth:submitted.depth,
+          parameters:submitted.parameters,planningDiagnostics:submitted.planningDiagnostics};
         gapRevision++;syncGapDiagnostic();
         if([2026,2100].includes(data.scenario?.year))scenarioSnapshots.set(data.scenario.year,result);
         lastSubmitted=performance.now();
@@ -270,6 +272,24 @@ export function createHydroTensorRenderer(args){
       status('张量 Worker 未启动：'+error.message);
       return false;
     }
+  }
+  // Kept OSM elements are held separately from physical flood inputs.
+  // A changed plan invalidates the cached raster once, not on every year.
+  let planningFeatures=[],planningRevision=0,planningRaster=null;
+  function setPlanningFeatures(features){
+    planningFeatures=Array.isArray(features)?features.filter(f=>f?.geometry&&
+      f.properties?.planDecision==='keep').map(f=>({
+        type:'Feature',properties:{...f.properties},geometry:f.geometry})).slice(0,15000):[];
+    planningRevision++;
+    planningRaster=null;
+    if(enabled&&flow&&context)queueSolve(true);
+  }
+  function tensorPlanningRaster(grid,cols,rows){
+    const key=[grid.left,grid.top,grid.cellProjectedM,cols,rows,planningRevision].join('|');
+    if(planningRaster?.key===key)return planningRaster.raster;
+    const raster=rasterizeSitePlanning(planningFeatures,grid,cols,rows);
+    planningRaster={key,raster};
+    return raster;
   }
   function queueSolve(immediate=false){
     requestId++; // Invalidate an in-flight result as soon as inputs change.
@@ -293,7 +313,9 @@ export function createHydroTensorRenderer(args){
       if(!validHydroGrid(grid,flow.cols,flow.rows)||!sameHydroGrid(grid,flow.grid)){
         status('张量输入缺少匹配的原始洪水网格');return;
       }
-      submitted={context,depth,scenario:{...scenario},parameters:{...settings}};
+      const planning=tensorPlanningRaster(grid,flow.cols,flow.rows);
+      submitted={context,depth,scenario:{...scenario},parameters:{...settings},
+        planningDiagnostics:planning.diagnostics};
       const request={
         type:'solve',requestId:++requestId,cols:flow.cols,rows:flow.rows,
         grid,scenario:{...scenario},depthAvailable:Boolean(depth),drainageThresholdKm2,
@@ -301,6 +323,11 @@ export function createHydroTensorRenderer(args){
         cellY:grid.cellProjectedM*grid.groundScale,
         terrain:context.terrain,accumulation:context.accumulation,
         inside:context.inside,obstacle:context.obstacle,
+        // Planning-only masks do not overwrite the physical obstacle grid.
+        retainedMask:planning.mask,
+        retainedRoadX:planning.roadX,retainedRoadY:planning.roadY,
+        retainedRoadWeight:planning.roadWeight,
+        planningDiagnostics:planning.diagnostics,
         depthMm:depth||new Uint16Array(n),
         vx:flow.vx,vy:flow.vy,intensity:flow.intensity,
         config:{
@@ -1049,7 +1076,7 @@ export function createHydroTensorRenderer(args){
       terrainGradientSupportM:result.terrainGradientSupportM,
       terrainSamplingNote:'Simulation cells finer than 50m do not imply independent higher-resolution DEM data',
       designNotMeasuredVelocity:true,
-      parameters:{...result.parameters}
+      parameters:{...result.parameters},planningDiagnostics:result.planningDiagnostics||null
     };
     for(const [name,array] of Object.entries(f))out[name]=new array.constructor(array);
     if(c)for(const name of ['terrain','accumulation','inside','obstacle'])
@@ -1106,6 +1133,7 @@ export function createHydroTensorRenderer(args){
     return {schema:'london-tensor-site-v1',version:'3.23.4-osm-retention',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
+      planningDiagnostics:result.planningDiagnostics||null,
       requestedScenario:{...scenario},
       renderState:{layers:[lineLayerId,ribbonLayerId].map(layerState),
         generatedLines:features.length,displayedLines:settings.showFilaments?
@@ -1120,6 +1148,7 @@ export function createHydroTensorRenderer(args){
       acceptance:'NOT verified in the user-selected parcel; source data export, not a visual acceptance report'};
   }
   return {configure,setTimelineYear,replayGrowth,setGapDiagnosticEnabled,syncGapDiagnostic,
+    setPlanningFeatures,
     startContinuousPlayback,
     stopContinuousPlayback,seekContinuousPlayback,pauseContinuousPlayback,resumeContinuousPlayback,
     setPlaybackRate,getPlaybackState,setField,setEnabled,clear,dispose,exportStructuredData,
