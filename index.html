@@ -8223,13 +8223,15 @@
             type==='ea'?detailLoader(request,controller):hydrologyLoader(request,controller),
           getBasemapTheme:()=>basemapTheme,
           setBasemapTheme,
-          onOpenParcelGenerator:({polygon})=>{
+          onOpenParcelGenerator:({polygon,roadNetwork=null})=>{
             if(!parcelGenerator)parcelGenerator=createParcelGenerator({
               maplibregl,assetUrl,demBounds:DRAINAGE_3857,
               demWidth:DRAINAGE_3857.baseWidth50m,
               demHeight:DRAINAGE_3857.baseHeight50m
             });
-            parcelGenerator.open({polygon});
+            // A valid STEP05 graph opens STEP06 handoff; a direct visit from
+            // the city map remains a harmless Stage01 site-data preview.
+            parcelGenerator.open({polygon,roadNetwork});
           }
         });
       }
