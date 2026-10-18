@@ -233,6 +233,9 @@ export function createParcelRoadUI({
   }
  }
  function generateInitial(){generate('generate')}
+ function resetRoads(){
+  el('pg-road-reset')?.click();
+ }
  function loadSnapshot(snapshot,label='Hydro Lab 实时计算的张量与洪涝结果'){
   acceptSnapshot(snapshot,label);
  }
@@ -247,6 +250,6 @@ export function createParcelRoadUI({
   updateMap();
  }
  function dispose(){serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
- return {mount,setActive,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,dispose,
+ return {mount,setActive,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,resetRoads,dispose,
   get isReady(){return ready},get result(){return result}};
 }
