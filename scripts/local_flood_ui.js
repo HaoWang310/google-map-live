@@ -3,6 +3,7 @@ import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.1-step05-na
 import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.1-step05-navigation';
 import {smoothWetDepths} from './flood_water_visual.js?v=3.24.1-step05-navigation';
 import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.1-step05-navigation';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.1-step05-navigation';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -905,6 +906,7 @@ export function createLocalFloodUI({
   let isolateViewerElement=null;
   let volumetricWater=null;
   let hydroVector=null;
+  let hydroRoadUI=null,hydroRoadResult=null,hydroRoadActive=false;
   let tensorShowBuildings=false;
   let focusWaterBounds=null;
   let focusSiteSerial=0;
@@ -2585,6 +2587,8 @@ export function createLocalFloodUI({
   }
 
   function destroyFocusViewer(){
+    hydroRoadUI?.dispose();hydroRoadUI=null;
+    hydroRoadResult=null;hydroRoadActive=false;
     stopTensorSequence();
     tensorContext=null;hydroDisplay.flow=false;
     if(focusThresholdTimer)clearTimeout(focusThresholdTimer);
@@ -3110,6 +3114,17 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
       '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 平滑设计水深 · 建筑底面连贯显示<br>地面径流计算保留建筑阻水，张量方向允许跨越建筑占地用于场地分区；不代表实测水流穿墙。</div>',
       '</div></section>',
+      // STEP 05 is now the final computed task in the Hydro Lab workflow:
+      // flood → site keep/remove → tensor → Wool roads → final parcel generator.
+      '<section class="site-hydro-section" id="siteHudStep05Section">',
+      '<div class="site-hydro-section-title">05 · Generate and Optimise the Road Network</div>',
+      '<div class="site-hydro-mini">先完成 2100 年洪涝模拟与张量场，再使用真实场地数据进行三级道路骨架和 Wool 优化。结果只改变规划图层，不改变原始洪涝计算。</div>',
+      '<button type="button" class="site-vector-mode" id="siteHudStep05Begin">⑤ 读取张量 · 进入道路生成</button>',
+      '<div class="site-hydro-mini" id="siteHudStep05Status">请先完成 STEP 04。未获取真实 2100 年张量时禁止随机生成道路。</div>',
+      '<div id="siteHudStep05Controls" style="display:none"></div>',
+      '<button type="button" class="site-vector-mode" id="siteHudStep05Final" disabled style="margin-top:9px">✓ 完成 STEP 05 → 进入最终 Parcel Generator</button>',
+      '<div class="site-hydro-mini">道路中心线、分级、拓扑图、路面占地和保留洪涝走廊会一起传递给最终阶段；STEP 06 地块切割仍需单独实现。</div>',
+      '</section>',
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
       '<div class="site-hydro-section" style="margin-top:4px;padding-top:7px;border-top:0">',
@@ -3171,10 +3186,94 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" id="siteHudNotice">2026 由干燥起点连续过渡至 2100 设计峰值。每个年份先根据已输入的气候降雨增幅运行水文求解，再平滑展示临界暴雨水深；年度增长属于设计演示，不是逐年物理洪水预测。建筑基底被水体连续覆盖仅为可视化，不增加真实积水量。</div></div></footer>'
     ].join('');
     container.appendChild(shell);
+    // Embedded STEP05 inherits the Hydro Lab left-panel scroll and pointer
+    // behaviour, rather than mounting a second full-screen parcel workspace.
+    const style=document.createElement('style');
+    style.textContent=[
+      '.site-hydro-ui #siteHudStep05Controls{font:11px/1.55 system-ui,sans-serif;color:#e1eef4}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-section{padding-top:9px;margin-top:10px;border-top:1px solid #454b56}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-label{font-size:11px;color:#9ddce9;font-weight:700}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-note{font-size:11px;line-height:1.5;color:#adb5c0}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-option{display:flex;align-items:center;gap:7px;margin:8px 0}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-road-param{display:block;margin:10px 0}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-road-param span{display:flex;justify-content:space-between}',
+      '.site-hydro-ui #siteHudStep05Controls input[type=range]{width:100%;accent-color:#8cd4ea}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-road-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0}',
+      '.site-hydro-ui #siteHudStep05Controls button{padding:8px 5px;border:1px solid #56606e;border-radius:7px;background:#282c34;color:#f3f5f8;font:11px system-ui;cursor:pointer}',
+      '.site-hydro-ui #siteHudStep05Controls button:disabled{opacity:.42;cursor:not-allowed}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-road-progress{height:4px;background:#353f4d;border-radius:5px;overflow:hidden}',
+      '.site-hydro-ui #siteHudStep05Controls #pg-road-progressbar{height:100%;width:0;background:#8edcff}',
+      '.site-hydro-ui #siteHudStep05Controls .pg-status{font-size:11px;white-space:pre-line;color:#bfeaf2;margin:8px 0}'
+    ].join('\n');
+    shell.appendChild(style);
     const bounds=bboxLngLat(polygon[0]);
     setSiteHud('siteHudLocation','Lat '+((bounds.south+bounds.north)/2).toFixed(5)+
       ' · Lon '+((bounds.west+bounds.east)/2).toFixed(5));
     syncSiteControls();
+    hydroRoadUI=createParcelRoadUI({
+      root:isolateViewerElement,getMap:()=>isolateViewer,getRing:()=>polygon?.[0],
+      boundarySource:FOCUS_SITE,outlineLayer:'focus-parcel-border',autoHandoff:false,
+      onStatus:(message,bad)=>{
+        setSiteHud('siteHudStep05Status',message);
+        if(bad)console.warn('Hydro Lab STEP05:',message);
+      },
+      onDone:output=>{
+        hydroRoadResult=output;hydroRoadActive=true;
+        const final=siteHud('siteHudStep05Final');
+        if(final)final.disabled=false;
+        for(const id of [FOCUS_2D,FOCUS_3D])
+          if(isolateViewer?.getLayer(id))
+            isolateViewer.setLayoutProperty(id,'visibility','none');
+        setSiteHud('siteHudStep05Status',
+          '道路生成完成 · '+output.diagnostics.roadCount+' 条，'+
+          output.diagnostics.lengthKm+' km · 可以继续调整 Wool 或进入最终阶段');
+      },
+      onReset:()=>{
+        hydroRoadResult=null;
+        const final=siteHud('siteHudStep05Final');
+        if(final)final.disabled=true;
+        if(isolateViewer)updateHydroLayerVisibility();
+      }
+    });
+    hydroRoadUI.mount(siteHud('siteHudStep05Controls'));
+    hydroRoadUI.setActive(false);
+    siteHud('siteHudStep05Begin').onclick=()=>{
+      if(hydroRoadActive){
+        hydroRoadActive=false;hydroRoadUI?.setActive(false);
+        siteHud('siteHudStep05Controls').style.display='none';
+        siteHud('siteHudStep05Begin').textContent='⑤ 继续 STEP 05 道路生成';
+        updateHydroLayerVisibility();
+        return;
+      }
+      if(!hydroDisplay.flow||!hydroVector){
+        setSiteHud('siteHudStep05Status','请先完成洪涝模拟，然后点击 STEP 04 生成真实水文张量场。');
+        return;
+      }
+      const snapshot=hydroVector.exportSiteSnapshot?.();
+      const target=(snapshot?.scenarios||[]).find(x=>Number(x?.scenario?.year)===2100)
+        ||(Number(snapshot?.current?.scenario?.year)===2100?snapshot.current:null);
+      if(!snapshot||!target?.depthMm?.values?.length){
+        setSiteHud('siteHudStep05Status','2100 年张量／洪涝快照尚未就绪，请等待 STEP 04 实际计算完成；不能用2026年或随机数据代替。');
+        return;
+      }
+      hydroRoadActive=true;
+      hydroRoadUI?.setActive(true);
+      siteHud('siteHudStep05Controls').style.display='block';
+      siteHud('siteHudStep05Begin').textContent='返回 STEP 04 张量场';
+      hydroRoadUI?.loadSnapshot({
+        ...snapshot,
+        selection:{type:'Polygon',coordinates:structuredClone(polygon)}
+      },'Hydro Lab · 当前红色地块 · 2100年真实计算结果');
+      hydroRoadUI?.attachMap();
+    };
+    siteHud('siteHudStep05Final').onclick=()=>{
+      if(!hydroRoadResult?.roadTopologyGraph?.edges?.length){
+        setSiteHud('siteHudStep05Status','请先生成可验证的道路拓扑，再进入最终地块阶段。');
+        return;
+      }
+      const exactSite=polygon.map(r=>closeRing(r).map(([lng,lat])=>[lng,lat]));
+      onOpenParcelGenerator?.({polygon:exactSite,roadNetwork:hydroRoadResult});
+    };
     const themeSelect=siteHud('siteHudBasemapTheme');
     if(themeSelect){
       themeSelect.value=getBasemapTheme()==='dark'?'dark':'planning';
@@ -3933,6 +4032,7 @@ export function createLocalFloodUI({
       syncFocusFootprintVisibility();
       syncSitePlanLayers();
       updateFocusAnalysisLayers();
+      hydroRoadUI?.attachMap();
       // Controls can be toggled before the map style finishes loading.
       // Rehydrate the vector layers once their GeoJSON sources are ready.
       if(hydroDisplay.flow&&tensorSession)hydroVector?.setEnabled(true);
