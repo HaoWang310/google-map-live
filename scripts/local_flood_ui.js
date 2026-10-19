@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.5-generated-only';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.5-generated-only';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.26.5-generated-only';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.5-generated-only';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.5-generated-only';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.6-wool-final-only';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.6-wool-final-only';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.26.6-wool-final-only';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.6-wool-final-only';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.6-wool-final-only';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -3051,7 +3051,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.5-generated-only</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.6-wool-final-only</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',

@@ -52,25 +52,25 @@ export function createParcelRoadUI({
  function inform(msg,bad=false){statusText(el('pg-road-status'),msg,bad);
    onStatus?.(msg,bad);}
  const html=()=>`
- <div class="pg-label">STEP 05 · 羊毛道路生成与优化</div>
- <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，一步完成张量纤维生长、Wool 分叉与安全连接。下方按钮支持重新生成。'}</p>
+ <div class="pg-label">STEP 05 · Wool 融合路网 · 仅最终结果</div>
+ <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，生成 Wool 融合的最终路网。STEP 04 张量线、中间纤维和原有地图均不在本步显示。'}</p>
  <div class="pg-section"><div class="pg-label">设计显示模式 · 本轮优先视觉效果</div>
  <label class="pg-option" style="display:flex;align-items:center;gap:8px">
  <span>模式</span><select id="pg-road-visualMode" style="flex:1;min-width:0">
- <option value="presentation" selected>展示模式 · 柔性有机路网 · 非规则织网</option>
+ <option value="presentation" selected>展示模式 · Wool 有机围合路网</option>
  <option value="analysis">分析模式 · 水文约束道路</option>
  </select></label>
  <div class="pg-note" id="pg-road-mode-note" style="color:#a6deef">
  展示模式是概念视觉图，不代表安全道路、精确汇水或规划许可；分析模式保留原水文碰撞约束。</div></div>
  <div class="pg-section"><div class="pg-label">生成 / 优化 · 张量生长与 Wool 路网</div>
  <div class="pg-road-actions">
- <button id="pg-road-generate" disabled>① 仅生成张量纤维</button>
- <button id="pg-road-wool" disabled>② Wool 生长与安全修复</button>
+ <button id="pg-road-generate" disabled style="display:none" aria-hidden="true" tabindex="-1">隐藏的旧骨架生成控制</button>
+ <button id="pg-road-wool" disabled>重新生成 Wool 最终路网</button>
  <button id="pg-road-reset">重置路网</button>
  </div>
  <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
  <div class="pg-status" id="pg-road-status">等候当前选区真实2100年张量与水深结果。</div>
- <div class="pg-status" id="pg-road-quality" style="white-space:pre-line;font-size:10px">运行后显示道路分级、路网覆盖率、闭环与候选街区面积。</div>
+ <div class="pg-status" id="pg-road-quality" style="white-space:pre-line;font-size:10px">只显示 Wool 结合后的主干路、次干路与内部细密路网，不显示中间纤维。</div>
  </div>
  <div class="pg-note" id="pg-road-source">等待同一地块真实张量/水深数据。</div>
  ${showImport?`<label class="pg-option" style="display:block">备用：导入真实场地诊断 JSON
@@ -87,7 +87,7 @@ export function createParcelRoadUI({
   ['local','局部支路'],['reserved','洪涝 / 生态保留带'],
   ['footprints','道路占地范围']].map(([k,label])=>
   `<label class="pg-option"><input type="checkbox" id="pg-road-show-${k}"
-     ${k!=='footprints'?'checked':''}> ${label}</label>`).join('')}
+     ${['main','secondary','local'].includes(k)?'checked':''}> ${label}</label>`).join('')}
  </div>
  <div class="pg-section"><div class="pg-label">进入第六步 · 地块分割</div>
  <div class="pg-road-actions">
@@ -96,7 +96,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.5-generated-only',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.6-wool-final-only',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -114,7 +114,7 @@ export function createParcelRoadUI({
     pending=false;result=data.result;
     const q=el('pg-road-quality'),stat=result.diagnostics;
     if(q)q.textContent=(stat.visualMode==='presentation'?
-      '【展示模式】艺术网格演化概念；不是水文验证道路\n':
+      '【展示模式】仅最终 Wool 融合路网：主干弧线 / 片区环路 / 局部有机街区（概念示意）\n':
       '【分析模式】张量积分 → Wool 生长 → A* 补连\nWool 新生次路 '+
         (stat.wool?.grownSecondary||0)+' 条 · 新生支路 '+
         (stat.wool?.grownLocal||0)+' 条 · A* 补连 '+
@@ -129,7 +129,7 @@ export function createParcelRoadUI({
     for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package'])
       el(id).disabled=false;
     el('pg-road-progressbar').style.width='100%';
-    inform((result.diagnostics.visualMode==='presentation'?'展示概念已生成（非工程道路）· ':'生成完成 · ')+result.diagnostics.roadCount+' 条道路，'+
+    inform((result.diagnostics.visualMode==='presentation'?'Wool 最终有机路网已生成（展示概念）· ':'Wool 最终分析路网已生成 · ')+result.diagnostics.roadCount+' 条道路，'+
       result.diagnostics.lengthKm+' km，'+result.diagnostics.junctions+
       ' 个路口 · '+(data.result.mode==='optimise'?'Wool 优化':'初始道路骨架'));
     updateMap();
@@ -163,9 +163,9 @@ export function createParcelRoadUI({
       {'line-join':'round','line-cap':'round'})},
     paint:kind==='reserved'?{'fill-color':'#163146','fill-opacity':.22}:
      kind==='footprints'?{'fill-color':'#c7d0d8','fill-opacity':.14}:
-     {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#eeeeee':'#d2dde9',
-      'line-width':kind==='main'?4.4:kind==='secondary'?2.0:.72,
-      'line-opacity':kind==='main'?1:kind==='secondary'?.92:.78}
+     {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#e8edf1':'#aab3bf',
+      'line-width':kind==='main'?4.6:kind==='secondary'?1.75:.58,
+      'line-opacity':kind==='main'?1:kind==='secondary'?.93:.77}
    },outlineLayer);
   }
   return true;
@@ -180,8 +180,8 @@ export function createParcelRoadUI({
    const check=el('pg-road-show-'+kind);
    map.setLayoutProperty(id,'visibility',active&&result&&check?.checked?'visible':'none');
   }
-  // Do NOT black out the site before there are any computed roads.
-  // Keep the original OSM streets and parks navigable during import/preview.
+  // No intermediate road skeleton or background tensor geometry is ever
+  // presented as a STEP05 result. Only computed Wool network layers render.
   map.setLayoutProperty('pg-road-backdrop','visibility',
     active&&Boolean(result)?'visible':'none');
   if(map.getLayer('pg-slope'))map.setLayoutProperty('pg-slope','visibility','none');
@@ -239,7 +239,7 @@ export function createParcelRoadUI({
   el('pg-road-visualMode').onchange=()=>{
     const present=el('pg-road-visualMode').value==='presentation';
     el('pg-road-mode-note').textContent=present?
-      '展示模式：非等间距柔性路网、独立弧形主路及片区环路；仅为概念视觉图，不能替代工程验算。':
+      '展示模式：只显示最终 Wool 形态，包括柔性主干路、片区汇合和密集细分地块；概念设计不代表工程安全验证。':
       '分析模式：从真实水文张量出发，使用洪涝禁行、Wool 生长和 A* 安全修复。';
     scheduleRegenerate();
   };
@@ -278,7 +278,7 @@ export function createParcelRoadUI({
   updateMap();
   if(active){
    const readyMessage=result?'路网已生成，可拖动地图或查看各道路层级。':
-     ready?'点击左侧「① 生成道路网络」开始计算。':
+     ready?'已收到真实场地数据，点击「重新生成 Wool 最终路网」。':
      '先完成 2100 年洪涝与张量计算，或从左侧导入真实场地诊断 JSON。';
    inform(readyMessage);
   }

@@ -906,7 +906,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.26.5-generated-only</div>
+        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.26.6-wool-final-only</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -1298,12 +1298,12 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.26.5-generated-only';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.26.6-wool-final-only';
   import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.78-tensor-gap-diagnostic';
-  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.26.5-generated-only';
+  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.26.6-wool-final-only';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.26.5-generated-only';
+  const APP_VERSION='3.26.6-wool-final-only';
   // Keep the header's version derived from exactly the same runtime build id.
   document.getElementById('appVersionLabel').textContent='OpenStreetMap / OpenFreeMap · v'+APP_VERSION;
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
