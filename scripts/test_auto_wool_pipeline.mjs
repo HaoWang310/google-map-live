@@ -25,7 +25,7 @@ const contracts=[
   [tensor,'scenarioSnapshots.get(2100)','Read a genuine computed 2100 scenario'],
   [roads,'if(autoGenerateOnReady)generate(\'optimise\')','Auto source-ready must launch optimisation'],
   [roads,'showImport=true','Legacy standalone mode may still accept files'],
-  [worker,'const skeleton=initialRoadSkeleton(domain,parameters','One action must generate a skeleton'],
+  [worker,'skeleton=initialRoadSkeleton(domain,parameters','One action must generate a skeleton'],
   [worker,'const wool=optimiseWool(skeleton,domain','The same action must apply Wool'],
   [worker,"woolStrength:mode==='generate'?0:parameters.woolStrength",'Optimise applies elastic strength'],
 ];

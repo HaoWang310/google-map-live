@@ -22,9 +22,9 @@ assert.ok(wool.includes("growTier('local'"));
 assert.ok(wool.includes('woolAxis(domain,mid,perpendicular,heading)'));
 assert.ok(wool.includes('if(!safeSegment(domain,p,candidate))break;'));
 assert.ok(wool.includes('if(pathSafe(refined))road.points=refined'));
-const a=worker.indexOf('const skeleton=initialRoadSkeleton('),
+const a=worker.indexOf('skeleton=initialRoadSkeleton('),
  b=worker.indexOf('const wool=optimiseWool('),
- c=worker.indexOf('const repaired=repairRoadConnectivity('),
+ c=worker.indexOf('repaired=repairRoadConnectivity('),
  d=worker.indexOf('const network=createRoadTopology(repaired,');
 assert.ok(a>0&&a<b&&b<c&&c<d,'Pipeline must be tensor→Wool→A*repair→topology');
 assert.ok(worker.includes('astarRepairs:wool.stats.astarRepairs||0'));
