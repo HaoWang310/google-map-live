@@ -235,18 +235,19 @@ export function createTensorGeometry(result,options={}){
   // sampled by BOTH orthogonal grid families, so their intersections coincide.
   // This is a conceptual woven mesh, NOT evidence-derived water flow lines.
   function buildPresentationWeave(){
-    // Critical: display coverage follows the FULL source-valid parcel mask.
-    // fieldMask is the high-confidence ANALYSIS streamline seed mask and may
-    // be sparse/disconnected. Using it here made the display collapse into
-    // isolated short curves although the analysis mode remained fully drawn.
-    // Missing/low-confidence directions may be interpolated only locally from
-    // real neighbouring axes; the original tensor, DEM and flood stay intact.
-    const presentationMask=new Uint8Array(n);
+    // CRITICAL distinction: analysis f.validMask is NOT a presentation clip.
+    // The hydrological worker invalidates retained planning areas / nodata.
+    // Buildings in result.obstacleMask are barriers for flood WATER but its
+    // hydrological orientation field deliberately spans their footprints.
+    // An exhibition mesh is therefore clipped to the COMPLETE red parcel,
+    // except an optional explicitly-designated hard presentation barrier.
+    // Weak/missing tensor axes are interpolated, never treated as spatial holes.
+    const presentationMask=new Uint8Array(n),hard=result.presentationHardMask;
     for(let i=0;i<n;i++)presentationMask[i]=
-      f.validMask[i]&&(!result.siteMask||result.siteMask[i])&&!result.obstacleMask?.[i]?1:0;
+      (result.siteMask?result.siteMask[i]:f.validMask[i])&&!hard?.[i]?1:0;
     const field=smoothSiteField({w,h,mask:presentationMask,ax:f.primaryX,ay:f.primaryY,
       wet:f.rainfallInfluence,confidence:f.confidence,anisotropy:f.anisotropy,
-      obstacle:result.obstacleMask},.65+.35*smoothing);
+      extendMissing:true},.65+.35*smoothing);
     // One globally parameterized elastic sheet: U/V are iso-curves of the SAME F(u,v).
     // Analysis mode continues using its original streamlines and source masks.
     const weave=buildGlobalWarpedWeave(field,{density,dx,dy,direction:options.direction||'dual'});
@@ -259,11 +260,19 @@ export function createTensorGeometry(result,options={}){
     diagnostics.smoothingPasses=field.passes;
     diagnostics.presentationSource=field.diagnostics;
     diagnostics.presentationMaskCells=field.diagnostics.sourceValid;
-    diagnostics.presentationCoverageFraction=valid?field.diagnostics.smoothedValid/valid:0;
+    const planned=diagnostics.presentationMaskCells;
+    diagnostics.presentationCoverageFraction=planned?
+      field.diagnostics.smoothedValid/planned:0;
+    diagnostics.presentationSourceEvidenceFraction=planned?
+      field.diagnostics.directionEvidenceCells/planned:0;
+    diagnostics.presentationHardBarrierCells=hard?
+      hard.reduce((count,value)=>count+(value?1:0),0):0;
     diagnostics.presentationVsAnalysisSeedMask={
       analysisSupportedCells:supported,
       fullParcelValidCells:valid,
-      displayDirectionCells:field.diagnostics.smoothedValid
+      fullParcelDisplayCells:planned,
+      displayDirectionCells:field.diagnostics.smoothedValid,
+      filledMissingDirectionCells:field.diagnostics.harmonicFilledCells
     };
     diagnostics.presentationFromAnalysis=true;
     diagnostics.primarySpacingM=weave.gap*Math.min(dx,dy);
