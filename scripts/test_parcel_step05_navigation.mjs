@@ -14,11 +14,11 @@ for(const token of [
  'createParcelRoadUI({',
  'autoHandoff:false',
  "boundarySource:FOCUS_SITE,outlineLayer:'focus-parcel-border'",
- "hydroRoadUI?.loadSnapshot({",
+ "hydroRoadUI.loadSnapshot({",
  'exportSiteSnapshot?.()',
  "id=\"siteHudStep05Final\"",
  'roadNetwork:hydroRoadResult',
- 'hydroRoadUI?.attachMap()'
+ 'hydroRoadUI.attachMap()'
 ])assert.ok(hydro.includes(token),'missing Hydro Lab STEP05 integration: '+token);
 // Regression: STEP05 must stay INSIDE the scrollable Hydro Lab left sidebar.
 const leftStart=hydro.indexOf('site-hydro-side site-hydro-left');

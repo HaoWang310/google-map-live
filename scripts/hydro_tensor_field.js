@@ -1,5 +1,5 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
-import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.24.7-site-entry';
+import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.24.8-auto-wool';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
@@ -237,7 +237,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.24.7-site-entry',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.24.8-auto-wool',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -1108,6 +1108,21 @@ export function createHydroTensorRenderer(args){
     dots()?.setData(empty());particlePaths=[];headsActive=false;
     lastTraceHeads.clear();lastStaticPaintKey='';invalidateUploaded();
   }
+  // Lightweight readiness probe; never serialise large tensor arrays for polling.
+  // Timeline display reaching 2100 is NOT proof of a completed tensor solve.
+  function getSiteSnapshotReadiness(){
+    const peak=scenarioSnapshots.get(2100)||
+      (result?.scenario?.year===2100?result:null);
+    const n=(peak?.cols||0)*(peak?.rows||0);
+    const complete=Boolean(n>=16&&peak?.scenario?.year===2100&&
+      peak?.scenario?.kind==='rainfall-risk-scenario'&&
+      peak?.depth?.length===n&&peak?.fields?.primaryX?.length===n&&
+      peak?.fields?.primaryY?.length===n&&peak?.fields?.validMask?.length===n);
+    return {ready:complete,year:peak?.scenario?.year??null,
+      token:peak?.scenario?.token??null,
+      rainfallCase:peak?.scenario?.rainfallCase??null,
+      kind:peak?.scenario?.kind??null};
+  }
   function exportSiteSnapshot(){
     if(!result)return null;
     const keys=['primaryX','primaryY','confidence','anisotropy','validMask','drainageMask','trunkMask',
@@ -1130,7 +1145,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.24.7-site-entry',
+    return {schema:'london-tensor-site-v1',version:'3.24.8-auto-wool',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       planningDiagnostics:result.planningDiagnostics||null,
@@ -1152,7 +1167,7 @@ export function createHydroTensorRenderer(args){
     startContinuousPlayback,
     stopContinuousPlayback,seekContinuousPlayback,pauseContinuousPlayback,resumeContinuousPlayback,
     setPlaybackRate,getPlaybackState,setField,setEnabled,clear,dispose,exportStructuredData,
-    exportSiteSnapshot,
+    exportSiteSnapshot,getSiteSnapshotReadiness,
     exportDiagnostics:(stride=4)=>tensorDiagnosticGeoJSON(result,stride),
     exportGeometry:()=>geometrySnapshot?{grid:{...geometrySnapshot.grid},scenario:{...geometrySnapshot.scenario},
       parameters:{...geometrySnapshot.parameters},pending:geometryBusy||Boolean(geometryPending)||Boolean(requestTimer)||result?.requestId!==requestId,

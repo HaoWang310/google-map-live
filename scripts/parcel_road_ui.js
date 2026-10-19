@@ -43,16 +43,17 @@ function geoJSON(output){
 }
 export function createParcelRoadUI({
  root,getMap,getRing,onStatus,onDone=()=>{},onReset=()=>{},
- boundarySource='pg-boundary',outlineLayer='pg-outline',autoHandoff=true
+ boundarySource='pg-boundary',outlineLayer='pg-outline',autoHandoff=true,
+ showImport=true
 }){
  const el=id=>root?.querySelector('#'+id);
  let worker=null,serial=0,ready=false,result=null,active=false,pending=false;
- let loadedSource=null;
+ let loadedSource=null,autoGenerateOnReady=false;
  function inform(msg,bad=false){statusText(el('pg-road-status'),msg,bad);
    onStatus?.(msg,bad);}
  const html=()=>`
  <div class="pg-label">STEP 05 · 羊毛道路生成与优化</div>
- <p class="pg-note">${autoHandoff?'从当前 London Map 场地自动接收真实张量与洪涝数据；也可手动导入诊断 JSON。':'下方按钮始终显示。请先在上方点击「⑤ 同步 2100 年真实张量与水深」。数据校验通过后，生成按钮才会启用。'}</p>
+ <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，一步完成初始道路骨架和 Wool 优化。下方按钮可手动重新生成。'}</p>
  <div class="pg-section"><div class="pg-label">GENERATE / OPTIMISE · 道路生成</div>
  <div class="pg-road-actions">
  <button id="pg-road-generate" disabled>① 生成道路网络</button>
@@ -63,9 +64,9 @@ export function createParcelRoadUI({
  <div class="pg-status" id="pg-road-status">尚未加载真实 2100 年张量与水深，生成道路暂不可用。</div>
  </div>
  <div class="pg-note" id="pg-road-source">等待同一地块真实张量/水深数据。</div>
- <label class="pg-option" style="display:block">备用：导入真实场地诊断 JSON
+ ${showImport?`<label class="pg-option" style="display:block">备用：导入真实场地诊断 JSON
   <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
- </label>
+ </label>`:''}
  <div class="pg-section"><div class="pg-label">WOOL / FLOOD / URBAN CONTROL · 参数</div>
  ${PARAMETERS.map(([k,label,v,min,max])=>`
   <label class="pg-road-param"><span>${label} <output id="pg-road-val-${k}">${v}</output></span>
@@ -86,7 +87,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.7-site-entry',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.8-auto-wool',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -98,7 +99,8 @@ export function createParcelRoadUI({
     el('pg-road-wool').disabled=true;
     inform('真实数据通过校验：'+data.diagnostics.cells+' 个张量格网；'+
       '有效格 '+data.diagnostics.validCells+'；计算年 2100。');
-    el('pg-road-source').textContent='✓ 已读取真实 DEM/水文张量、水深与场地边界';
+    el('pg-road-source').textContent='✓ 已自动读取当前场地的真实张量、水深与边界';
+    if(autoGenerateOnReady)generate('optimise');
    }else if(data.type==='done'){
     pending=false;result=data.result;
     for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package'])
@@ -112,7 +114,7 @@ export function createParcelRoadUI({
    }else if(data.type==='error'){
     pending=false;
     for(const id of ['pg-road-generate','pg-road-wool'])el(id).disabled=!ready;
-    el('pg-road-source').textContent='⚠ 张量/洪涝数据未通过校验，请查看下方错误提示并重新导入。';
+    el('pg-road-source').textContent='⚠ 当前场地真实张量／洪涝数据校验失败，请检查 STEP 04。';
     inform('STEP 05 失败：'+data.message,true);
    }else if(data.type==='cleared'){
     result=null;pending=false;updateMap();
@@ -194,7 +196,7 @@ export function createParcelRoadUI({
    const slider=el('pg-road-'+k),out=el('pg-road-val-'+k);
    slider.oninput=()=>{out.textContent=slider.value;};
   }
-  el('pg-road-import').onchange=e=>importSource(e.target.files?.[0]);
+  if(el('pg-road-import'))el('pg-road-import').onchange=e=>importSource(e.target.files?.[0]);
   el('pg-road-generate').onclick=()=>generate('generate');
   el('pg-road-wool').onclick=()=>generate('optimise');
   el('pg-road-reset').onclick=()=>{
@@ -233,6 +235,7 @@ export function createParcelRoadUI({
   }
  }
  function generateInitial(){generate('generate')}
+ function setAutoGenerate(value){autoGenerateOnReady=Boolean(value);}
  function resetRoads(){
   el('pg-road-reset')?.click();
  }
@@ -250,6 +253,6 @@ export function createParcelRoadUI({
   updateMap();
  }
  function dispose(){serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
- return {mount,setActive,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,resetRoads,dispose,
+ return {mount,setActive,setAutoGenerate,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,resetRoads,dispose,
   get isReady(){return ready},get result(){return result}};
 }

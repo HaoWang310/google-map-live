@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.7-site-entry';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.7-site-entry';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.24.7-site-entry';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.7-site-entry';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.7-site-entry';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.8-auto-wool';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.8-auto-wool';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.24.8-auto-wool';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.8-auto-wool';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.8-auto-wool';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -908,6 +908,8 @@ export function createLocalFloodUI({
   let volumetricWater=null;
   let hydroVector=null;
   let hydroRoadUI=null,hydroRoadResult=null,hydroRoadActive=false;
+  let hydroAutoWoolOn=false,hydroAutoWoolTimer=null,hydroAutoWoolSourceKey=null;
+  let hydroAutoWoolCheck=()=>{};
   let tensorShowBuildings=false;
   let focusWaterBounds=null;
   let focusSiteSerial=0;
@@ -1261,10 +1263,11 @@ export function createLocalFloodUI({
       hydroRoadUI?.resetRoads();
       hydroRoadResult=null;hydroRoadActive=false;
       const mount=siteHud('siteHudStep05Controls');
-      if(mount)mount.style.display='block'; // Keep STEP05 controls visible; only block generation until revalidated.
-      setSiteHud('siteHudStep05Status','张量场已更新；请重新同步 2100 年张量与水深，再生成道路。');
-      const begin=siteHud('siteHudStep05Begin');
-      if(begin)begin.textContent='⑤ 同步 2100 年真实张量与水深';
+      if(mount)mount.style.display='block';
+      hydroAutoWoolSourceKey=null;
+      setSiteHud('siteHudStep05Status','张量场已更新；Wool 自动等待新的2100年计算结果。');
+      if(hydroAutoWoolOn&&hydroAutoWoolTimer===null)
+        hydroAutoWoolTimer=setInterval(()=>hydroAutoWoolCheck(),1300);
     }
     // The exact chosen OSM planning state is fixed for this tensor run.
     // Water is still supplied from the cached hydrology frames even when
@@ -2599,6 +2602,9 @@ export function createLocalFloodUI({
   }
 
   function destroyFocusViewer(){
+    if(hydroAutoWoolTimer!==null)clearInterval(hydroAutoWoolTimer);
+    hydroAutoWoolTimer=null;hydroAutoWoolOn=false;hydroAutoWoolSourceKey=null;
+    hydroAutoWoolCheck=()=>{};
     hydroRoadUI?.dispose();hydroRoadUI=null;
     hydroRoadResult=null;hydroRoadActive=false;
     stopTensorSequence();
@@ -2994,7 +3000,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.7-site-entry</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.8-auto-wool</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3131,8 +3137,10 @@ export function createLocalFloodUI({
       '<section class="site-hydro-section" id="siteHudStep05Section">',
       '<div class="site-hydro-section-title">05 · 羊毛道路生成与优化（Wool）</div>',
       '<div class="site-hydro-mini">先完成 2100 年洪涝模拟与张量场，再使用真实场地数据进行三级道路骨架和 Wool 优化。结果只改变规划图层，不改变原始洪涝计算。</div>',
-      '<button type="button" class="site-vector-mode" id="siteHudStep05Begin" style="width:100%;margin:8px 0">⑤ 同步 2100 年真实张量与水深</button>',
-      '<div class="site-hydro-mini" id="siteHudStep05Status">05 控制面板已展开。请先完成 STEP 04 的真实 2100 年水文张量计算，再点击上方同步按钮；未校验数据前，生成按钮会保持禁用。</div>',
+      '<label class="site-hydro-check" style="display:flex;align-items:center;gap:8px;padding:10px 8px;background:#202024;border:1px solid #414146;border-radius:10px;margin:10px 0">',
+      '<input type="checkbox" id="siteHudWoolAuto" style="width:18px;height:18px;flex-shrink:0">',
+      '<span><strong>结合 Wool 算法 · 自动生成</strong><small style="display:block;color:#a1a1a6;font-size:10px;font-weight:400">开启后自动读取 STEP 04 的真实 2100 年数据，并一次完成道路生成与 Wool 优化</small></span></label>',
+      '<div class="site-hydro-mini" id="siteHudStep05Status">开关默认关闭。完成真实2100年张量场后开启即可自动生成，无需导入文件。</div>',
       '<div id="siteHudStep05Controls"></div>',
       '<button type="button" class="site-vector-mode" id="siteHudStep05Final" disabled style="margin-top:9px">✓ 完成 STEP 05 → 进入最终 Parcel Generator</button>',
       '<div class="site-hydro-mini">道路中心线、分级、拓扑图、路面占地和保留洪涝走廊会一起传递给最终阶段；STEP 06 地块切割仍需单独实现。</div>',
@@ -3227,6 +3235,7 @@ export function createLocalFloodUI({
     hydroRoadUI=createParcelRoadUI({
       root:isolateViewerElement,getMap:()=>isolateViewer,getRing:()=>polygon?.[0],
       boundarySource:FOCUS_SITE,outlineLayer:'focus-parcel-border',autoHandoff:false,
+      showImport:false,
       onStatus:(message,bad)=>{
         setSiteHud('siteHudStep05Status',message);
         if(bad)console.warn('Hydro Lab STEP05:',message);
@@ -3251,33 +3260,73 @@ export function createLocalFloodUI({
     });
     hydroRoadUI.mount(siteHud('siteHudStep05Controls'));
     hydroRoadUI.setActive(false);
-    // STEP05 is always visible; source validation controls when Generate becomes enabled.
-    siteHud('siteHudStep05Begin').onclick=()=>{
-      if(hydroRoadActive&&hydroRoadUI?.isReady){
-        setSiteHud('siteHudStep05Status','2100 年真实张量数据已校验。请使用下方「① 生成道路网络」和「② Wool 优化」。');
+    // Keep the expensive array export and Wool Worker asleep until the user
+    // explicitly enables the switch. One switch is the only required action.
+    const clearAutoWoolWatch=()=>{
+      if(hydroAutoWoolTimer!==null)clearInterval(hydroAutoWoolTimer);
+      hydroAutoWoolTimer=null;
+    };
+    const beginAutoWoolIfReady=()=>{
+      if(!hydroAutoWoolOn||!isolatedSelection||!hydroVector||!hydroRoadUI)return;
+      if(!hydroDisplay.flow||!tensorSession){
+        setSiteHud('siteHudStep05Status','已开启自动结合 Wool · 请先进入 STEP 04 并完成水文张量计算。');
         return;
       }
-      if(!hydroDisplay.flow||!hydroVector){
-        setSiteHud('siteHudStep05Status','请先完成洪涝模拟，然后点击 STEP 04 生成真实水文张量场。');
+      // Data readiness is independent of the visual 2026–2100 playback clock.
+      // Require completion of the actual hydrological tensor keyframes.
+      const info=hydroVector.getSiteSnapshotReadiness?.();
+      if(!tensorSession.completed||!info?.ready||info.year!==2100||
+         info.rainfallCase!==rainPreset){
+        setSiteHud('siteHudStep05Status','Wool 自动等待中：正在完成2100年真实水深和张量场计算；无需导入数据。');
         return;
       }
+      const stamp=[focusSiteSerial,info.year,info.token,info.rainfallCase].join(':');
+      if(hydroAutoWoolSourceKey===stamp)return;
       const snapshot=hydroVector.exportSiteSnapshot?.();
-      const target=(snapshot?.scenarios||[]).find(x=>Number(x?.scenario?.year)===2100)
-        ||(Number(snapshot?.current?.scenario?.year)===2100?snapshot.current:null);
-      if(!snapshot||!target?.depthMm?.values?.length){
-        setSiteHud('siteHudStep05Status','2100 年张量／洪涝快照尚未就绪，请等待 STEP 04 实际计算完成；不能用2026年或随机数据代替。');
+      const target=(snapshot?.scenarios||[]).find(x=>
+        Number(x?.scenario?.year)===2100&&x?.scenario?.rainfallCase===rainPreset);
+      if(!target?.depthMm?.values?.length||!target?.fields?.primaryX?.values?.length){
+        setSiteHud('siteHudStep05Status','2100年计算结果仍在整理，等待完整方向格网和水深后自动生成。');
         return;
       }
-      hydroRoadActive=true;
-      hydroRoadResult=null;
+      hydroAutoWoolSourceKey=stamp;
+      clearAutoWoolWatch();
+      hydroRoadResult=null;hydroRoadActive=true;
       siteHud('siteHudStep05Final').disabled=true;
-      hydroRoadUI?.setActive(true);
-      siteHud('siteHudStep05Begin').textContent='⑤ 2100 年数据已提交校验';
-      hydroRoadUI?.loadSnapshot({
+      hydroRoadUI.setAutoGenerate(true);
+      hydroRoadUI.setActive(true);
+      setSiteHud('siteHudStep05Status','已自动接收同一选区真实2100年张量与洪涝数据 · 正在校验并生成 Wool 路网…');
+      hydroRoadUI.loadSnapshot({
         ...snapshot,
         selection:{type:'Polygon',coordinates:structuredClone(polygon)}
       },'Hydro Lab · 当前红色地块 · 2100年真实计算结果');
-      hydroRoadUI?.attachMap();
+      hydroRoadUI.attachMap();
+    };
+    hydroAutoWoolCheck=beginAutoWoolIfReady;
+    const startAutoWoolWatch=()=>{
+      clearAutoWoolWatch();
+      if(!hydroAutoWoolOn)return;
+      // Poll only the lightweight readiness marker; the large snapshot is
+      // copied once, after a genuine 2100 tensor result is available.
+      hydroAutoWoolTimer=setInterval(beginAutoWoolIfReady,1300);
+      beginAutoWoolIfReady();
+    };
+    siteHud('siteHudWoolAuto').onchange=event=>{
+      hydroAutoWoolOn=Boolean(event.target.checked);
+      if(hydroAutoWoolOn){
+        hydroAutoWoolSourceKey=null;
+        hydroRoadUI.setAutoGenerate(true);
+        startAutoWoolWatch();
+      }else{
+        clearAutoWoolWatch();
+        hydroAutoWoolSourceKey=null;
+        hydroRoadUI.setAutoGenerate(false);
+        hydroRoadUI.resetRoads();
+        hydroRoadUI.setActive(false);
+        hydroRoadActive=false;hydroRoadResult=null;
+        updateHydroLayerVisibility();
+        setSiteHud('siteHudStep05Status','已关闭 Wool 结合，恢复 STEP 04 水文张量场。');
+      }
     };
     siteHud('siteHudStep05Final').onclick=()=>{
       if(!hydroRoadResult?.roadTopologyGraph?.edges?.length){
@@ -3385,13 +3434,18 @@ export function createLocalFloodUI({
       map.triggerRepaint();isolateViewer?.triggerRepaint();
     };
     const resetFuture=()=>{
+      // Reset returns to rainfall STEP03 and explicitly disables automatic Wool.
+      hydroAutoWoolOn=false;hydroAutoWoolSourceKey=null;
+      if(hydroAutoWoolTimer!==null)clearInterval(hydroAutoWoolTimer);
+      hydroAutoWoolTimer=null;
+      if(siteHud('siteHudWoolAuto'))siteHud('siteHudWoolAuto').checked=false;
+      hydroRoadUI?.setAutoGenerate(false);
       if(hydroRoadResult||hydroRoadActive){
         hydroRoadUI?.resetRoads();
         hydroRoadResult=null;hydroRoadActive=false;
         const mount=siteHud('siteHudStep05Controls');
-        if(mount)mount.style.display='block'; // Reset only data, never hide STEP05.
-        const begin=siteHud('siteHudStep05Begin');
-        if(begin)begin.textContent='⑤ 同步 2100 年真实张量与水深';
+        if(mount)mount.style.display='block';
+        hydroAutoWoolSourceKey=null;
       }
       stopTensorSequence();hydroDisplay.flow=false;
       if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
