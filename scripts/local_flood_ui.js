@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.4-tensor-only';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.4-tensor-only';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.26.4-tensor-only';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.4-tensor-only';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.4-tensor-only';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.5-generated-only';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.5-generated-only';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.26.5-generated-only';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.5-generated-only';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.5-generated-only';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -909,6 +909,8 @@ export function createLocalFloodUI({
   let volumetricWater=null;
   let hydroVector=null;
   let hydroRoadUI=null,hydroRoadResult=null,hydroRoadActive=false;
+  // Independent STEP04/STEP05 visuals: source data and checkbox states persist.
+  let originalSiteOnlyVisibility=null;
   let hydroAutoWoolOn=false,hydroAutoWoolTimer=null,hydroAutoWoolSourceKey=null;
   let hydroAutoWoolCheck=()=>{};
   let tensorShowBuildings=false;
@@ -1577,7 +1579,7 @@ export function createLocalFloodUI({
       [FOCUS_EA_LAYER,ctx.ea],
       [FOCUS_DRAINAGE_LAYER,ctx.drainage]]){
       if(!viewer.getLayer(id))continue;
-      const visibility=on&&!hydroDisplay.flow?'visible':'none';
+      const visibility=on&&!hydroDisplay.flow&&!hydroRoadActive?'visible':'none';
       if(viewer.getLayoutProperty(id,'visibility')!==visibility)
         viewer.setLayoutProperty(id,'visibility',visibility);
     }
@@ -2039,14 +2041,14 @@ export function createLocalFloodUI({
     const viewer=isolateViewer;
     if(!viewer)return;
     for(const [id,show] of [
-      ['focus-road-casing',sitePlanShowRoads&&!hydroDisplay.flow],
-      ['focus-road-surface',sitePlanShowRoads&&!hydroDisplay.flow],
-      ['focus-green-ground',sitePlanShowGreens&&!hydroDisplay.flow],
-      [FOCUS_ROAD_VISIBLE,sitePlanShowRoads&&!hydroDisplay.flow],
-      [FOCUS_GREEN_VISIBLE,sitePlanShowGreens&&!hydroDisplay.flow],
-      [FOCUS_PLAN_ROAD,!hydroDisplay.flow&&sitePlanShowRoads&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
-      [FOCUS_PLAN_GREEN,!hydroDisplay.flow&&sitePlanShowGreens&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
-      [FOCUS_PLAN_BUILDING,!hydroDisplay.flow&&!hideSelectedBuildings&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)]
+      ['focus-road-casing',sitePlanShowRoads&&!hydroDisplay.flow&&!hydroRoadActive],
+      ['focus-road-surface',sitePlanShowRoads&&!hydroDisplay.flow&&!hydroRoadActive],
+      ['focus-green-ground',sitePlanShowGreens&&!hydroDisplay.flow&&!hydroRoadActive],
+      [FOCUS_ROAD_VISIBLE,sitePlanShowRoads&&!hydroDisplay.flow&&!hydroRoadActive],
+      [FOCUS_GREEN_VISIBLE,sitePlanShowGreens&&!hydroDisplay.flow&&!hydroRoadActive],
+      [FOCUS_PLAN_ROAD,!hydroDisplay.flow&&!hydroRoadActive&&sitePlanShowRoads&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
+      [FOCUS_PLAN_GREEN,!hydroDisplay.flow&&!hydroRoadActive&&sitePlanShowGreens&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)],
+      [FOCUS_PLAN_BUILDING,!hydroDisplay.flow&&!hydroRoadActive&&!hideSelectedBuildings&&(sitePlanMode||Object.keys(sitePlanDecisions).length>0)]
     ]){
       if(viewer.getLayer(id)){
         const visibility=show?'visible':'none';
@@ -2301,12 +2303,12 @@ export function createLocalFloodUI({
     // Keep reference rasters readable: the custom 3D water mesh otherwise
     // renders later and covers the EA/drainage comparison layers.
     const reference=focusContextSettings();
-    const useVolume=Boolean(!hydroDisplay.flow&&hydroDisplay.depth&&
+    const useVolume=Boolean(!hydroDisplay.flow&&!hydroRoadActive&&hydroDisplay.depth&&
       !reference.ea&&!reference.drainage&&hydroDisplay.volume&&
       viewer.getPitch()>.5&&volumetricWater?.ready);
     volumetricWater?.setVisible(useVolume);
     if(viewer.getLayer(FOCUS_RAIN_LAYER)){
-      const visibility=!hydroDisplay.flow&&hydroDisplay.depth&&!useVolume?'visible':'none';
+      const visibility=!hydroDisplay.flow&&!hydroRoadActive&&hydroDisplay.depth&&!useVolume?'visible':'none';
       if(viewer.getLayoutProperty(FOCUS_RAIN_LAYER,'visibility')!==visibility)
         viewer.setLayoutProperty(FOCUS_RAIN_LAYER,'visibility',visibility);
     }
@@ -2325,64 +2327,89 @@ export function createLocalFloodUI({
   function updateHydroLayerVisibility(){
     const viewer=isolateViewer;
     if(!viewer)return;
-    // Tensor lines are MapLibre geographic lines and remain aligned when pitched.
-    // Never force the camera back to a top-down view on mode changes.
-    syncFocusFloodWaterRendering();
-    const desired=hydroDisplay.flow?'visible':'none';
+    // STEP04 = computed tensor only; STEP05 = generated road layers only.
+    // Never disable the tensor solver to switch between their presentations:
+    // setEnabled(false) cancels workers and clears cached geometry.
+    const tensorOnly=hydroDisplay.flow&&!hydroRoadActive;
+    const step05Only=hydroRoadActive;
+    const generatedOnly=hydroDisplay.flow||hydroRoadActive;
+    hydroVector?.setRenderSuppressed?.(step05Only);
     hydroVector?.setEnabled(hydroDisplay.flow);
-    // STEP04 is an isolated visualization: hide every non-tensor art layer
-    // regardless of its prior checkbox, without changing data or checkbox state.
-    const tensorOnly=hydroDisplay.flow;
-    const hiddenInTensor=[
+    syncFocusFloodWaterRendering();
+
+    const originalLayers=[
       'focus-green-ground','focus-water-ground',
       'focus-road-casing','focus-road-surface',
       FOCUS_ROAD_VISIBLE,FOCUS_GREEN_VISIBLE,
       FOCUS_SPONGE_FILL,FOCUS_SPONGE_LINE,
-      FOCUS_2D,FOCUS_3D,FOCUS_FOOTPRINT_FILL,FOCUS_FOOTPRINT_LINE,
+      FOCUS_RAIN_LAYER,FOCUS_2D,FOCUS_3D,
+      FOCUS_FOOTPRINT_FILL,FOCUS_FOOTPRINT_LINE,
       FOCUS_EA_LAYER,FOCUS_DRAINAGE_LAYER,
       FOCUS_PLAN_ROAD,FOCUS_PLAN_GREEN,FOCUS_PLAN_BUILDING
     ];
-    if(tensorOnly)for(const id of hiddenInTensor){
-      if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!=='none')
-        viewer.setLayoutProperty(id,'visibility','none');
+    const manualRestore=new Set(['focus-water-ground',FOCUS_SPONGE_FILL,FOCUS_SPONGE_LINE]);
+    if(generatedOnly){
+      if(!originalSiteOnlyVisibility){
+        originalSiteOnlyVisibility=new Map();
+        for(const id of manualRestore){
+          if(viewer.getLayer(id))originalSiteOnlyVisibility.set(id,
+            viewer.getLayoutProperty(id,'visibility')||'visible');
+        }
+      }
+      for(const id of originalLayers)
+        if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!=='none')
+          viewer.setLayoutProperty(id,'visibility','none');
+    }else{
+      for(const id of manualRestore){
+        if(!viewer.getLayer(id))continue;
+        const original=originalSiteOnlyVisibility?.get(id)||'visible';
+        if(viewer.getLayoutProperty(id,'visibility')!==original)
+          viewer.setLayoutProperty(id,'visibility',original);
+      }
+      originalSiteOnlyVisibility=null;
     }
-    else for(const id of ['focus-water-ground',FOCUS_SPONGE_FILL,FOCUS_SPONGE_LINE]){
-      // These base layers were originally visible and have no separate
-      // visibility control. The remaining layers restore via their owners.
-      if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!=='visible')
-        viewer.setLayoutProperty(id,'visibility','visible');
-    }
-    // Reapply the accepted year frame when switching to the hydrology view.
-    // Never override a displayed earlier year with a stale 2100 worker state.
-    // No stale frame is reattached on a display-only switch.
-    // Dark academic scene is applied only while the independent flow layer is on.
+    // The parcel background is a black design canvas, not an OSM basemap.
+    // Site outline remains visible, while each generated mode has its own layers.
     const palette=focusThemePalette();
-    const ground=hydroDisplay.flow?'#000000':palette.ground;
-    const green=hydroDisplay.flow?'#000000':palette.green;
-    const road=hydroDisplay.flow?'#000000':palette.roadCasing;
+    const ground=generatedOnly?'#000000':palette.ground;
+    const green=generatedOnly?'#000000':palette.green;
+    const road=generatedOnly?'#000000':palette.roadCasing;
     for(const [id,property,color] of [
       ['focus-parcel-ground','fill-color',ground],
       ['focus-green-ground','fill-color',green],
-      ['focus-water-ground','fill-color',hydroDisplay.flow?'#000000':palette.water],
+      ['focus-water-ground','fill-color',generatedOnly?'#000000':palette.water],
       ['focus-road-casing','fill-color',road],
-      ['focus-road-surface','fill-color',hydroDisplay.flow?'#000000':
+      ['focus-road-surface','fill-color',generatedOnly?'#000000':
         ['match',['get','kind'],'major',palette.roadMajor,
           'pedestrian',palette.roadPedestrian,palette.roadMinor]]
     ])if(viewer.getLayer(id))viewer.setPaintProperty(id,property,color);
     setFocusPitchMode();
-    syncFocusFootprintVisibility(); // only when mode state changes
+    syncFocusFootprintVisibility();
     for(const id of [FOCUS_2D,FOCUS_3D]){
       if(viewer.getLayer(id))viewer.setPaintProperty(id,
         id===FOCUS_3D?'fill-extrusion-color':'fill-color',
-        hydroDisplay.flow?'#8b929d':
+        generatedOnly?'#8b929d':
           hydroDisplay.collision?buildingColourExpression():'#ff9f1a');
     }
-    // Reference and OSM overlays are only restored outside STEP04.
-    // Underlying checks remain unchanged while displaying the tensor field.
     updateFocusAnalysisLayers();
     syncSitePlanLayers();
     updatePlanBuildingColours();
-    // Mode switching must never modify the hydraulic solver or request undated water.
+    // After all layer owners run, ensure external elements stay hidden even
+    // if a background style/checkbox refresh tries to restore them.
+    if(generatedOnly)for(const id of originalLayers){
+      if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!=='none')
+        viewer.setLayoutProperty(id,'visibility','none');
+    }
+    // STEP05-only additionally suppresses all tensor lines and diagnostics.
+    // The renderer independently remembers suppression across new geometry.
+    if(step05Only)for(const id of [
+      FOCUS_FLOW_LAYER,FOCUS_FLOW_GLOW,FOCUS_FLOW_PARTICLE_LAYER,
+      FOCUS_TENSOR_RIBBON_LAYER,FOCUS_TENSOR_RIBBON_GLOW,
+      FOCUS_TENSOR_GAP_WET,FOCUS_TENSOR_GAP_REASONS
+    ])if(viewer.getLayer(id)&&viewer.getLayoutProperty(id,'visibility')!=='none')
+      viewer.setLayoutProperty(id,'visibility','none');
+    // The STEP05 road UI owns its own pg-road-* layers and will continue
+    // displaying only the computed outputs selected in that panel.
   }
 
   function focusStyle(details){
@@ -2591,7 +2618,7 @@ export function createLocalFloodUI({
     if(!viewer)return;
     // Pitch is a camera choice, not a tensor mode restriction.
     const is3D=viewer.getPitch()>.5;
-    const show=!hydroDisplay.flow; // No 2D/3D buildings in STEP04 tensor view.
+    const show=!hydroDisplay.flow&&!hydroRoadActive; // STEP04/05: no original building geometry.
     for(const [id,v] of [
       [FOCUS_2D,show&&!is3D?'visible':'none'],
       [FOCUS_3D,show&&is3D?'visible':'none']
@@ -2630,6 +2657,7 @@ export function createLocalFloodUI({
     hydroAutoWoolCheck=()=>{};
     hydroRoadUI?.dispose();hydroRoadUI=null;
     hydroRoadResult=null;hydroRoadActive=false;
+    originalSiteOnlyVisibility=null;
     stopTensorSequence();
     tensorContext=null;hydroDisplay.flow=false;
     if(focusThresholdTimer)clearTimeout(focusThresholdTimer);
@@ -3023,7 +3051,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.4-tensor-only</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.5-generated-only</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3136,7 +3164,7 @@ export function createLocalFloodUI({
       '<label class="site-vector-param"><span>线条长度<output id="siteHudVectorLengthValue">65</output></span><input id="siteHudVectorLength" type="range" min="0" max="100" step="1" value="65"></label>',
       '<label class="site-vector-param"><span>发光强度<output id="siteHudVectorGlowValue">0.35</output></span><input id="siteHudVectorGlow" type="range" min="0" max="1" step="0.05" value="0.35"></label>',
       '</div>',
-      '<div class="site-hydro-mini" id="siteHudTensorOnlyHint">张量场独立显示：自动隐藏原有道路、建筑、绿地、积水和参考图层。数据仍在后台保留。</div>',
+      '<div class="site-hydro-mini" id="siteHudTensorOnlyHint">STEP 04 仅显示张量场；STEP 05 仅显示生成路网。两步都隐藏原有道路、建筑、绿地及地图参考层，计算数据保留。</div>',
       '<div class="site-vector-scale"><span>主方向 · 蓝</span><div aria-hidden="true"></div><span>次方向 · 粉紫</span></div>',
       '<label class="site-hydro-check" style="margin:12px 0 5px"><input id="siteHudTensorGapToggle" type="checkbox"> 断裂原因诊断（测试版，默认关闭）</label>',
       '<div class="site-hydro-mini">标出低置信度、方向不唯一、缺失数据和方向有效但未布线区，并叠加 ≥2 cm 模拟积水。青色不等于已证明的曲率停止。</div>',
@@ -3266,6 +3294,7 @@ export function createLocalFloodUI({
       },
       onDone:output=>{
         hydroRoadResult=output;hydroRoadActive=true;
+        updateHydroLayerVisibility();
         const final=siteHud('siteHudStep05Final');
         if(final)final.disabled=false;
         for(const id of [FOCUS_2D,FOCUS_3D])
@@ -3276,7 +3305,7 @@ export function createLocalFloodUI({
           output.diagnostics.lengthKm+' km · 可以继续调整 Wool 或进入最终阶段');
       },
       onReset:()=>{
-        hydroRoadResult=null;
+        hydroRoadResult=null;hydroRoadActive=false;
         const final=siteHud('siteHudStep05Final');
         if(final)final.disabled=true;
         if(isolateViewer)updateHydroLayerVisibility();
@@ -3316,6 +3345,7 @@ export function createLocalFloodUI({
       hydroAutoWoolSourceKey=stamp;
       clearAutoWoolWatch();
       hydroRoadResult=null;hydroRoadActive=true;
+      updateHydroLayerVisibility();
       siteHud('siteHudStep05Final').disabled=true;
       hydroRoadUI.setAutoGenerate(true);
       hydroRoadUI.setActive(true);
@@ -4133,6 +4163,7 @@ export function createLocalFloodUI({
       updateFocusAnalysisLayers();
       updateHydroLayerVisibility(); // Reapply tensor-only layout after async style load.
       hydroRoadUI?.attachMap();
+      updateHydroLayerVisibility();
       // Controls can be toggled before the map style finishes loading.
       // Rehydrate the vector layers once their GeoJSON sources are ready.
       if(hydroDisplay.flow&&tensorSession)hydroVector?.setEnabled(true);

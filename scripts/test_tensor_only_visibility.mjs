@@ -39,7 +39,7 @@ const visibleIds=[
 ];
 const layers=new Map(visibleIds.map(id=>[id,'visible']));
 const toggles={roads:true,greens:true,ea:true,drainage:true};
-let vectorOn=null;
+let vectorOn=null,vectorSuppressed=false;
 const viewer={
  getLayer:id=>layers.has(id)?{id}:undefined,
  getLayoutProperty:(id,property)=>property==='visibility'?layers.get(id):undefined,
@@ -55,7 +55,8 @@ const sandbox={
  sitePlanShowGreens:toggles.greens,sitePlanMode:true,
  sitePlanDecisions:{kept:'keep'},hideSelectedBuildings:false,
  hydroDisplay:{flow:true,depth:true,volume:true,collision:true},
- hydroVector:{setEnabled:v=>{vectorOn=v}},
+ hydroVector:{setEnabled:v=>{vectorOn=v},setRenderSuppressed:v=>{vectorSuppressed=v}},
+ hydroRoadActive:false,originalSiteOnlyVisibility:null,
  focusAppliedThreshold:'0.123',
  focusContextSettings:()=>({ea:toggles.ea,drainage:toggles.drainage,threshold:'0.123'}),
  focusContextUrl:()=>'',setSiteHud(){},getBasemapTheme:()=> 'planning',
@@ -95,6 +96,25 @@ sandbox.syncSitePlanLayers();
 sandbox.updateFocusAnalysisLayers();
 sandbox.setFocusPitchMode();
 for(const id of hiddenInTensor)assert.equal(layers.get(id),'none','Late leak: '+id);
+// STEP05 keeps the hydrological calculations running, but displays only
+// roads made by STEP05. The tensor renderer must be visually suppressed.
+sandbox.hydroRoadActive=true;
+sandbox.updateHydroLayerVisibility();
+for(const id of hiddenInTensor)
+ assert.equal(layers.get(id),'none','STEP05 original overlay leak: '+id);
+assert.equal(vectorOn,true,'Wool must not clear physical tensor data');
+assert.equal(vectorSuppressed,true,'STEP05 must suppress tensor presentation');
+sandbox.syncSitePlanLayers();
+sandbox.updateFocusAnalysisLayers();
+sandbox.setFocusPitchMode();
+for(const id of hiddenInTensor)
+ assert.equal(layers.get(id),'none','STEP05 async layer leak: '+id);
+// Disable Wool while STEP04 remains active: tensor should return immediately.
+sandbox.hydroRoadActive=false;
+sandbox.updateHydroLayerVisibility();
+assert.equal(vectorSuppressed,false,'STEP04 must restore visible tensor without recomputation');
+for(const id of hiddenInTensor)
+ assert.equal(layers.get(id),'none','STEP04 must still hide original map');
 sandbox.hydroDisplay.flow=false;
 sandbox.updateHydroLayerVisibility();
 assert.equal(vectorOn,false,'Disable tensor field on exit');
@@ -108,4 +128,19 @@ for(const id of [
 assert.deepEqual(toggles,{roads:true,greens:true,ea:true,drainage:true});
 assert.ok(ui.includes('id="siteHudTensorOnlyHint"'));
 assert.ok(!ui.includes('id="siteHudTensorBuildings"'));
-console.log('PASS: STEP04 tensor only; source/checkboxes unchanged; original layers restored after exiting');
+const renderer=fs.readFileSync(new URL('./hydro_tensor_field.js',import.meta.url),'utf8');
+const start=renderer.indexOf('  function setRenderSuppressed(value){');
+const end=renderer.indexOf('  function setEnabled(on){',start);
+assert.ok(start>=0&&end>start,'Renderer must expose a separate suppression API');
+const suppression=renderer.slice(start,end);
+assert.ok(suppression.includes('applyStyle()'));
+assert.ok(!suppression.includes('invalidateUploaded()'));
+assert.ok(!suppression.includes('worker?.terminate()'));
+assert.ok(!suppression.includes('src()?.setData(empty())'));
+assert.ok(renderer.includes('enabled&&!renderSuppressed&&settings.showFilaments'));
+assert.ok(renderer.includes('enabled&&!renderSuppressed&&show'));
+assert.ok(renderer.includes('const visible=enabled&&!renderSuppressed&&gapEnabled'));
+assert.ok(ui.includes('const generatedOnly=hydroDisplay.flow||hydroRoadActive'));
+assert.ok(ui.includes('const tensorOnly=hydroDisplay.flow&&!hydroRoadActive'));
+assert.ok(ui.includes('const step05Only=hydroRoadActive'));
+console.log('PASS: STEP04 tensor-only, STEP05 generated-roads-only, preserve computation/cache and restore original checkboxes');
