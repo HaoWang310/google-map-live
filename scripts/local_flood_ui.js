@@ -1,6 +1,6 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.27.0-site-wool';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.29.2-global-elastic';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.29.3-full-site-weave';
 import {smoothWetDepths} from './flood_water_visual.js?v=3.27.0-site-wool';
 import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.27.0-site-wool';
 import {createParcelRoadUI} from './parcel_road_ui.js?v=3.28.0-tensor-wool-linked';
@@ -3163,7 +3163,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 雨水完成后进入张量场（2026–2100）</label>',
       '<div class="site-hydro-mini site-tensor-caption">勾选后准备真实张量场，不自动播放。点击下方「运行」从2026连续模拟到2100；再次点击从2026重播。「暂停」停留在当前画面，只有「重置」返回已完成的雨水模拟。</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode" data-vector-mode="analysis" aria-pressed="false">分析模式</button><button type="button" class="site-vector-mode active" data-vector-mode="presentation" aria-pressed="true">演示模式</button></div>',
-      '<div class="site-hydro-mini" style="color:#9ddcff">演示模式：非等间距双向柔性织网，局部弯曲与旋转仅为概念设计；不是实测流向。切换分析模式可核查真实水文张量。</div>',
+      '<div class="site-hydro-mini" style="color:#9ddcff">演示模式：完整场地的全局连续双向柔性网格，缺失方向由真实张量作概念插值；不代表实测流向或已建道路。切换分析模式可核查水文张量证据。</div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
       '<div class="site-vector-modes site-tensor-directions" role="group"><button type="button" class="site-vector-mode" data-tensor-direction="primary" aria-pressed="false">主方向</button><button type="button" class="site-vector-mode" data-tensor-direction="secondary" aria-pressed="false">次方向</button><button type="button" class="site-vector-mode active" data-tensor-direction="dual" aria-pressed="true">双方向</button></div>',
