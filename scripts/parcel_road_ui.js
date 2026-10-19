@@ -88,7 +88,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.25.0-organic-wool',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.25.1-wool-collision',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -124,7 +124,9 @@ export function createParcelRoadUI({
    }else if(data.type==='error'){
     pending=false;
     for(const id of ['pg-road-generate','pg-road-wool'])el(id).disabled=!ready;
-    el('pg-road-source').textContent='⚠ 当前场地真实张量／洪涝数据校验失败，请检查 STEP 04。';
+    el('pg-road-source').textContent=ready?
+      '⚠ 数据已通过校验，但路网几何计算失败；请查看错误与参数。':
+      '⚠ 当前场地张量／洪涝数据校验失败，请检查 STEP 04。';
     rerunAfterDone=false;inform('STEP 05 失败：'+data.message,true);
    }else if(data.type==='cleared'){
     result=null;pending=false;updateMap();

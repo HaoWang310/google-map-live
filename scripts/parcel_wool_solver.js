@@ -27,14 +27,27 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
    smooth=clamp(Number(parameters.curvatureSmoothing??75)/100,0,1),
    branch=clamp(Number(parameters.branchingStrength??60)/100,0,1);
  const step=clamp(domain.cell*.95,domain.cell*.65,domain.cell*1.6);
- const roads=skeleton.roads.map((r,k)=>({
-  ...r,id:'ROAD-'+String(k+1).padStart(4,'0'),
-  points:resample(r.points,step)
- }));
+ // A* provides a full chain of flood-safe grid cells. Its presentation
+ // simplification (r.points) may cut diagonally through forbidden cells.
+ // Relax the ORIGINAL path instead of resampling those unsafe shortcuts.
+ const roads=skeleton.roads.map((r,k)=>{
+  const spine=r.indices?.length>1?r.indices.map(i=>domain.toPoint(i)):r.points;
+  if(!spine?.length||spine.length<2)
+   throw Error('缺失可通行的 A* 原始路径，不能用显示折线代替');
+  const points=resample(spine,step);
+  return {...r,id:'ROAD-'+String(k+1).padStart(4,'0'),points};
+ });
+ const pathSafe=a=>a.every((p,i)=>safePoint(domain,p)&&
+  (i===0||safeSegment(domain,a[i-1],p)));
+ const basePaths=roads.map(r=>r.points.map(p=>p.slice()));
+ for(let k=0;k<roads.length;k++)
+  if(!pathSafe(roads[k].points))
+   throw Error('道路 '+roads[k].id+' 的真实 A* 路径穿越禁行区，请检查道路骨架数据');
  // Endpoint graph vertices are fixed; all fibre relaxation is interior-only.
  const rounds=Math.max(0,Math.round(strength*19));
  const proximity=domain.cell*(2.0+bundle*2.2);
  let unsafeRejected=0,relaxedPoints=0,filamentPairs=0;
+ let relaxedRollback=0,curveRollbacks=0;
  for(let pass=0;pass<rounds;pass++){
   const cellSize=Math.max(domain.cell*1.8,proximity),buckets=new Map();
   const key=p=>Math.floor(p[0]/cellSize)+','+Math.floor(p[1]/cellSize);
@@ -48,7 +61,7 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
    if(a.length<3)continue;
    const next=a.map(p=>p.slice());
    for(let j=1;j<a.length-1;j++){
-    const p=a[j],prev=a[j-1],post=a[j+1];
+    const p=a[j],prev=next[j-1],post=a[j+1];
     const mid=[(prev[0]+post[0])*.5,(prev[1]+post[1])*.5];
     // Elastic bending: fibre tension straightens micro-kinks while
     // tensor alignment and barriers preserve longer-scale organic motion.
@@ -99,7 +112,11 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
       next[j]=candidate;relaxedPoints++;
     }else unsafeRejected++;
    }
-   road.points=next;
+   // Changing two adjacent vertices against their *old* neighbours used to
+   // create new invalid connectors. Sequential updates plus whole-path check
+   // ensure that each accepted pass is a valid walk through the hard mask.
+   if(pathSafe(next))road.points=next;
+   else{relaxedRollback++;road.points=a;}
   }
   if(pass%3===2)progress(.68+.18*(pass+1)/Math.max(1,rounds),
     'Wool 弹性松弛 '+(pass+1)+'/'+rounds);
@@ -125,8 +142,12 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
     curveRefinements++;
    }else refined.push(b);
   }
-  if(refined.length>1&&refined.length<=input.length*2)
-   road.points=refined;
+  if(refined.length>1&&refined.length<=input.length*2){
+   // Check the assembled polyline, not just candidate-to-old-neighbour
+   // segments. Later Chaikin pairs can otherwise invalidate earlier ones.
+   if(pathSafe(refined))road.points=refined;
+   else curveRollbacks++;
+  }
  }
  // Curve sampling remains dense, preserving narrow valid corridors.
  for(const road of roads){
@@ -141,5 +162,6 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
  return {roads,stats:{iterations:rounds,optimizedRoads:roads.length,
   totalLengthM:roads.reduce((sum,r)=>sum+r.lengthM,0),
   unsafeRejected,relaxedPoints,filamentPairs,curveRefinements,
+  relaxedRollback,curveRollbacks,fullAStarCells:basePaths.reduce((n,p)=>n+p.length,0),
   formula:'tensor-guided elastic relaxation + hierarchy-aware fibre bundling + flood-safe Chaikin curves'}};
 }
