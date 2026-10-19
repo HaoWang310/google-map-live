@@ -5,6 +5,8 @@ on:
     paths:
       - 'index.html'
       - 'scripts/hydro_tensor_field.js'
+      - 'scripts/parcel_generator.js'
+      - 'scripts/parcel_road_ui.js'
       - 'scripts/test_release_version.mjs'
       - 'scripts/flood_water_visual.js'
       - 'scripts/test_flood_water_visual.mjs'
@@ -41,6 +43,8 @@ jobs:
           node --check scripts/hydro_tensor_worker.js
           node --check scripts/local_flood_sim.js
           node --check scripts/local_flood_ui.js
+          node --check scripts/parcel_generator.js
+          node --check scripts/parcel_road_ui.js
           node --check scripts/flood_water_visual.js
           node --check scripts/site_element_decisions.js
           node --check scripts/site_planning_tensor.js
