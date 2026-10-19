@@ -26,8 +26,19 @@ function resample(points,spacing){
 function woolAxis(domain,p,perpendicular=false,reference=null){
  const i=domain.cellAt(p);
  if(i<0||!domain.safe[i])return null;
- const vx=domain.ax[i],vy=domain.ay[i],mag=Math.hypot(vx,vy);
- if(mag<.25)return null;
+ // Blend computed analysis eigenaxis with its SAME-source smoothed
+ // guidance. High-confidence cells remain dominated by the true axis.
+ const rx=domain.ax[i],ry=domain.ay[i],rm=Math.hypot(rx,ry);
+ let sx=domain.smoothAxisX?.[i]||0,sy=domain.smoothAxisY?.[i]||0;
+ const sm=Math.hypot(sx,sy);
+ if(rm<.25&&sm<.25)return null;
+ if(sm>.25){sx/=sm;sy/=sm;}
+ if(rm>.25&&rx*sx+ry*sy<0){sx=-sx;sy=-sy;}
+ const wt=rm>.25&&sm>.25?clamp(.16+.49*(1-(domain.certainty?.[i]||0)),.16,.65):sm>.25?1:0;
+ const vx=(rm>.25?rx/rm:0)*(1-wt)+sx*wt;
+ const vy=(rm>.25?ry/rm:0)*(1-wt)+sy*wt;
+ const mag=Math.hypot(vx,vy);
+ if(mag<.15)return null;
  let v=perpendicular?[-vy/mag,vx/mag]:[vx/mag,vy/mag];
  if(reference&&v[0]*reference[0]+v[1]*reference[1]<0)v=[-v[0],-v[1]];
  return v;
@@ -218,7 +229,8 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
     let target=mix(p,mid,.11+.36*smooth);
     const i=domain.cellAt(p);
     if(i>=0&&domain.safe[i]){
-     const ux=domain.ax[i],uy=domain.ay[i];
+     const guide=woolAxis(domain,p,false);
+     const ux=guide?.[0]||0,uy=guide?.[1]||0;
      const mag=Math.hypot(ux,uy);
      if(mag>.25){
       const tangent=[post[0]-prev[0],post[1]-prev[1]];
@@ -316,5 +328,5 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
   growthRejected:grown.stats.growthRejected,
   unsafeRejected,relaxedPoints,filamentPairs,curveRefinements,
   relaxedRollback,curveRollbacks,fullAStarCells:basePaths.reduce((n,p)=>n+p.length,0),
-  formula:'tensor-guided elastic relaxation + hierarchy-aware fibre bundling + flood-safe Chaikin curves'}};
+  formula:'same-source analysis+smoothed tensor weighted guidance + Wool growth / elastic relaxation + flood-safe Chaikin'}};
 }
