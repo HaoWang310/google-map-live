@@ -193,16 +193,32 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
  }
  // Uniform U / V isocurves sample the SAME F, so their crossings coincide.
  const branchList=direction==='primary'?['primary']:direction==='secondary'?['secondary']:['primary','secondary'];
+ // Every U/V intersection is sampled explicitly as a common vertex,
+ // not merely approximated by two independent drawing polylines.
+ const levels=(min,max)=>{
+  const out=[];const start=Math.ceil(min/gap);
+  for(let i=start; i*gap<=max+1e-8; i++)out.push(i*gap);
+  return out;
+ };
+ const levelsX=levels(xMin,xMin+xRange),levelsY=levels(yMin,yMin+yRange);
+ function parameters(min,max,levelList){
+  const cuts=[min,...levelList.filter(v=>v>min+1e-8&&v<max-1e-8),max];
+  const values=[];
+  for(let i=1;i<cuts.length;i++){
+   const a=cuts[i-1],b=cuts[i],steps=Math.max(1,Math.ceil((b-a)/sampleStep));
+   for(let k=0;k<steps;k++)values.push(a+(b-a)*k/steps);
+  }
+  values.push(max);return values;
+ }
+ const sampleX=parameters(xMin,xMin+xRange,levelsX);
+ const sampleY=parameters(yMin,yMin+yRange,levelsY);
  for(const branch of branchList){
-  const familyStart=pointsBudget;
-  const isU=branch==='primary';
-  const minConstant=isU?yMin:xMin,maxConstant=isU?yMin+yRange:xMin+xRange;
-  const startVar=isU?xMin:yMin,endVar=isU?xMin+xRange:yMin+yRange;
-  const c0=Math.ceil(minConstant/gap)*gap;
-  for(let constant=c0;constant<=maxConstant;constant+=gap){
+  const familyStart=pointsBudget,isU=branch==='primary';
+  const constants=isU?levelsY:levelsX,variables=isU?sampleX:sampleY;
+  for(const constant of constants){
    let run=[],last=null;
-   for(let variable=startVar;variable<=endVar+1e-7;variable+=sampleStep){
-    const pos=isU?map(Math.min(variable,endVar),constant):map(constant,Math.min(variable,endVar));
+   for(const variable of variables){
+    const pos=isU?map(variable,constant):map(constant,variable);
     const p={x:pos[0],y:pos[1]};
     const ok=valid(pos);
     // A full site-wide lattice may pass outside the selected parcel or into
