@@ -52,11 +52,7 @@ export function createParcelRoadUI({
    onStatus?.(msg,bad);}
  const html=()=>`
  <div class="pg-label">STEP 05 · 羊毛道路生成与优化</div>
- <p class="pg-note">先在 London Map 完成洪涝与 2100 张量计算；返回地图后将自动交接场地。也可在「04 · 水文张量场 → 导出真实场地诊断」保存 JSON 并在此导入。不同场地的数据会被拒绝，不会用随机路网代替。</p>
- <label class="pg-option" style="display:block">导入真实张量＋洪涝场地
-  <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
- </label>
- <div class="pg-note" id="pg-road-source">尚未导入真实场地。STEP 05 不会使用虚构数据。</div>
+ <p class="pg-note">${autoHandoff?'从当前 London Map 场地自动接收真实张量与洪涝数据；也可手动导入诊断 JSON。':'下方按钮始终显示。请先在上方点击「⑤ 同步 2100 年真实张量与水深」。数据校验通过后，生成按钮才会启用。'}</p>
  <div class="pg-section"><div class="pg-label">GENERATE / OPTIMISE · 道路生成</div>
  <div class="pg-road-actions">
  <button id="pg-road-generate" disabled>① 生成道路网络</button>
@@ -64,8 +60,12 @@ export function createParcelRoadUI({
  <button id="pg-road-reset">重置路网</button>
  </div>
  <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
- <div class="pg-status" id="pg-road-status">正在等待真实张量与水深数据。数据校验通过后即可生成。</div>
+ <div class="pg-status" id="pg-road-status">尚未加载真实 2100 年张量与水深，生成道路暂不可用。</div>
  </div>
+ <div class="pg-note" id="pg-road-source">等待同一地块真实张量/水深数据。</div>
+ <label class="pg-option" style="display:block">备用：导入真实场地诊断 JSON
+  <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
+ </label>
  <div class="pg-section"><div class="pg-label">WOOL / FLOOD / URBAN CONTROL · 参数</div>
  ${PARAMETERS.map(([k,label,v,min,max])=>`
   <label class="pg-road-param"><span>${label} <output id="pg-road-val-${k}">${v}</output></span>
@@ -86,7 +86,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.5-step05-panel-layout',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.6-step05-controls-visible',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){

@@ -30,6 +30,13 @@ assert.ok(hydro.includes("'</div>', // Close STEP04 only; leave the scrollable l
   'STEP04 must not prematurely close the scrollable left sidebar');
 assert.ok(hydro.includes("'</section>', // Close the scrollable left sidebar AFTER STEP05."),
   'Hydro Lab must close the scrollable sidebar only after STEP05');
+// STEP05 controls and Generate/Wool actions must remain visible even before a 2100 snapshot.
+assert.ok(hydro.includes("'<div id=\"siteHudStep05Controls\"></div>'"),
+  'STEP05 controls should not be hidden before real source data arrives');
+assert.ok(!hydro.includes("siteHud('siteHudStep05Controls').style.display='none'"),
+  'STEP05 must never hide the Wool panel in response to missing snapshots');
+assert.ok(ui.indexOf('id="pg-road-generate"') < ui.indexOf('id="pg-road-import"'),
+  'Generate and Wool buttons should be shown before the optional JSON import');
 assert.ok(index.includes('parcelGenerator.open({polygon,roadNetwork})'),
   'Page must pass Hydro Lab road output to final Parcel Generator');
 assert.ok(pg.includes('selectStep(finalMode?6:1)'),

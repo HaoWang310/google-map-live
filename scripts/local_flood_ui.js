@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.5-step05-panel-layout';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.5-step05-panel-layout';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.24.5-step05-panel-layout';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.5-step05-panel-layout';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.5-step05-panel-layout';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.6-step05-controls-visible';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.6-step05-controls-visible';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.24.6-step05-controls-visible';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.6-step05-controls-visible';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.6-step05-controls-visible';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -1260,10 +1260,10 @@ export function createLocalFloodUI({
       hydroRoadUI?.resetRoads();
       hydroRoadResult=null;hydroRoadActive=false;
       const mount=siteHud('siteHudStep05Controls');
-      if(mount)mount.style.display='none';
-      setSiteHud('siteHudStep05Status','张量场已更新；需要完成 STEP04 后重新生成道路。');
+      if(mount)mount.style.display='block'; // Keep STEP05 controls visible; only block generation until revalidated.
+      setSiteHud('siteHudStep05Status','张量场已更新；请重新同步 2100 年张量与水深，再生成道路。');
       const begin=siteHud('siteHudStep05Begin');
-      if(begin)begin.textContent='⑤ 读取张量 · 进入道路生成';
+      if(begin)begin.textContent='⑤ 同步 2100 年真实张量与水深';
     }
     // The exact chosen OSM planning state is fixed for this tensor run.
     // Water is still supplied from the cached hydrology frames even when
@@ -2993,7 +2993,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.5-step05-panel-layout</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.6-step05-controls-visible</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3130,9 +3130,9 @@ export function createLocalFloodUI({
       '<section class="site-hydro-section" id="siteHudStep05Section">',
       '<div class="site-hydro-section-title">05 · 羊毛道路生成与优化（Wool）</div>',
       '<div class="site-hydro-mini">先完成 2100 年洪涝模拟与张量场，再使用真实场地数据进行三级道路骨架和 Wool 优化。结果只改变规划图层，不改变原始洪涝计算。</div>',
-      '<button type="button" class="site-vector-mode" id="siteHudStep05Begin">⑤ 读取张量 · 进入道路生成</button>',
-      '<div class="site-hydro-mini" id="siteHudStep05Status">请先完成 STEP 04。未获取真实 2100 年张量时禁止随机生成道路。</div>',
-      '<div id="siteHudStep05Controls" style="display:none"></div>',
+      '<button type="button" class="site-vector-mode" id="siteHudStep05Begin" style="width:100%;margin:8px 0">⑤ 同步 2100 年真实张量与水深</button>',
+      '<div class="site-hydro-mini" id="siteHudStep05Status">05 控制面板已展开。请先完成 STEP 04 的真实 2100 年水文张量计算，再点击上方同步按钮；未校验数据前，生成按钮会保持禁用。</div>',
+      '<div id="siteHudStep05Controls"></div>',
       '<button type="button" class="site-vector-mode" id="siteHudStep05Final" disabled style="margin-top:9px">✓ 完成 STEP 05 → 进入最终 Parcel Generator</button>',
       '<div class="site-hydro-mini">道路中心线、分级、拓扑图、路面占地和保留洪涝走廊会一起传递给最终阶段；STEP 06 地块切割仍需单独实现。</div>',
       '</section>',
@@ -3202,7 +3202,8 @@ export function createLocalFloodUI({
     // behaviour, rather than mounting a second full-screen parcel workspace.
     const style=document.createElement('style');
     style.textContent=[
-      '.site-hydro-ui #siteHudStep05Controls{font:11px/1.55 system-ui,sans-serif;color:#e1eef4}',
+      '.site-hydro-ui #siteHudStep05Section{position:relative;width:100%;max-width:100%;overflow-wrap:anywhere}',
+      '.site-hydro-ui #siteHudStep05Controls{display:block;position:relative;max-width:100%;font:11px/1.55 system-ui,sans-serif;color:#e1eef4}',
       '.site-hydro-ui #siteHudStep05Controls .pg-section{padding-top:9px;margin-top:10px;border-top:1px solid #454b56}',
       '.site-hydro-ui #siteHudStep05Controls .pg-label{font-size:11px;color:#9ddce9;font-weight:700}',
       '.site-hydro-ui #siteHudStep05Controls .pg-note{font-size:11px;line-height:1.5;color:#adb5c0}',
@@ -3249,12 +3250,10 @@ export function createLocalFloodUI({
     });
     hydroRoadUI.mount(siteHud('siteHudStep05Controls'));
     hydroRoadUI.setActive(false);
+    // STEP05 is always visible; source validation controls when Generate becomes enabled.
     siteHud('siteHudStep05Begin').onclick=()=>{
-      if(hydroRoadActive){
-        hydroRoadActive=false;hydroRoadUI?.setActive(false);
-        siteHud('siteHudStep05Controls').style.display='none';
-        siteHud('siteHudStep05Begin').textContent='⑤ 继续 STEP 05 道路生成';
-        updateHydroLayerVisibility();
+      if(hydroRoadActive&&hydroRoadUI?.isReady){
+        setSiteHud('siteHudStep05Status','2100 年真实张量数据已校验。请使用下方「① 生成道路网络」和「② Wool 优化」。');
         return;
       }
       if(!hydroDisplay.flow||!hydroVector){
@@ -3272,8 +3271,7 @@ export function createLocalFloodUI({
       hydroRoadResult=null;
       siteHud('siteHudStep05Final').disabled=true;
       hydroRoadUI?.setActive(true);
-      siteHud('siteHudStep05Controls').style.display='block';
-      siteHud('siteHudStep05Begin').textContent='返回 STEP 04 张量场';
+      siteHud('siteHudStep05Begin').textContent='⑤ 2100 年数据已提交校验';
       hydroRoadUI?.loadSnapshot({
         ...snapshot,
         selection:{type:'Polygon',coordinates:structuredClone(polygon)}
@@ -3390,9 +3388,9 @@ export function createLocalFloodUI({
         hydroRoadUI?.resetRoads();
         hydroRoadResult=null;hydroRoadActive=false;
         const mount=siteHud('siteHudStep05Controls');
-        if(mount)mount.style.display='none';
+        if(mount)mount.style.display='block'; // Reset only data, never hide STEP05.
         const begin=siteHud('siteHudStep05Begin');
-        if(begin)begin.textContent='⑤ 读取张量 · 进入道路生成';
+        if(begin)begin.textContent='⑤ 同步 2100 年真实张量与水深';
       }
       stopTensorSequence();hydroDisplay.flow=false;
       if(siteHud('siteHudShowFlow'))siteHud('siteHudShowFlow').checked=false;
