@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/site_visual_field.js'
       - 'scripts/hydro_tensor_geometry.js'
+      - 'scripts/global_warped_weave.js'
       - 'scripts/parcel_road_organic.js'
       - 'scripts/parcel_road_presentation.js'
       - 'scripts/parcel_wool_solver.js'
@@ -12,6 +13,7 @@ on:
       - 'scripts/parcel_road_constraints.js'
       - 'tests/step04-step05-consistency.mjs'
       - 'tests/step04-presentation-coverage.mjs'
+      - 'tests/step04-global-warped-weave.mjs'
       - '.github/workflows/step04-step05-validation.yml'
   workflow_dispatch:
 jobs:
@@ -25,10 +27,12 @@ jobs:
       - name: JavaScript syntax
         shell: bash
         run: |
-          for f in scripts/site_visual_field.js scripts/hydro_tensor_geometry.js scripts/hydro_tensor_field.js scripts/parcel_road_organic.js scripts/parcel_road_presentation.js scripts/parcel_road_worker.js scripts/parcel_road_constraints.js scripts/parcel_wool_solver.js scripts/parcel_road_ui.js scripts/local_flood_ui.js; do
+          for f in scripts/site_visual_field.js scripts/global_warped_weave.js scripts/hydro_tensor_geometry.js scripts/hydro_tensor_field.js scripts/parcel_road_organic.js scripts/parcel_road_presentation.js scripts/parcel_road_worker.js scripts/parcel_road_constraints.js scripts/parcel_wool_solver.js scripts/parcel_road_ui.js scripts/local_flood_ui.js; do
             node --check "$f"
           done
       - name: Synthetic tensor and Wool topology regression
         run: node --experimental-default-type=module tests/step04-step05-consistency.mjs
       - name: STEP04 sparse-confidence display continuity
         run: node --experimental-default-type=module tests/step04-presentation-coverage.mjs
+      - name: Shared global lattice fold and mask tests
+        run: node --experimental-default-type=module tests/step04-global-warped-weave.mjs
