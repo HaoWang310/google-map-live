@@ -18,6 +18,29 @@ function rle(mask){
  }
  result.push([Number(last),length]);return result;
 }
+// Display-only fibres are offset from the FINAL post-Wool road centres.
+ // They never enter topology, road length, exported centreline or safety metrics.
+function finalWoolBundles(wool,domain,parameters){
+ const strands=[],strength=Math.max(0,Math.min(1,Number(parameters.bundleStrength??85)/100));
+ const breadth=Math.min(domain.cell*.14,2/Math.max(.15,domain.scale))*strength;
+ if(breadth<=0)return strands;
+ for(const road of wool.roads){
+  if(road.kind==='local'||road.points.length<5)continue;
+  const a=road.points;
+  for(const side of [-1,1])for(let k=1;k<=(road.kind==='main'?3:1);k++){
+   const coords=a.map((p,i)=>{
+    const before=a[Math.max(0,i-1)],after=a[Math.min(a.length-1,i+1)];
+    const dx=after[0]-before[0],dy=after[1]-before[1],mag=Math.hypot(dx,dy)||1;
+    const offset=side*k*breadth*Math.sin(Math.PI*i/Math.max(1,a.length-1));
+    return lonlat([p[0]-dy/mag*offset,p[1]+dx/mag*offset]);
+   });
+   strands.push({type:'Feature',properties:{hierarchy:road.kind,
+    displayOnly:true,source:'post-Wool final road bundle, not additional road'},
+    geometry:{type:'LineString',coordinates:coords}});
+  }
+ }
+ return strands;
+}
 function packageNetwork(domain,plan,network,wool,mode){
  const used=new Set();
  for(const road of wool.roads)for(let j=1;j<road.points.length;j++){
@@ -42,7 +65,7 @@ function packageNetwork(domain,plan,network,wool,mode){
  const boundary=collection([{type:'Feature',properties:{kind:'site_boundary',crs:'EPSG:4326'},
   geometry:{type:'Polygon',coordinates:[ring]}}]);
  return {
-  displayRoads:collection((plan.displayRoads||[]).map(b=>({type:'Feature',properties:{hierarchy:b.kind,displayOnly:true},geometry:{type:'LineString',coordinates:b.points.map(lonlat)}}))),
+  displayRoads:collection([]), // pre-Wool collectors are never final geometry
   schema:'london-road-step05-v1',step:'05',title:'Tensor-integrated Wool-grown Road Network',
   provenance:{tensor:'London Map computed 2100 tensor, same-parcel memory snapshot',
     sourceRevision:domain.sourceRevision,sourceYear:domain.sourceYear,
@@ -55,7 +78,7 @@ function packageNetwork(domain,plan,network,wool,mode){
     reality:'Computational planning proposal; road alignments and access not field verified',
     missing:'Official rights-of-way, junction engineering, road safety, agricultural soil suitability'},
   createdAt:new Date().toISOString(),mode,parameters,
-  siteBoundary:boundary,displayBundles:collection((plan.bundles||[]).map(b=>({type:'Feature',properties:{hierarchy:b.kind,displayOnly:true},geometry:{type:'LineString',coordinates:b.points.map(lonlat)}}))),mainRoads:network.mainRoads,
+  siteBoundary:boundary,displayBundles:collection(finalWoolBundles(wool,domain,parameters)),mainRoads:network.mainRoads,
   secondaryRoads:network.secondaryRoads,localRoads:network.localRoads,
   roadCenterlines:network.roadCenterlines,roadHierarchy:{main:'main',secondary:'secondary',local:'local'},
   roadTopologyGraph:network.topology,
