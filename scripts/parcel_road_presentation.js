@@ -37,7 +37,7 @@ export function buildPresentationRoadNetwork(domain,parameters={}){
  const density=clamp((parameters.roadDensity??88)/100,.05,1),wool=clamp((parameters.woolStrength??88)/100,0,1);
  const bundle=clamp((parameters.bundleStrength??85)/100,0,1),avoid=clamp((parameters.floodAvoidance??58)/100,0,1);
  const wet=Float32Array.from({length:n},(_,i)=>(domain.depth?.[i]||0)/((domain.depth?.[i]||0)+.16));
- const field=smoothSiteField({w,h,mask:domain.safe,ax:domain.ax,ay:domain.ay?Float32Array.from(domain.ay,v=>-v):null,
+ const field=domain.presentationTensor?.field||smoothSiteField({w,h,mask:domain.safe,ax:domain.ax,ay:domain.ay?Float32Array.from(domain.ay,v=>-v):null,
    confidence:domain.certainty,anisotropy:domain.anisotropy,wet},.55+.45*clamp((parameters.curvatureSmoothing??90)/100,0,1));
  const size=Math.min(w,h),roads=[],bundles=[],displayRoads=[],lengths={main:0,secondary:0,local:0};
  const stats={main:0,secondary:0,local:0},rejections={outside:0,short:0};
