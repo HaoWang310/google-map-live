@@ -1,5 +1,5 @@
 import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
-import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.24.3-site-entry';
+import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.24.2-hydro-step05';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
@@ -237,7 +237,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.24.3-site-entry',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.24.2-hydro-step05',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -1130,7 +1130,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.24.3-site-entry',
+    return {schema:'london-tensor-site-v1',version:'3.24.2-hydro-step05',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       planningDiagnostics:result.planningDiagnostics||null,
