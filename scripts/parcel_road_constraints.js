@@ -82,25 +82,12 @@ export function makeRoadDomain(source,parameters={}){
     sy=Math.min(rows-1,y*stride+Math.floor(stride/2)),j=sy*cols+sx;
   const center=[grid.left+(x+.5)*cell,grid.top-(y+.5)*cell];
   if(!pointInPolygon(center,source.polygon)||!source.valid[j])continue;
-  // Conservative downsampling: NEVER accept a dry centre sample as proof
-  // that a narrow deep-water channel is safe. Use the source-cell peak and
-  // maximum drainage evidence within the coarse planning cell.
-  let maximumDepth=0,drainageEvidence=0,invalidCell=false;
-  for(let oy=0;oy<stride;oy++)for(let ox=0;ox<stride;ox++){
-    const xx=x*stride+ox,yy=y*stride+oy;
-    if(xx>=cols||yy>=rows)continue;
-    const z=yy*cols+xx;
-    maximumDepth=Math.max(maximumDepth,source.depth[z]);
-    drainageEvidence=Math.max(drainageEvidence,source.drainage[z]);
-    if(!source.valid[z])invalidCell=true;
-  }
-  inside[i]=1;depth[i]=maximumDepth/1000;
+  inside[i]=1;depth[i]=source.depth[j]/1000;
   const v=Math.hypot(source.primaryX[j],source.primaryY[j]);
   if(v>.25){ax[i]=source.primaryX[j]/v;ay[i]=-source.primaryY[j]/v;}
   certainty[i]=source.confidence[j];
-  hydro[i]=drainageEvidence>0?1:0;
-  const dangerous=invalidCell||maximumDepth>=floodLimit||
-    (hydro[i]&&maximumDepth>=30);
+  hydro[i]=source.drainage[j]>0?1:0;
+  const dangerous=source.depth[j]>=floodLimit||hydro[i]&&source.depth[j]>=30;
   if(!dangerous){safe[i]=1;dry++}else wet++;
   cost[i]=1+avoid*Math.pow(Math.max(0,depth[i])/.2,1.5)*4+
    (hydro[i]?avoid*2.5:0);

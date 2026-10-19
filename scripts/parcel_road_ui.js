@@ -34,17 +34,10 @@ function geoJSON(output){
    ...output.roadPolygons.features.map(f=>({
     ...f,properties:{...f.properties,layer:'road_polygon'}})),
    ...output.reservedFloodEcologicalCorridors.features.map(f=>({
-    ...f,properties:{...f.properties,layer:'reserved_flood_corridor'}})),
-   ...output.accessPublicNodes.features.map(f=>({
-    ...f,properties:{...f.properties,layer:'access_candidate'}})),
-   ...output.candidateNodes.features.map(f=>({
-    ...f,properties:{...f.properties,layer:'land_use_candidate'}}))
+    ...f,properties:{...f.properties,layer:'reserved_flood_corridor'}}))
   ]};
 }
-export function createParcelRoadUI({
- root,getMap,getRing,onStatus,onDone=()=>{},onReset=()=>{},
- boundarySource='pg-boundary',outlineLayer='pg-outline',autoHandoff=true
-}){
+export function createParcelRoadUI({root,getMap,getRing,onStatus}){
  const el=id=>root?.querySelector('#'+id);
  let worker=null,serial=0,ready=false,result=null,active=false,pending=false;
  let loadedSource=null;
@@ -52,26 +45,26 @@ export function createParcelRoadUI({
    onStatus?.(msg,bad);}
  const html=()=>`
  <div class="pg-label">STEP 05 · Generate and Optimise the Road Network</div>
- <p class="pg-note">先在 London Map 完成洪涝与 2100 张量计算；返回地图后将自动交接场地。也可在「04 · 水文张量场 → 导出真实场地诊断」保存 JSON 并在此导入。不同场地的数据会被拒绝，不会用随机路网代替。</p>
+ <p class="pg-note">必须导入同一红色场地从 London Map 导出的 2100 年真实张量/洪涝诊断 JSON；不会生成随机道路。</p>
  <label class="pg-option" style="display:block">导入真实张量＋洪涝场地
   <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
  </label>
  <div class="pg-note" id="pg-road-source">尚未导入真实场地。STEP 05 不会使用虚构数据。</div>
- <div class="pg-section"><div class="pg-label">GENERATE / OPTIMISE · 道路生成</div>
- <div class="pg-road-actions">
- <button id="pg-road-generate" disabled>① 生成道路网络</button>
- <button id="pg-road-wool" disabled>② Wool 优化</button>
- <button id="pg-road-reset">重置路网</button>
- </div>
- <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
- <div class="pg-status" id="pg-road-status">正在等待真实张量与水深数据。数据校验通过后即可生成。</div>
- </div>
- <div class="pg-section"><div class="pg-label">WOOL / FLOOD / URBAN CONTROL · 参数</div>
+ <div class="pg-section"><div class="pg-label">WOOL / FLOOD / URBAN CONTROL</div>
  ${PARAMETERS.map(([k,label,v,min,max])=>`
   <label class="pg-road-param"><span>${label} <output id="pg-road-val-${k}">${v}</output></span>
    <input type="range" id="pg-road-${k}" min="${min}" max="${max}" step="5" value="${v}"></label>`).join('')}
  <label class="pg-road-param"><span>普通道路水深阈值（米）</span>
   <input id="pg-road-floodLimitM" type="number" min=".03" max=".6" step=".01" value=".15" style="width:68px"></label></div>
+ <div class="pg-section"><div class="pg-label">GENERATE / OPTIMISE</div>
+ <div class="pg-road-actions">
+ <button id="pg-road-generate" disabled>① Generate Road Network</button>
+ <button id="pg-road-wool" disabled>② Optimise Wool</button>
+ <button id="pg-road-reset">Reset</button>
+ </div>
+ <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
+ <div class="pg-status" id="pg-road-status">等待真实张量与水深数据。</div>
+ </div>
  <div class="pg-section"><div class="pg-label">VISIBILITY / HIERARCHY</div>
  ${[['main','Main Roads (主道路)'],['secondary','Secondary Roads (次道路)'],
   ['local','Local Roads (支路)'],['reserved','Flood / ecological reserves'],
@@ -86,7 +79,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.2-hydro-step05',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -108,11 +101,9 @@ export function createParcelRoadUI({
       result.diagnostics.lengthKm+' km，'+result.diagnostics.junctions+
       ' 个路口 · '+(data.result.mode==='optimise'?'Wool 优化':'初始道路骨架'));
     updateMap();
-    onDone(result);
    }else if(data.type==='error'){
     pending=false;
     for(const id of ['pg-road-generate','pg-road-wool'])el(id).disabled=!ready;
-    el('pg-road-source').textContent='⚠ 张量/洪涝数据未通过校验，请查看下方错误提示并重新导入。';
     inform('STEP 05 失败：'+data.message,true);
    }else if(data.type==='cleared'){
     result=null;pending=false;updateMap();
@@ -123,10 +114,10 @@ export function createParcelRoadUI({
  const names={main:'pg-road-main',secondary:'pg-road-secondary',
   local:'pg-road-local',reserved:'pg-road-reserved',footprints:'pg-road-footprints'};
  function layers(){
-  const map=getMap();if(!map||!map.isStyleLoaded()||!map.getSource(boundarySource))return false;
+  const map=getMap();if(!map||!map.isStyleLoaded()||!map.getSource('pg-boundary'))return false;
   if(!map.getLayer('pg-road-backdrop'))map.addLayer({
-   id:'pg-road-backdrop',type:'fill',source:boundarySource,
-   layout:{visibility:'none'},paint:{'fill-color':'#08090a','fill-opacity':1}},outlineLayer);
+   id:'pg-road-backdrop',type:'fill',source:'pg-boundary',
+   layout:{visibility:'none'},paint:{'fill-color':'#08090a','fill-opacity':1}},'pg-outline');
   for(const [kind,id] of Object.entries(names)){
    if(!map.getSource(id))map.addSource(id,{type:'geojson',data:empty()});
    if(!map.getLayer(id))map.addLayer({
@@ -138,7 +129,7 @@ export function createParcelRoadUI({
      {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#eeeeee':'#a8b1bd',
       'line-width':kind==='main'?5.5:kind==='secondary'?2.75:1.0,
       'line-opacity':kind==='main'?1:.9}
-   },outlineLayer);
+   },'pg-outline');
   }
   return true;
  }
@@ -152,10 +143,7 @@ export function createParcelRoadUI({
    const check=el('pg-road-show-'+kind);
    map.setLayoutProperty(id,'visibility',active&&result&&check?.checked?'visible':'none');
   }
-  // Do NOT black out the site before there are any computed roads.
-  // Keep the original OSM streets and parks navigable during import/preview.
-  map.setLayoutProperty('pg-road-backdrop','visibility',
-    active&&Boolean(result)?'visible':'none');
+  map.setLayoutProperty('pg-road-backdrop','visibility',active?'visible':'none');
   if(map.getLayer('pg-slope'))map.setLayoutProperty('pg-slope','visibility','none');
  }
  function params(){
@@ -199,7 +187,6 @@ export function createParcelRoadUI({
   el('pg-road-wool').onclick=()=>generate('optimise');
   el('pg-road-reset').onclick=()=>{
    result=null;pending=false;
-   onReset();
    if(worker){worker.terminate();worker=null;}
    ready=false;
    el('pg-road-progressbar').style.width='0';
@@ -217,39 +204,12 @@ export function createParcelRoadUI({
    result,'application/json');
   // Automatic same-tab handoff after closing the flood/tensor selection
   // workspace. The worker rejects stale or mismatched parcel snapshots.
-  if(autoHandoff){
-   const previous=window.__londonParcelTensorHandoff;
-   if(previous)acceptSnapshot(previous,'London Map 当前会话张量/洪涝计算结果');
+  const previous=window.__londonParcelTensorHandoff;
+  if(previous){
+   acceptSnapshot(previous,'London Map 当前会话张量/洪涝计算结果');
   }
  }
- function setActive(value){
-  active=Boolean(value);
-  updateMap();
-  if(active){
-   const readyMessage=result?'路网已生成，可拖动地图或查看各道路层级。':
-     ready?'点击左侧「① 生成道路网络」开始计算。':
-     '先完成 2100 年洪涝与张量计算，或从左侧导入真实场地诊断 JSON。';
-   inform(readyMessage);
-  }
- }
- function generateInitial(){generate('generate')}
- function resetRoads(){
-  el('pg-road-reset')?.click();
- }
- function loadSnapshot(snapshot,label='Hydro Lab 实时计算的张量与洪涝结果'){
-  acceptSnapshot(snapshot,label);
- }
- function loadResult(precomputed){
-  if(!precomputed||precomputed.schema!=='london-road-step05-v1')
-   throw Error('STEP 05 道路成果格式不正确');
-  result=precomputed;ready=true;pending=false;
-  for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package']){
-   const control=el(id);if(control)control.disabled=false;
-  }
-  inform('已载入 Hydro Lab 生成的 STEP 05 道路网络 · '+(result.diagnostics?.roadCount||0)+' 条');
-  updateMap();
- }
+ function setActive(value){active=Boolean(value);updateMap()}
  function dispose(){serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
- return {mount,setActive,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,resetRoads,dispose,
-  get isReady(){return ready},get result(){return result}};
+ return {mount,setActive,attachMap:updateMap,dispose,get result(){return result}};
 }
