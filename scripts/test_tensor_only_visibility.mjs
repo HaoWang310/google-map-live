@@ -58,7 +58,7 @@ const sandbox={
  hydroVector:{setEnabled:v=>{vectorOn=v}},
  focusAppliedThreshold:'0.123',
  focusContextSettings:()=>({ea:toggles.ea,drainage:toggles.drainage,threshold:'0.123'}),
- focusContextUrl:()=>'',setSiteHud(){},
+ focusContextUrl:()=>'',setSiteHud(){},getBasemapTheme:()=> 'planning',
  volumetricWater:{ready:true,setVisible(){}},
  updatePlanBuildingColours(){},syncFocusFootprintVisibility(){
   // Real implementation always hides footprints in STEP04, as well as on exit.
