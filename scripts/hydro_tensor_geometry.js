@@ -1,4 +1,4 @@
-import {organicWarp,unevenLevels} from './organic_visual_field.js?v=3.26.3-organic-art-direction';
+import {organicWarp,unevenLevels} from './organic_visual_field.js?v=3.26.4-tensor-only';
 /* Static geometry only. Never writes tensor arrays, DEM, water depth or masks.
    Subcell samples interpolate existing evidence; they add no DEM resolution.
    Deterministic adaptive streamline placement + scalar-area mask skeleton. */
