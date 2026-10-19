@@ -11,6 +11,7 @@ on:
       - 'scripts/parcel_road_worker.js'
       - 'scripts/parcel_road_constraints.js'
       - 'tests/step04-step05-consistency.mjs'
+      - 'tests/step04-presentation-coverage.mjs'
       - '.github/workflows/step04-step05-validation.yml'
   workflow_dispatch:
 jobs:
@@ -29,3 +30,5 @@ jobs:
           done
       - name: Synthetic tensor and Wool topology regression
         run: node --experimental-default-type=module tests/step04-step05-consistency.mjs
+      - name: STEP04 sparse-confidence display continuity
+        run: node --experimental-default-type=module tests/step04-presentation-coverage.mjs
