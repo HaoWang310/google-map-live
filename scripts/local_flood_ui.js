@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.4-inline-wool';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.4-inline-wool';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.24.4-inline-wool';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.4-inline-wool';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.4-inline-wool';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.5-step05-panel-layout';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.5-step05-panel-layout';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.24.5-step05-panel-layout';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.5-step05-panel-layout';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.5-step05-panel-layout';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -2993,7 +2993,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.4-inline-wool</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.5-step05-panel-layout</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3124,7 +3124,7 @@ export function createLocalFloodUI({
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">导出真实场地诊断</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">保存选区、视角、原始格网和已计算的2026/2100情景，供同场地复核。</div>',
       '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · 坡向 · 地形汇水 · 平滑设计水深 · 建筑底面连贯显示<br>地面径流计算保留建筑阻水，张量方向允许跨越建筑占地用于场地分区；不代表实测水流穿墙。</div>',
-      '</div></section>',
+      '</div>', // Close STEP04 only; leave the scrollable left sidebar open for STEP05.
       // STEP 05 is now the final computed task in the Hydro Lab workflow:
       // flood → site keep/remove → tensor → Wool roads → final parcel generator.
       '<section class="site-hydro-section" id="siteHudStep05Section">',
@@ -3136,6 +3136,7 @@ export function createLocalFloodUI({
       '<button type="button" class="site-vector-mode" id="siteHudStep05Final" disabled style="margin-top:9px">✓ 完成 STEP 05 → 进入最终 Parcel Generator</button>',
       '<div class="site-hydro-mini">道路中心线、分级、拓扑图、路面占地和保留洪涝走廊会一起传递给最终阶段；STEP 06 地块切割仍需单独实现。</div>',
       '</section>',
+      '</section>', // Close the scrollable left sidebar AFTER STEP05.
       '<aside class="site-hydro-side site-hydro-right">',
       '<div class="site-hydro-eyebrow">LIVE PERFORMANCE</div><div class="site-hydro-title">场地模拟结果</div>',
       '<div class="site-hydro-section" style="margin-top:4px;padding-top:7px;border-top:0">',

@@ -20,6 +20,16 @@ for(const token of [
  'roadNetwork:hydroRoadResult',
  'hydroRoadUI?.attachMap()'
 ])assert.ok(hydro.includes(token),'missing Hydro Lab STEP05 integration: '+token);
+// Regression: STEP05 must stay INSIDE the scrollable Hydro Lab left sidebar.
+const leftStart=hydro.indexOf('site-hydro-side site-hydro-left');
+const step05Start=hydro.indexOf('id="siteHudStep05Section"');
+const rightStart=hydro.indexOf('site-hydro-side site-hydro-right');
+assert.ok(leftStart>=0&&step05Start>leftStart&&rightStart>step05Start,
+  'STEP05 must appear between the Hydro Lab left and right panels');
+assert.ok(hydro.includes("'</div>', // Close STEP04 only; leave the scrollable left sidebar open for STEP05."),
+  'STEP04 must not prematurely close the scrollable left sidebar');
+assert.ok(hydro.includes("'</section>', // Close the scrollable left sidebar AFTER STEP05."),
+  'Hydro Lab must close the scrollable sidebar only after STEP05');
 assert.ok(index.includes('parcelGenerator.open({polygon,roadNetwork})'),
   'Page must pass Hydro Lab road output to final Parcel Generator');
 assert.ok(pg.includes('selectStep(finalMode?6:1)'),
