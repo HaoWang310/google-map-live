@@ -1,4 +1,4 @@
-import {smoothSiteField,traceSiteWeave} from './site_visual_field.js?v=3.27.0-site-wool';
+import {smoothSiteField,traceSiteWeave} from './site_visual_field.js?v=3.28.0-tensor-wool-linked';
 /* Static geometry only. Never writes tensor arrays, DEM, water depth or masks.
    Subcell samples interpolate existing evidence; they add no DEM resolution.
    Deterministic adaptive streamline placement + scalar-area mask skeleton. */
@@ -234,8 +234,9 @@ export function createTensorGeometry(result,options={}){
   // sampled by BOTH orthogonal grid families, so their intersections coincide.
   // This is a conceptual woven mesh, NOT evidence-derived water flow lines.
   function buildPresentationWeave(){
-    const field=smoothSiteField({w,h,mask:f.validMask,ax:f.primaryX,ay:f.primaryY,
-      wet:f.rainfallInfluence},.65+.35*smoothing);
+    const field=smoothSiteField({w,h,mask:fieldMask,ax:f.primaryX,ay:f.primaryY,
+      wet:f.rainfallInfluence,confidence:f.confidence,anisotropy:f.anisotropy,
+      obstacle:result.obstacleMask},.65+.35*smoothing);
     const weave=traceSiteWeave(field,{density,dx,dy,direction:options.direction||'dual'});
     diagnostics.field=weave.diagnostics;
     diagnostics.visualizationOnly=true;
@@ -243,6 +244,8 @@ export function createTensorGeometry(result,options={}){
     diagnostics.displayMethod='Current parcel doubled-angle tensor smoothing + bidirectional integration';
     diagnostics.nativeTensorUnchanged=true;
     diagnostics.smoothingPasses=field.passes;
+    diagnostics.presentationSource=field.diagnostics;
+    diagnostics.presentationFromAnalysis=true;
     diagnostics.primarySpacingM=weave.gap*cell;
     diagnostics.secondarySpacingM=weave.gap*cell;
     return weave.lines;
