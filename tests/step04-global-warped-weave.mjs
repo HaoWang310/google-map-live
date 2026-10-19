@@ -53,7 +53,16 @@ function check(name){
  assert.equal(invalid,0,'presentation line crossed a building or invalid mask');
  assert.ok(Number.isFinite(global.orientationMeanResidualDeg));
  assert.ok(global.orientationSamples>20);
- return {shape:name,lines:result.length,U:d.field.primary.finalLines,
+ // Explicit intersection vertices are required in BOTH drawn polylines,
+ // not only in the abstract continuous mapping F(u,v).
+ const uVertices=new Set(result.filter(l=>l.branch==='primary')
+  .flatMap(l=>l.path.map(p=>p.x.toFixed(6)+','+p.y.toFixed(6))));
+ let commonVertices=0;
+ for(const line of result.filter(l=>l.branch==='secondary'))
+  for(const p of line.path)if(uVertices.has(p.x.toFixed(6)+','+p.y.toFixed(6)))
+   commonVertices++;
+ assert.ok(commonVertices>30,'U/V drawing polylines lack shared exact crossing vertices');
+ return {shape:name,commonVertices,lines:result.length,U:d.field.primary.finalLines,
   V:d.field.secondary.finalLines,vertices:global.outputVertices,
   minJacobian:global.minimumJacobian,orientationErrorDeg:global.orientationMeanResidualDeg,
   invalid,meanSourceOrientation:global.orientationMeanRadians};
