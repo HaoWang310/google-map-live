@@ -906,7 +906,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.26.0-tensor-wool-growth</div>
+        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.26.1-selection-two-enter</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -1143,12 +1143,13 @@
           </div>
           <div class="simButtonRow" id="localFloodSelectActions">
             <button id="localFloodDraw" type="button" disabled>圈选区域</button>
-            <button id="localFloodFinish" class="secondary" type="button" disabled title="完成当前边界并立即生成橙色建筑；生成后可继续拖动锚点并按 Enter 重新生成">确定范围</button>
+            <button id="localFloodFinish" class="secondary" type="button" disabled title="第一次 Enter 预览范围；第二次 Enter 确认最终选区">① 预览选区</button>
             <button id="localFloodClear" class="secondary" type="button" disabled>清除</button>
           </div>
+          <div id="localFloodSelectionStep" role="status" aria-live="polite" style="margin:5px 5px 8px;font-size:10px;line-height:1.5;color:#99d9fa">先点击「圈选区域」，第一次 Enter 预览，第二次 Enter 确认范围。</div>
           <div class="simButtonRow" id="localFloodFocusEntry" style="padding-top:0">
-            <button id="localFloodEnterSite" style="width:100%;flex:1" type="button" disabled
-              title="选区确认且场地准备完成后，可进入独立 3D 洪涝实验室；或双击红框内部">进入独立场地 · 3D / 洪涝</button>
+            <button id="localFloodEnterSite" style="width:100%;min-width:0;max-width:100%;flex:1 1 100%;white-space:normal" type="button" disabled
+              title="第二次 Enter 最终确认并等待数据准备完成后，双击红框内部或点击此按钮进入独立场地">进入独立场地 · 3D / 洪涝</button>
           </div>
           <div class="simButtonRow" id="parcelGeneratorEntry" style="padding-top:0">
             <button id="parcelGeneratorOpen" class="secondary" style="width:100%;flex:1" type="button" disabled>Parcel Generator · 道路与地块生成</button>
@@ -1297,12 +1298,12 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.26.0-tensor-wool-growth';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.26.1-selection-two-enter';
   import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.78-tensor-gap-diagnostic';
-  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.26.0-tensor-wool-growth';
+  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.26.1-selection-two-enter';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.26.0-tensor-wool-growth';
+  const APP_VERSION='3.26.1-selection-two-enter';
   // Keep the header's version derived from exactly the same runtime build id.
   document.getElementById('appVersionLabel').textContent='OpenStreetMap / OpenFreeMap · v'+APP_VERSION;
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';

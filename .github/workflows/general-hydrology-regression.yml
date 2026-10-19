@@ -9,6 +9,7 @@ on:
       - 'scripts/parcel_road_ui.js'
       - 'scripts/test_release_version.mjs'
       - 'scripts/test_isolated_site_entry.mjs'
+      - 'scripts/test_selection_two_enter.mjs'
       - 'scripts/test_auto_wool_pipeline.mjs'
       - 'scripts/flood_water_visual.js'
       - 'scripts/test_flood_water_visual.mjs'
@@ -57,6 +58,8 @@ jobs:
         run: node scripts/test_auto_wool_pipeline.mjs
       - name: Verify prepared-site double-click, entry button, and edit guards
         run: node scripts/test_isolated_site_entry.mjs
+      - name: Verify double-Enter selection preview, edit and final confirmation
+        run: node scripts/test_selection_two_enter.mjs
       - name: Verify mask-safe 2D and 3D water antialiasing
         run: node scripts/test_flood_water_visual.mjs
       - name: Verify original OSM planning selection and persistence

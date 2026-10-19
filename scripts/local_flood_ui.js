@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.0-tensor-wool-growth';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.0-tensor-wool-growth';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.26.0-tensor-wool-growth';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.0-tensor-wool-growth';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.0-tensor-wool-growth';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.1-selection-two-enter';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.1-selection-two-enter';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.26.1-selection-two-enter';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.1-selection-two-enter';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.1-selection-two-enter';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -881,6 +881,7 @@ export function createLocalFloodUI({
   let drawing=false;
   let editingSelection=false;
   let selectionDirty=false;
+  let selectionConfirmed=false; // Second Enter finalises the exact polygon.
   let isPreparingSelection=false;
   let dragVertexIndex=-1;
   let anchorDragStart=null,anchorDragMoved=false;
@@ -3000,7 +3001,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.0-tensor-wool-growth</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.1-selection-two-enter</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -4131,8 +4132,9 @@ export function createLocalFloodUI({
     if(drawing)return '仍在绘制地块。请先完成边界并按 Enter 确认。';
     if(isPreparingSelection)return '正在生成场地建筑和水文格网，请等待完成。';
     if(!polygon?.[0]||polygon[0].length<4)return '请先闭合红色选区。';
-    if(selectionDirty)return '选区边界已更改，请按 Enter 重新生成后再进入。';
-    if(!prepared)return '地块未完成初始化，请先按 Enter 确认并等待成功。';
+    if(!selectionConfirmed)return '请按第二次 Enter 确认最终范围，修改边界后也需要重新按 Enter。';
+    if(selectionDirty)return '边界已更改，请按 Enter 重新确认。';
+    if(!prepared)return '最终地块正在准备中，请等待数据就绪。';
     return null;
   }
 
@@ -4232,25 +4234,37 @@ export function createLocalFloodUI({
 
   function setButtons(){
     const parcelDisabled=!polygon?.[0]||polygon[0].length<4||
-      drawing||isPreparingSelection||dragVertexIndex>=0;
+      !selectionConfirmed||selectionDirty||!prepared||drawing||isPreparingSelection||dragVertexIndex>=0;
     for(const id of ['parcelGeneratorOpen','parcelGeneratorLaunch']){
       const button=$(id);
       if(button)button.disabled=parcelDisabled;
     }
-    $('localFloodFinish').disabled=!drawing||vertices.length<3||isPreparingSelection;
+    const confirmButton=$('localFloodFinish');
+    confirmButton.disabled=Boolean(isPreparingSelection||dragVertexIndex>=0||
+      (drawing&&vertices.length<3)||(!drawing&&!editingSelection)||
+      (selectionConfirmed&&!selectionDirty));
+    confirmButton.textContent=drawing?'① 预览选区':
+      selectionConfirmed&&!selectionDirty?'✓ 已确认范围':'② 确认最终范围';
+    confirmButton.title=drawing?'第一次 Enter：闭合边界并查看选区':'第二次 Enter：确认当前选区，无需修改也必须确认';
+    const stage=$('localFloodSelectionStep');
+    if(stage)stage.textContent=drawing?'第1步：圈选至少3个点，按 Enter 预览':
+      !editingSelection?'先点击「圈选区域」开始':
+      isPreparingSelection?'正在准备最终范围的真实场地数据…':
+      selectionConfirmed&&!selectionDirty?'范围已确认：双击红框内部或点击「进入独立场地」':
+      '选区预览：可修改边缘或保持不变，再按 Enter 确认最终范围';
     const enterSite=$('localFloodEnterSite');
     if(enterSite){
-      enterSite.disabled=Boolean(drawing||isPreparingSelection||selectionDirty||!prepared||isolatedSelection);
+      enterSite.disabled=Boolean(drawing||isPreparingSelection||selectionDirty||!selectionConfirmed||!prepared||isolatedSelection);
       enterSite.title=selectionEntryBlocker()||'进入独立 3D 洪涝模拟；也可以双击红色选区内部';
     }
-    const simulationLocked=!prepared||selectionDirty||isPreparingSelection;
+    const simulationLocked=!selectionConfirmed||!prepared||selectionDirty||isPreparingSelection;
     $('localFloodRun').disabled=simulationLocked;
     $('localFloodPause').disabled=simulationLocked;
     $('localFloodReset').disabled=simulationLocked;
 
     const hideToggle=$('localFloodHideSelectedBuildings');
     if(hideToggle){
-      hideToggle.disabled=!prepared||isPreparingSelection;
+      hideToggle.disabled=!selectionConfirmed||!prepared||selectionDirty||isPreparingSelection;
     }
   }
 
@@ -4368,6 +4382,7 @@ export function createLocalFloodUI({
     simulator?.pause();
     siteRainRequest++;siteRainData=null;
     prepared=false;
+    selectionConfirmed=false;
     preparedSiteDetails=null;
     clearSelectedBuildingStates();
     removeWaterLayers();
@@ -4396,11 +4411,12 @@ export function createLocalFloodUI({
     drawing=true;
     editingSelection=false;
     selectionDirty=false;
+    selectionConfirmed=false;
     isPreparingSelection=false;
     dragVertexIndex=-1;
     map.doubleClickZoom.disable();
     map.getCanvas().style.cursor='crosshair';
-    status('圈选模式：逐点点击红色边界；至少 3 个点后按 Enter、双击或点击“确定范围”，先生成橙色建筑。');
+    status('第1步：逐点圈选至少3个点，按第一次 Enter 预览；可调整边缘，再按第二次 Enter 确认最终范围。');
     setButtons();
   }
 
@@ -4409,6 +4425,7 @@ export function createLocalFloodUI({
     drawing=false;
     editingSelection=true;
     selectionDirty=true;
+    selectionConfirmed=false;
     dragVertexIndex=-1;
     map.doubleClickZoom.disable();
     dragPanWasEnabled=map.dragPan.isEnabled();
@@ -4416,7 +4433,9 @@ export function createLocalFloodUI({
 
     syncEditablePolygon();
     setButtons();
-    status('范围已确定：边线上显示实际距离；拖动锚点修改，双击边线加点，双击现有点删除；按 Enter 生成。');
+    const bounds=selectionBounds(polygon[0]);
+    if(bounds)map.fitBounds(bounds,{padding:70,maxZoom:17.3,duration:350,pitch:0});
+    status('第一次 Enter：已进入选区预览。可拖动边缘调整或保持不变；再次按 Enter 才会确认最终范围。');
   }
 
   async function confirmEditedSelection(){
@@ -4433,6 +4452,7 @@ export function createLocalFloodUI({
     const hideToggle=$('localFloodHideSelectedBuildings');
     if(hideToggle)hideToggle.checked=false;
 
+    selectionConfirmed=false;
     isPreparingSelection=true;
     setButtons();
     map.getCanvas().style.cursor='';
@@ -4449,6 +4469,7 @@ export function createLocalFloodUI({
       if(success){
         editingSelection=true;
         selectionDirty=false;
+        selectionConfirmed=true;
         status(
           hideSelectedBuildings
             ?'范围已生成；当前“隐藏选区内建筑”已开启。关闭开关即可恢复橙色建筑。'
@@ -4457,11 +4478,13 @@ export function createLocalFloodUI({
       }else{
         editingSelection=true;
         selectionDirty=true;
+        selectionConfirmed=false;
       }
     }catch(error){
       console.error('Local flood selection generation failed',error);
       editingSelection=true;
       selectionDirty=true;
+      selectionConfirmed=false;
       status(
         '生成失败：'+(error?.message||String(error))+'。红框已保留，可直接按 Enter 重试。',
         true
@@ -4475,12 +4498,15 @@ export function createLocalFloodUI({
   }
 
   async function finishAndConfirmSelection(){
+    if(isPreparingSelection)return false;
     if(drawing){
       if(vertices.length<3)return false;
       finishDrawing();
+      return true; // First Enter: close and preview, do not prepare.
     }
     if(!editingSelection)return false;
-    return confirmEditedSelection();
+    if(selectionConfirmed&&!selectionDirty)return true;
+    return confirmEditedSelection(); // Second Enter, even when unchanged.
   }
 
   function normaliseBuilding(feature,id,sceneKey){
@@ -5177,7 +5203,7 @@ export function createLocalFloodUI({
     const atHandle=editingSelection&&(
       findAnchorAtPoint(event.point)!==null||Boolean(nearestEdgeAtPoint(event.point))
     );
-    if(clickedInside&&prepared&&!selectionDirty&&!isPreparingSelection&&!atHandle){
+    if(clickedInside&&selectionConfirmed&&prepared&&!selectionDirty&&!isPreparingSelection&&!atHandle){
       enterSelectionIsolate();
       return;
     }
@@ -5186,7 +5212,7 @@ export function createLocalFloodUI({
       return;
     }
     if(!editingSelection||isPreparingSelection)return;
-    if(clickedInside&&selectionDirty&&!atHandle){
+    if(clickedInside&&!selectionConfirmed&&!atHandle){
       enterSelectionIsolate(); // Explain the Enter-to-confirm requirement.
       return;
     }
@@ -5202,6 +5228,7 @@ export function createLocalFloodUI({
       vertices.splice(anchorIndex,1);
       simulator?.pause();
       selectionDirty=true;
+      selectionConfirmed=false;
       syncEditablePolygon();
       setButtons();
       status(
@@ -5220,6 +5247,7 @@ export function createLocalFloodUI({
     vertices.splice(edge.insertIndex,0,[lngLat.lng,lngLat.lat]);
     simulator?.pause();
     selectionDirty=true;
+    selectionConfirmed=false;
     syncEditablePolygon();
     setButtons();
     status(
@@ -5362,6 +5390,7 @@ export function createLocalFloodUI({
       anchorDragMoved=true;
       simulator?.pause();
       selectionDirty=true;
+      selectionConfirmed=false;
       setButtons();
     }
     const lngLat=map.unproject([point.x,point.y]);
@@ -5425,7 +5454,7 @@ export function createLocalFloodUI({
   // Only a confirmed interior double-click enters; near-boundary interactions
   // are left to MapLibre's existing anchor/edge editor.
   const onNativeSiteDoubleClick=event=>{
-    if(drawing||isolatedSelection||!prepared||selectionDirty||
+    if(drawing||isolatedSelection||!selectionConfirmed||!prepared||selectionDirty||
        isPreparingSelection||dragVertexIndex>=0||!polygon?.[0])return;
     const point=pointFromMouseEvent(event);
     if(findAnchorAtPoint(point)!==null||nearestEdgeAtPoint(point))return;
@@ -5451,6 +5480,7 @@ export function createLocalFloodUI({
   const cancelSelectionEdit=()=>{
     drawing=false;
     editingSelection=false;
+    selectionConfirmed=false;
     dragVertexIndex=-1;
     vertices=[];
     polygon=null;
@@ -5466,7 +5496,7 @@ export function createLocalFloodUI({
     const tag=event.target?.tagName;
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT')return;
 
-    if(event.key==='Enter'){
+    if(event.key==='Enter'&&!event.repeat){
       if((drawing&&vertices.length>=3)||editingSelection){
         event.preventDefault();
         finishAndConfirmSelection();
@@ -5488,7 +5518,7 @@ export function createLocalFloodUI({
   document.addEventListener('keydown',keydown);
 
   const launchParcelGenerator=()=>{
-    if(!polygon?.[0]||polygon[0].length<4||drawing||isPreparingSelection)return;
+    if(!polygon?.[0]||polygon[0].length<4||drawing||!selectionConfirmed||selectionDirty||!prepared||isPreparingSelection)return;
     try{
       const exactSite=polygon.map(r=>closeRing(r).map(([lng,lat])=>[lng,lat]));
       onOpenParcelGenerator?.({polygon:exactSite});
@@ -5557,7 +5587,7 @@ export function createLocalFloodUI({
   ensureSelectionLayers();
   updateParamLabels();
   setButtons();
-  status('圈选后边线显示实际距离；生成区域后双击红框内部可进入选区独立视图，Esc 返回；仍可拖动锚点、双击边线加点/锚点删点。');
+  status('圈选区域 → 第一次 Enter 预览并编辑 → 第二次 Enter 确认最终范围 → 双击框内或点击按钮进入独立场地。');
 
   return {
     clear:()=>clearSimulation(false),
