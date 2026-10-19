@@ -15,11 +15,13 @@ function site(shape='A'){
  }
  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
   const i=y*w+x;if(!contains(x+.5,y+.5))continue;
-  siteMask[i]=fields.validMask[i]=1;
+  siteMask[i]=1;
+  const gap=shape==='B'&&x>=34&&x<=64&&y>=22&&y<=57;
+  fields.validMask[i]=gap?0:1;
   const theta=shape==='A'?.28+.48*Math.sin(x*.050)+.26*Math.cos(y*.062):
    -.40+.7*Math.sin((x+y)*.031)+.21*Math.cos(y*.054);
   // Sparse direction evidence must NOT create separate presentation islands.
-  if(shape!=='A'||(x+y)%9<6){
+  if(fields.validMask[i]&&(shape!=='A'||(x+y)%9<6)){
    fields.primaryX[i]=Math.cos(theta);fields.primaryY[i]=Math.sin(theta);
    fields.confidence[i]=.52;fields.anisotropy[i]=.64;
   }
@@ -48,9 +50,21 @@ function check(name){
  let invalid=0;
  for(const line of result)for(const p of line.path){
   const i=Math.floor(p.y)*raw.cols+Math.floor(p.x);
-  if(i<0||i>=originalMask.length||!originalMask[i]||raw.obstacleMask[i])invalid++;
+  if(i<0||i>=originalMask.length||!raw.siteMask[i])invalid++;
  }
- assert.equal(invalid,0,'presentation line crossed a building or invalid mask');
+ assert.equal(invalid,0,'presentation line crossed the outer red boundary');
+ assert.equal(d.presentationSource.smoothedValid,d.presentationMaskCells);
+ assert.equal(d.presentationCoverageFraction,1);
+ if(name==='B'){
+  assert.ok(d.presentationSource.harmonicFilledCells>300,
+   'central unsupported island must be interpolated');
+  let innerCrossings=0;
+  for(const line of result)for(const p of line.path){
+   if(p.x>=34&&p.x<=64&&p.y>=22&&p.y<=57)innerCrossings++;
+  }
+  assert.ok(innerCrossings>300,
+   'shared global U/V sheet is still fragmented at local tensor NoData');
+ }
  assert.ok(Number.isFinite(global.orientationMeanResidualDeg));
  assert.ok(global.orientationSamples>20);
  // Explicit intersection vertices are required in BOTH drawn polylines,
