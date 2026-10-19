@@ -180,7 +180,7 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
  const lines=[],counts={primary:0,secondary:0};
  let pointsBudget=0,segmentsRejected=0;
  function addRun(run,branch){
-  if(run.length<5){if(run.length)segmentsRejected++;return;}
+  if(run.length<8){if(run.length)segmentsRejected++;return;}
   const start=run[0],last=run.at(-1);
   const physical=hypot((last.x-start.x)*dx,(last.y-start.y)*dy);
   if(physical<Math.min(dx,dy)*.9){segmentsRejected++;return;}
