@@ -96,7 +96,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.27.0-site-wool',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.28.0-tensor-wool-linked',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -114,12 +114,13 @@ export function createParcelRoadUI({
     pending=false;result=data.result;
     const q=el('pg-road-quality'),stat=result.diagnostics;
     if(q)q.textContent=(stat.visualMode==='presentation'?
-      '【展示模式】仅最终 Wool 融合路网：连续主路 / 弧形汇合线束 / 场地驱动街区（概念示意）\n':
+      '【展示模式】同源平滑张量 → 真实 Wool 优化 → 最终道路（概念设计）\n':
       '【分析模式】张量积分 → Wool 生长 → A* 补连\nWool 新生次路 '+
         (stat.wool?.grownSecondary||0)+' 条 · 新生支路 '+
         (stat.wool?.grownLocal||0)+' 条 · A* 补连 '+
         (stat.astarRepairs||0)+' 条\n')+
-      '主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
+      '张量平滑平均角差 '+(stat.presentationTensor?.meanAngleErrorDeg||0).toFixed(1)+'°'+
+      '\n主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
       ' km · 支路 '+stat.localKm+' km' +
       '\n安全格网道路覆盖率 '+stat.rasterCorridorCoveragePct+'% · 独立连通块 '+
       stat.components+' · 闭环秩 '+stat.cycleRank+
@@ -171,8 +172,9 @@ export function createParcelRoadUI({
  }
  function updateMap(){
   const map=getMap();if(!layers())return;
-  const rounded=kind=>result?.displayRoads?.features?.length?{type:'FeatureCollection',features:result.displayRoads.features.filter(f=>f.properties.hierarchy===kind)}:null;
-  const selection={main:rounded('main')||result?.mainRoads,secondary:rounded('secondary')||result?.secondaryRoads,
+  // Always render the FINAL, relaxed and topology-tested centreline network.
+  // Pre-Wool rounded collectors are only an optional decorative preview, not roads.
+  const selection={main:result?.mainRoads,secondary:result?.secondaryRoads,
    local:result?.localRoads,bundles:result?.displayBundles,reserved:result?.reservedFloodEcologicalCorridors,
    footprints:result?.roadPolygons};
   for(const [kind,id] of Object.entries(names)){
