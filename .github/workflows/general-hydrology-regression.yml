@@ -8,6 +8,7 @@ on:
       - 'scripts/parcel_generator.js'
       - 'scripts/parcel_road_ui.js'
       - 'scripts/test_release_version.mjs'
+      - 'scripts/test_isolated_site_entry.mjs'
       - 'scripts/flood_water_visual.js'
       - 'scripts/test_flood_water_visual.mjs'
       - 'scripts/site_element_decisions.js'
@@ -57,6 +58,8 @@ jobs:
         run: node scripts/test_site_element_decisions.mjs
       - name: Verify kept OSM urban fabric influences design tensor
         run: node scripts/test_retained_tensor_constraints.mjs
+      - name: Verify double-click and explicit parcel entry
+        run: node scripts/test_isolated_site_entry.mjs
       - name: Install raster regression dependencies
         run: python -m pip install numpy Pillow
       - name: Audit all 70-km numerical raster cells
