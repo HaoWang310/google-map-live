@@ -1,6 +1,6 @@
 /* STEP 05 wool physics: elastic fibres on a REAL accessible raster.
    No random polylines. Endpoints remain fixed; collisions are checked. */
-import {length} from './parcel_road_constraints.js?v=3.28.0-tensor-wool-linked';
+import {length} from './parcel_road_constraints.js?v=3.29.4-english';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const mix=(a,b,t)=>[a[0]*(1-t)+b[0]*t,a[1]*(1-t)+b[1]*t];
 function safePoint(domain,p){

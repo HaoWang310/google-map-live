@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7,6 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>London map</title>
+  <script type="module" src="./scripts/ui_english.js?v=3.29.4-english"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css">
 
@@ -906,7 +907,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.29.3-full-site-weave</div>
+        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.29.4-english</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="折叠控制面板" title="折叠 / 展开控制面板">−</button>
@@ -1294,16 +1295,16 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.21.15';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.21.15';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.21.15';
-  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.21.15';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.29.3-full-site-weave';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.22.78-tensor-gap-diagnostic';
-  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.29.3-full-site-weave';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.29.4-english';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.29.4-english';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.29.4-english';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.29.4-english';
+  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.29.4-english';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.29.4-english';
+  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.29.4-english';
   import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
 
-  const APP_VERSION='3.29.3-full-site-weave';
+  const APP_VERSION='3.29.4-english';
   // Keep the header's version derived from exactly the same runtime build id.
   document.getElementById('appVersionLabel').textContent='OpenStreetMap / OpenFreeMap · v'+APP_VERSION;
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
@@ -1818,7 +1819,7 @@
       const s=document.createElement('script');
       s.async=true;s.defer=true;
       s.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(API_KEY)+
-        '&loading=async&libraries=maps&v=weekly&language=zh-CN&region=GB&auth_referrer_policy=origin&callback=__initGoogleMap';
+        '&loading=async&libraries=maps&v=weekly&language=en&region=GB&auth_referrer_policy=origin&callback=__initGoogleMap';
       s.onerror=()=>{googleLoading=false;reject(new Error('Google Maps 脚本下载失败。'))};
       document.head.appendChild(s);
     });

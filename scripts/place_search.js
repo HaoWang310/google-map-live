@@ -43,7 +43,7 @@ export function createPlaceSearch(){
     while(Date.now()-lastStarted<1100)await wait(1100-(Date.now()-lastStarted),signal);
     if(signal.aborted)throw new DOMException('Aborted','AbortError');
     lastStarted=Date.now();
-    const params=new URLSearchParams({q,format:'jsonv2',limit:'5','accept-language':'zh-CN,en'});
+    const params=new URLSearchParams({q,format:'jsonv2',limit:'5','accept-language':'en-GB,en'});
     if(Array.isArray(viewbox)&&viewbox.length===4&&viewbox.every(Number.isFinite)&&
        viewbox[0]>=-180&&viewbox[2]<=180&&viewbox[0]<viewbox[2]&&
        viewbox[3]>=-90&&viewbox[1]<=90&&viewbox[3]<viewbox[1]){

@@ -1,5 +1,5 @@
-import {smoothSiteField} from './site_visual_field.js?v=3.29.3-full-site-weave';
-import {buildGlobalWarpedWeave} from './global_warped_weave.js?v=3.29.2-global-elastic';
+import {smoothSiteField} from './site_visual_field.js?v=3.29.4-english';
+import {buildGlobalWarpedWeave} from './global_warped_weave.js?v=3.29.4-english';
 /* Static geometry only. Never writes tensor arrays, DEM, water depth or masks.
    Subcell samples interpolate existing evidence; they add no DEM resolution.
    Deterministic adaptive streamline placement + scalar-area mask skeleton. */

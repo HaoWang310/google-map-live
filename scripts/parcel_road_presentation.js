@@ -1,8 +1,8 @@
 /* Site-derived 2D Wool drawing. A shared planar district partition is pulled
    through the current hydrological field. Local streets end at collectors;
    adjacent districts never overlap. Display bundles are separate from roads. */
-import {smoothSiteField} from './site_visual_field.js?v=3.28.0-tensor-wool-linked';
-import {growOrganicLocalRoads} from './parcel_road_organic.js?v=3.28.0-tensor-wool-linked';
+import {smoothSiteField} from './site_visual_field.js?v=3.29.4-english';
+import {growOrganicLocalRoads} from './parcel_road_organic.js?v=3.29.4-english';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
 const mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];

@@ -1,0 +1,27 @@
+name: English UI regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'scripts/**'
+      - '.github/workflows/english-ui-regression.yml'
+  workflow_dispatch:
+jobs:
+  english-ui:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check English modules
+        run: |
+          node --check scripts/ui_english.js
+          node --check scripts/ui_english_dictionary.js
+      - name: Check labels, dynamic messages, tooltips and control values
+        run: node scripts/test_ui_english.mjs
+      - name: Check release cache versions
+        run: node scripts/test_release_version.mjs
