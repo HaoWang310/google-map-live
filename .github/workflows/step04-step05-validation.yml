@@ -1,0 +1,31 @@
+name: STEP04 STEP05 Tensor Wool regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/site_visual_field.js'
+      - 'scripts/hydro_tensor_geometry.js'
+      - 'scripts/parcel_road_organic.js'
+      - 'scripts/parcel_road_presentation.js'
+      - 'scripts/parcel_wool_solver.js'
+      - 'scripts/parcel_road_worker.js'
+      - 'scripts/parcel_road_constraints.js'
+      - 'tests/step04-step05-consistency.mjs'
+      - '.github/workflows/step04-step05-validation.yml'
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript syntax
+        shell: bash
+        run: |
+          for f in scripts/site_visual_field.js scripts/hydro_tensor_geometry.js scripts/hydro_tensor_field.js scripts/parcel_road_organic.js scripts/parcel_road_presentation.js scripts/parcel_road_worker.js scripts/parcel_road_constraints.js scripts/parcel_wool_solver.js scripts/parcel_road_ui.js scripts/local_flood_ui.js; do
+            node --check "$f"
+          done
+      - name: Synthetic tensor and Wool topology regression
+        run: node --experimental-default-type=module tests/step04-step05-consistency.mjs
