@@ -142,8 +142,35 @@ export function buildPresentationRoadNetwork(domain,parameters={}){
   const path=[];let u=end;while(prev.has(u)&&path.length<edges.length){const [v,e]=prev.get(u);path.push(e);u=v;}return u===start?path:[];
  }
  const nearest=p=>nodes.reduce((best,node,i)=>dist(node.p,p)<dist(nodes[best].p,p)?i:best,0);
- for(const [a,b] of [[[0,h*.45],[w,h*.60]],[[w*.4,0],[w*.6,h]],[[0,h*.85],[w*.85,0]]])
-  for(const e of shortest(nearest(a),nearest(b)))edges[e].kind='main';
+ // Choose macro-road endpoints from CURRENT safe-site geometry and tensor
+ // evidence rather than fixed relative-coordinate diagonals or templates.
+ const accessible=nodes.map((node,i)=>({i,p:node.p})).filter(n=>{
+  const id=cellAt(n.p);return id>=0&&domain.safe[id];
+ });
+ const pool=accessible.filter((_,i)=>i%Math.max(1,Math.floor(accessible.length/65))===0);
+ const usedPairs=[];
+ for(let round=0;round<3&&pool.length>1;round++){
+  let best=null,bestScore=-Infinity;
+  for(let i=0;i<pool.length;i++)for(let j=i+1;j<pool.length;j++){
+   const a=pool[i],b=pool[j],d=dist(a.p,b.p);
+   if(d<size*.36)continue;
+   const mid=mix(a.p,b.p,.5),axis=field.read(...mid);
+   const tangent=[(b.p[0]-a.p[0])/d,(b.p[1]-a.p[1])/d];
+   const alignment=axis?Math.abs(tangent[0]*axis[0]+tangent[1]*axis[1]):.25;
+   const separation=usedPairs.reduce((score,pair)=>{
+    const da=Math.min(dist(a.p,pair[0]),dist(a.p,pair[1]));
+    const db=Math.min(dist(b.p,pair[0]),dist(b.p,pair[1]));
+    return Math.min(score,clamp((da+db)/(size*.75),.18,1));
+   },1);
+   const score=d*(.48+.52*alignment)*(1-.55*waterAt(mid)*avoid)*separation;
+   if(score>bestScore){bestScore=score;best=[a,b];}
+  }
+  if(!best)break;
+  const path=shortest(best[0].i,best[1].i);
+  if(path.length<2)break;
+  path.forEach(e=>edges[e].kind='main');
+  usedPairs.push([best[0].p,best[1].p]);
+ }
  function edgeSamples(a,b){const count=Math.max(8,Math.ceil(dist(a,b)/.75));return Array.from({length:count+1},(_,i)=>warp(mix(a,b,i/count)));}
  for(const e of edges){e.samples=edgeSamples(nodes[e.u].p,nodes[e.v].p);add(e.samples,e.kind,'collector');}
  // Organic local roads guided by the SAME smoothed source tensor as STEP04.
