@@ -46,18 +46,19 @@ const visibleIds=[
 ];
 const layers=new Map(visibleIds.map(id=>[id,'visible']));
 const toggles={roads:true,greens:true,ea:true,drainage:true};
-let vectorOn=null,vectorSuppressed=false;
+let vectorOn=null,vectorSuppressed=false,cameraPitch=0,cameraLimit=60;
 const viewer={
  getLayer:id=>layers.has(id)?{id}:undefined,
  getLayoutProperty:(id,property)=>property==='visibility'?layers.get(id):undefined,
  setLayoutProperty:(id,property,value)=>{
   assert.equal(property,'visibility');assert.ok(layers.has(id),id);layers.set(id,value);
  },
- setPaintProperty(){},getPitch:()=>0,
+ setPaintProperty(){},getPitch:()=>cameraPitch,getMaxPitch:()=>cameraLimit,
+ setMaxPitch:v=>{cameraLimit=v},jumpTo:({pitch})=>{cameraPitch=pitch},
  getSource:()=>({setTiles(){}})
 };
 const sandbox={
- ...keys,console,Math,Boolean,Object,
+ ...keys,console,Math,Boolean,Object,document:{querySelector:()=>null},woolCameraPitchLimit:null,
  isolateViewer:viewer,sitePlanShowRoads:toggles.roads,
  sitePlanShowGreens:toggles.greens,sitePlanMode:true,
  sitePlanDecisions:{kept:'keep'},hideSelectedBuildings:false,
@@ -105,8 +106,11 @@ sandbox.setFocusPitchMode();
 for(const id of hiddenInTensor)assert.equal(layers.get(id),'none','Late leak: '+id);
 // STEP05 keeps the hydrological calculations running, but displays only
 // roads made by STEP05. The tensor renderer must be visually suppressed.
+cameraPitch=42;
 sandbox.hydroRoadActive=true;
 sandbox.updateHydroLayerVisibility();
+assert.equal(cameraPitch,0,'Wool drawing must be flat');
+assert.equal(cameraLimit,0,'Wool drawing must lock tilt');
 for(const id of hiddenInTensor)
  assert.equal(layers.get(id),'none','STEP05 original overlay leak: '+id);
 assert.equal(vectorOn,true,'Wool must not clear physical tensor data');
@@ -119,6 +123,7 @@ for(const id of hiddenInTensor)
 // Disable Wool while STEP04 remains active: tensor should return immediately.
 sandbox.hydroRoadActive=false;
 sandbox.updateHydroLayerVisibility();
+assert.equal(cameraLimit,60,'Restore earlier camera limit on leaving Wool');
 assert.equal(vectorSuppressed,false,'STEP04 must restore visible tensor without recomputation');
 for(const id of hiddenInTensor)
  assert.equal(layers.get(id),'none','STEP04 must still hide original map');
@@ -151,3 +156,4 @@ assert.ok(ui.includes('const generatedOnly=hydroDisplay.flow||hydroRoadActive'))
 assert.ok(ui.includes('const tensorOnly=hydroDisplay.flow&&!hydroRoadActive'));
 assert.ok(ui.includes('const step05Only=hydroRoadActive'));
 console.log('PASS: STEP04 tensor-only, STEP05 generated-roads-only, preserve computation/cache and restore original checkboxes');
+

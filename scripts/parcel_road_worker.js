@@ -2,7 +2,7 @@
    minimal A* connectivity repair -> flood-safe planar topology -> export. */
 import {readSiteTensor,makeRoadDomain,floodReserves,lonlat} from './parcel_road_constraints.js';
 import {initialRoadSkeleton,repairRoadConnectivity} from './parcel_road_skeleton.js';
-import {buildPresentationRoadNetwork} from './parcel_road_presentation.js?v=3.26.6-wool-final-only';
+import {buildPresentationRoadNetwork} from './parcel_road_presentation.js?v=3.27.0-site-wool';
 import {optimiseWool} from './parcel_wool_solver.js';
 import {createRoadTopology} from './parcel_road_topology.js';
 let source=null,ring=null,latest=null,parameters=null;
@@ -41,6 +41,7 @@ function packageNetwork(domain,plan,network,wool,mode){
  const boundary=collection([{type:'Feature',properties:{kind:'site_boundary',crs:'EPSG:4326'},
   geometry:{type:'Polygon',coordinates:[ring]}}]);
  return {
+  displayRoads:collection((plan.displayRoads||[]).map(b=>({type:'Feature',properties:{hierarchy:b.kind,displayOnly:true},geometry:{type:'LineString',coordinates:b.points.map(lonlat)}}))),
   schema:'london-road-step05-v1',step:'05',title:'Tensor-integrated Wool-grown Road Network',
   provenance:{tensor:'London Map computed 2100 tensor, same-parcel memory snapshot',
     designMode:parameters.visualMode==='presentation'?
@@ -51,7 +52,7 @@ function packageNetwork(domain,plan,network,wool,mode){
     reality:'Computational planning proposal; road alignments and access not field verified',
     missing:'Official rights-of-way, junction engineering, road safety, agricultural soil suitability'},
   createdAt:new Date().toISOString(),mode,parameters,
-  siteBoundary:boundary,mainRoads:network.mainRoads,
+  siteBoundary:boundary,displayBundles:collection((plan.bundles||[]).map(b=>({type:'Feature',properties:{hierarchy:b.kind,displayOnly:true},geometry:{type:'LineString',coordinates:b.points.map(lonlat)}}))),mainRoads:network.mainRoads,
   secondaryRoads:network.secondaryRoads,localRoads:network.localRoads,
   roadCenterlines:network.roadCenterlines,roadHierarchy:{main:'main',secondary:'secondary',local:'local'},
   roadTopologyGraph:network.topology,
@@ -74,7 +75,7 @@ function packageNetwork(domain,plan,network,wool,mode){
     grewRoads:(wool.stats.grownSecondary||0)+(wool.stats.grownLocal||0),
     astarRepairs:wool.stats.astarRepairs||0,
     generationMethod:parameters.visualMode==='presentation'?
-      'final Wool-inspired elastic district fabric + curving collectors + bundled arteries; visual only':
+      'site-derived planar districts + shared elastic deformation + rounded Wool bundles; visual only':
       'tensor bidirectional RK2 + Wool active branching; A* connectivity repair only',
     visualMode:parameters.visualMode||'analysis',
     cycleRank:network.statistics.cycleRank,
@@ -140,3 +141,4 @@ onmessage=async event=>{
   postMessage({type:'error',id,message:error?.message||String(error)});
  }
 };
+

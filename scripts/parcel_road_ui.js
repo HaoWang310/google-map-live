@@ -61,7 +61,7 @@ export function createParcelRoadUI({
  <option value="analysis">分析模式 · 水文约束道路</option>
  </select></label>
  <div class="pg-note" id="pg-road-mode-note" style="color:#a6deef">
- 展示模式是概念视觉图，不代表安全道路、精确汇水或规划许可；分析模式保留原水文碰撞约束。</div></div>
+ 根据当前地块张量与积水生成二维羊毛图案。展示模式整理形态；分析模式检查水文碰撞约束。</div></div>
  <div class="pg-section"><div class="pg-label">生成 / 优化 · 张量生长与 Wool 路网</div>
  <div class="pg-road-actions">
  <button id="pg-road-generate" disabled style="display:none" aria-hidden="true" tabindex="-1">隐藏的旧骨架生成控制</button>
@@ -96,7 +96,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.6-wool-final-only',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.27.0-site-wool',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -114,7 +114,7 @@ export function createParcelRoadUI({
     pending=false;result=data.result;
     const q=el('pg-road-quality'),stat=result.diagnostics;
     if(q)q.textContent=(stat.visualMode==='presentation'?
-      '【展示模式】仅最终 Wool 融合路网：主干弧线 / 片区环路 / 局部有机街区（概念示意）\n':
+      '【展示模式】仅最终 Wool 融合路网：连续主路 / 弧形汇合线束 / 场地驱动街区（概念示意）\n':
       '【分析模式】张量积分 → Wool 生长 → A* 补连\nWool 新生次路 '+
         (stat.wool?.grownSecondary||0)+' 条 · 新生支路 '+
         (stat.wool?.grownLocal||0)+' 条 · A* 补连 '+
@@ -148,8 +148,7 @@ export function createParcelRoadUI({
   };
   worker.onerror=e=>{pending=false;inform('STEP 05 道路 Worker 出错：'+e.message,true);};
  }
- const names={main:'pg-road-main',secondary:'pg-road-secondary',
-  local:'pg-road-local',reserved:'pg-road-reserved',footprints:'pg-road-footprints'};
+ const names={reserved:'pg-road-reserved',footprints:'pg-road-footprints',local:'pg-road-local',bundles:'pg-road-bundles',secondary:'pg-road-secondary',main:'pg-road-main'};
  function layers(){
   const map=getMap();if(!map||!map.isStyleLoaded()||!map.getSource(boundarySource))return false;
   if(!map.getLayer('pg-road-backdrop'))map.addLayer({
@@ -164,20 +163,21 @@ export function createParcelRoadUI({
     paint:kind==='reserved'?{'fill-color':'#163146','fill-opacity':.22}:
      kind==='footprints'?{'fill-color':'#c7d0d8','fill-opacity':.14}:
      {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#e8edf1':'#aab3bf',
-      'line-width':kind==='main'?4.6:kind==='secondary'?1.75:.58,
-      'line-opacity':kind==='main'?1:kind==='secondary'?.93:.77}
+      'line-width':kind==='main'?2.6:kind==='secondary'?1.1:kind==='bundles'?.48:.45,
+      'line-opacity':kind==='main'?1:kind==='secondary'?.88:kind==='bundles'?.5:.62}
    },outlineLayer);
   }
   return true;
  }
  function updateMap(){
   const map=getMap();if(!layers())return;
-  const selection={main:result?.mainRoads,secondary:result?.secondaryRoads,
-   local:result?.localRoads,reserved:result?.reservedFloodEcologicalCorridors,
+  const rounded=kind=>result?.displayRoads?.features?.length?{type:'FeatureCollection',features:result.displayRoads.features.filter(f=>f.properties.hierarchy===kind)}:null;
+  const selection={main:rounded('main')||result?.mainRoads,secondary:rounded('secondary')||result?.secondaryRoads,
+   local:result?.localRoads,bundles:result?.displayBundles,reserved:result?.reservedFloodEcologicalCorridors,
    footprints:result?.roadPolygons};
   for(const [kind,id] of Object.entries(names)){
    map.getSource(id).setData(selection[kind]||empty());
-   const check=el('pg-road-show-'+kind);
+   const check=el('pg-road-show-'+(kind==='bundles'?'main':kind));
    map.setLayoutProperty(id,'visibility',active&&result&&check?.checked?'visible':'none');
   }
   // No intermediate road skeleton or background tensor geometry is ever
@@ -261,7 +261,7 @@ export function createParcelRoadUI({
    el('pg-road-source').textContent='等待真实场地数据';
   };
   for(const kind of Object.keys(names))
-   el('pg-road-show-'+kind).onchange=updateMap;
+   if(el('pg-road-show-'+kind))el('pg-road-show-'+kind).onchange=updateMap;
   el('pg-road-export').onclick=()=>result&&saveFile('London_2100_STEP05_RoadNetwork.geojson',
    geoJSON(result),'application/geo+json');
   el('pg-road-package').onclick=()=>result&&saveFile('London_2100_STEP05_Topology.json',
@@ -306,3 +306,4 @@ export function createParcelRoadUI({
  return {mount,setActive,setAutoGenerate,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,resetRoads,dispose,
   get isReady(){return ready},get result(){return result}};
 }
+

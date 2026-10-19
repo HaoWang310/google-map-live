@@ -1,5 +1,5 @@
-import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.26.6-wool-final-only';
-import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.26.6-wool-final-only';
+import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.27.0-site-wool';
+import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.27.0-site-wool';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
@@ -237,7 +237,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.26.6-wool-final-only',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.27.0-site-wool',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -426,9 +426,9 @@ export function createHydroTensorRenderer(args){
       all_below_physical_length:'积分均未达到物理长度要求',spacing_or_length_rejection:'间距或长度筛选淘汰'};
     if(d.visualizationOnly){
       const a=d.field.primary,b=d.field.secondary;
-      status('展示模式 · 柔性正交网格 '+(a?.finalLines||0)+' / '+(b?.finalLines||0)+
-        ' 组曲线 · 仅为视觉化设计示意，不是实际流向或可建道路。'+
-        '\n分析模式保留真实地形、水文张量与逐格可信度数据。');
+      status('展示模式 · 当前地块水文张量网格 '+(a?.finalLines||0)+' / '+(b?.finalLines||0)+
+        ' 组曲线 · 从当前积水与地形张量平滑积分生成。'+
+        '\n展示与分析共用场地数据；展示曲线经过平滑，不等于实际水流速度。');
       return;
     }
     const a=d.field.primary,b=d.field.secondary,pct=v=>(100*(v||0)).toFixed(1)+'%';
@@ -513,7 +513,7 @@ export function createHydroTensorRenderer(args){
     if(geometryBusy||!geometryPending||disposed||!enabled)return;
     if(!geometryWorker){
       try{
-        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.26.6-wool-final-only',import.meta.url),{type:'module'});
+        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.27.0-site-wool',import.meta.url),{type:'module'});
         const active=geometryWorker;
         active.onmessage=({data})=>{
           if(disposed||geometryWorker!==active)return;
@@ -582,7 +582,7 @@ export function createHydroTensorRenderer(args){
         geometryActiveId=0;pumpGeometry();
       },180);
     }
-    status(settings.mode==='presentation'?'更新柔性正交展示网格（示意绘制，非实测流向）…':
+    status(settings.mode==='presentation'?'根据当前地块水文张量更新平滑展示网格…':
       (scenario?.year??2026)+' 年 · 更新真实双方向流线，保留当前画面…');
     pumpGeometry();
   }
@@ -1168,7 +1168,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.26.6-wool-final-only',
+    return {schema:'london-tensor-site-v1',version:'3.27.0-site-wool',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       planningDiagnostics:result.planningDiagnostics||null,
@@ -1202,3 +1202,4 @@ export function createHydroTensorRenderer(args){
         geometry:{type:'LineString',coordinates:chain.path.map(toGeo)}}))}}:null,
     getConfig:()=>({...settings})};
 }
+

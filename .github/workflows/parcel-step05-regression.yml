@@ -12,6 +12,8 @@ on:
       - 'scripts/parcel_road_worker.js'
       - 'scripts/parcel_road_presentation.js'
       - 'scripts/organic_visual_field.js'
+      - 'scripts/site_visual_field.js'
+      - 'scripts/test_site_driven_presentation.mjs'
       - 'scripts/hydro_tensor_geometry.js'
       - 'scripts/hydro_tensor_field.js'
       - 'scripts/test_parcel_step05.mjs'
@@ -49,6 +51,8 @@ jobs:
           node --check scripts/organic_visual_field.js
           node --check scripts/hydro_tensor_geometry.js
           node --check scripts/hydro_tensor_field.js
+      - name: Verify site-specific display from changed hydrology
+        run: node scripts/test_site_driven_presentation.mjs
       - name: Verify continuous exhibition tensor mesh and dense presentation streets
         run: node scripts/test_visual_first_presentation.mjs
       - name: Validate organic arterial art direction and irregular parcel clipping
@@ -67,3 +71,4 @@ jobs:
         run: node scripts/test_tensor_wool_growth.mjs
       - name: Verify no false Wool collision after safe A-star spine restoration
         run: node scripts/test_wool_collision_regression.mjs
+

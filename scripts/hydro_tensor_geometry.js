@@ -1,4 +1,4 @@
-import {organicWarp,unevenLevels} from './organic_visual_field.js?v=3.26.6-wool-final-only';
+import {smoothSiteField,traceSiteWeave} from './site_visual_field.js?v=3.27.0-site-wool';
 /* Static geometry only. Never writes tensor arrays, DEM, water depth or masks.
    Subcell samples interpolate existing evidence; they add no DEM resolution.
    Deterministic adaptive streamline placement + scalar-area mask skeleton. */
@@ -234,61 +234,18 @@ export function createTensorGeometry(result,options={}){
   // sampled by BOTH orthogonal grid families, so their intersections coincide.
   // This is a conceptual woven mesh, NOT evidence-derived water flow lines.
   function buildPresentationWeave(){
-    // Real hydrological tensor is not changed: this is a separate visual
-    // art-direction layer, sampled from one shared fluid-like warp map.
-    // Both families use the SAME deformation, so crossings remain coherent.
-    const output=[],distortion=1.18+.35*smoothing;
-    const colCount=clamp(Math.round(w*(.58+.24*density)),12,65);
-    const rowCount=clamp(Math.round(h*(.58+.24*density)),12,65);
-    const levelsX=unevenLevels(colCount,.51),levelsY=unevenLevels(rowCount,.18);
-    const fieldMask=result.siteMask||f.validMask;
-    const validAtExhibit=(u,v)=>{
-      const x=u*w,y=v*h,ix=Math.floor(x),iy=Math.floor(y);
-      return ix>=0&&ix<w&&iy>=0&&iy<h&&fieldMask[iy*w+ix]>0;
-    };
-    const branches=options.direction==='primary'?['primary']:
-      options.direction==='secondary'?['secondary']:['primary','secondary'];
-    for(const branch of branches){
-      const vertical=branch==='secondary',levels=vertical?levelsX:levelsY;
-      const count=levels.length,steps=Math.min(420,Math.max(95,Math.round((vertical?h:w)*2.5)));
-      const lengths=[],diagnostic={candidateSeeds:count,integrationAttempts:count,
-        integrationSucceeded:0,finalLines:0,totalLengthM:0,
-        meanLengthM:0,medianLengthM:0,under50m:0,
-        wholeValidCoverage:0,supportedCoverage:0,
-        visualizationOnly:true,stopReasons:{}};
-      for(const fixed of levels){
-        let path=[];
-        const flush=()=>{
-          if(path.length<4){path=[];return}
-          const lengthM=lengthOf(path);
-          if(lengthM<cell*1.2){path=[];return}
-          output.push({branch,kind:'field',path,lengthM,rank:.68,
-            wetSupport:0,visualizationOnly:true});
-          lengths.push(lengthM);
-          diagnostic.finalLines++;diagnostic.integrationSucceeded++;
-          diagnostic.totalLengthM+=lengthM;path=[];
-        };
-        for(let j=0;j<=steps;j++){
-          const t=.002+.996*j/steps;
-          const [u,v]=vertical?organicWarp(fixed,t,distortion):
-            organicWarp(t,fixed,distortion);
-          if(!validAtExhibit(u,v)){flush();continue}
-          path.push({x:u*w,y:v*h,rank:.68,confidence:1});
-        }
-        flush();
-      }
-      lengths.sort((a,b)=>a-b);
-      diagnostic.meanLengthM=lengths.length?diagnostic.totalLengthM/lengths.length:0;
-      diagnostic.medianLengthM=lengths.length?lengths[Math.floor(lengths.length/2)]:0;
-      diagnostic.under50m=lengths.filter(v=>v<50).length;
-      diagnostics.field[branch]=diagnostic;
-    }
+    const field=smoothSiteField({w,h,mask:f.validMask,ax:f.primaryX,ay:f.primaryY,
+      wet:f.rainfallInfluence},.65+.35*smoothing);
+    const weave=traceSiteWeave(field,{density,dx,dy,direction:options.direction||'dual'});
+    diagnostics.field=weave.diagnostics;
     diagnostics.visualizationOnly=true;
-    diagnostics.displayMethod='Shared continuous curl-advection with uneven iso-lines (illustrative)';
+    diagnostics.siteDerived=true;
+    diagnostics.displayMethod='Current parcel doubled-angle tensor smoothing + bidirectional integration';
     diagnostics.nativeTensorUnchanged=true;
-    diagnostics.primarySpacingM=(h*dy)/Math.max(1,rowCount);
-    diagnostics.secondarySpacingM=(w*dx)/Math.max(1,colCount);
-    return output;
+    diagnostics.smoothingPasses=field.passes;
+    diagnostics.primarySpacingM=weave.gap*cell;
+    diagnostics.secondarySpacingM=weave.gap*cell;
+    return weave.lines;
   }
   function buildLines(){
     if(options.mode==='presentation')return buildPresentationWeave();
@@ -681,3 +638,4 @@ export function unpackTensorGeometryPacket(packet){
   }));
   return out;
 }
+

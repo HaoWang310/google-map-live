@@ -1,178 +1,210 @@
-/* STEP05 Wool-style art-directed network, intentionally NOT the physically
-   constrained analysis solver. Uses a shared elastic (attraction/repulsion)
-   material warp for district rings and both families of local street fibers:
-   intersections and ring endpoints coincide in the generated geometry.
-   The roads form one final Wool-combined result, never an underlaid tensor grid.
-   The photograph reference is for hierarchy and character only. */
-import {unevenLevels,cubicBezier,ORGANIC_EXHIBITION_NOTE} from './organic_visual_field.js?v=3.26.6-wool-final-only';
-const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-const TAU=Math.PI*2;
-const DISTRICTS=[
- {c:[.16,.23],r:[.21,.18],angle:-.18,phase:.13},
- {c:[.46,.22],r:[.23,.19],angle:.22,phase:.48},
- {c:[.79,.24],r:[.22,.20],angle:-.29,phase:.77},
- {c:[.18,.58],r:[.22,.20],angle:.36,phase:.31},
- {c:[.49,.53],r:[.24,.21],angle:-.48,phase:.61},
- {c:[.81,.58],r:[.21,.22],angle:.22,phase:.87},
- {c:[.33,.85],r:[.25,.18],angle:-.16,phase:.43},
- {c:[.69,.85],r:[.24,.17],angle:.43,phase:.72}
-];
-// End-to-end artery sweep templates. They are *not* thickened local streets.
-const ARTERIES=[
- [[-.09,.44],[.25,.06],[.64,.36],[1.10,.18]],
- [[-.08,.67],[.33,.34],[.66,.49],[1.08,.81]],
- [[.09,-.09],[.23,.39],[.65,.66],[.90,1.09]],
- [[.82,-.09],[.62,.35],[.29,.62],[.36,1.09]]
-];
-const LINKS=[[0,1],[1,2],[0,3],[1,4],[2,5],[3,4],[4,5],[3,6],[4,6],[4,7],[5,7],[6,7]];
-const sq=x=>x*x;
-// Elastic Wool displacement is shared by fibers and ring boundaries. Multiple
-// attraction/repulsion centers introduce smooth, moderate curvature; unlike
-// the STEP04 dense tensor weave there is NO globally spiralling Cartesian grid.
-function districtMap(d,a,b,wool){
- let x=a,y=b;
- const amount=.16+.22*wool;
- for(let iter=0;iter<9;iter++){
-  const r2=x*x+y*y,rad=Math.exp(-r2*.65);
-  const ax=.16*Math.sin(2.4*y+TAU*d.phase)+.08*Math.sin(4.8*y-1.3*x);
-  const ay=.15*Math.sin(2.2*x-TAU*d.phase)-.07*Math.sin(4.2*x+1.1*y);
-  const attract=Math.exp(-(sq(x-.38)+sq(y+.22))/.24);
-  const repel=Math.exp(-(sq(x+.41)+sq(y-.35))/.20);
-  x+=(amount/9)*rad*(ax+.16*attract-.14*repel);
-  y+=(amount/9)*rad*(ay-.12*attract+.12*repel);
+/* Site-derived 2D Wool drawing. A shared planar district partition is pulled
+   through the current hydrological field. Local streets end at collectors;
+   adjacent districts never overlap. Display bundles are separate from roads. */
+import {smoothSiteField} from './site_visual_field.js?v=3.27.0-site-wool';
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+const mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
+const key=p=>p.map(x=>Math.round(x*100000)).join(',');
+function clip(poly,nx,ny,limit){
+ const out=[];
+ for(let i=0;i<poly.length;i++){
+  const a=poly[i],b=poly[(i+1)%poly.length],da=a[0]*nx+a[1]*ny-limit,db=b[0]*nx+b[1]*ny-limit;
+  if(da<=1e-8)out.push(a);
+  if((da<0)!==(db<0))out.push(mix(a,b,da/(da-db)));
  }
- const ca=Math.cos(d.angle),sa=Math.sin(d.angle);
- return [
-  d.c[0]+d.r[0]*x*ca-d.r[1]*y*sa,
-  d.c[1]+d.r[0]*x*sa+d.r[1]*y*ca
- ];
+ return out;
+}
+function voronoi(seeds,w,h){
+ return seeds.map((p,i)=>{
+  let poly=[[.01,.01],[w-.01,.01],[w-.01,h-.01],[.01,h-.01]];
+  for(let j=0;j<seeds.length&&poly.length;j++)if(i!==j){
+   const q=seeds[j];poly=clip(poly,q[0]-p[0],q[1]-p[1],(q[0]**2+q[1]**2-p[0]**2-p[1]**2)/2);
+  }
+  return poly;
+ });
+}
+function areaCentroid(poly){
+ let area=0,x=0,y=0;
+ for(let i=0;i<poly.length;i++){
+  const a=poly[i],b=poly[(i+1)%poly.length],v=a[0]*b[1]-b[0]*a[1];area+=v;x+=(a[0]+b[0])*v;y+=(a[1]+b[1])*v;
+ }
+ return Math.abs(area)>1e-8?[x/(3*area),y/(3*area)]:poly[0];
 }
 export function buildPresentationRoadNetwork(domain,parameters={}){
- const {w,h,cell,left,top,inside,scale}=domain;
- const density=clamp(Number(parameters.roadDensity??88)/100,.12,1);
- const wool=clamp(Number(parameters.woolStrength??88)/100,0,1);
- const branching=clamp(Number(parameters.branchingStrength??78)/100,0,1);
- const bundled=clamp(Number(parameters.bundleStrength??85)/100,0,1);
- const smooth=clamp(Number(parameters.curvatureSmoothing??90)/100,.2,1);
- const useLevel=clamp(Math.round(6+8*density+3*branching),6,19);
- const roads=[],stats={main:0,secondary:0,local:0},
-  failures={outside:0,short:0},lengths={main:0,secondary:0,local:0};
- const project=([u,v])=>[left+u*w*cell,top-v*h*cell];
- const insideParcel=p=>{
-  const x=Math.floor(p[0]*w),y=Math.floor(p[1]*h);
-  return x>=0&&x<w&&y>=0&&y<h&&Boolean(inside[y*w+x]);
- };
- // Genuine site-mask clip, NOT a fabricated road prohibition.
- const isArtVoid=(u,v)=>{
-  // Unbuilt land/water "negative-space" corridor, explicitly artistic.
-  // Keeps the reference's large unfilled winding spaces between districts.
-  const y=.47+.09*Math.sin(TAU*(u*.95+.12))+.028*Math.sin(TAU*2.1*u);
-  const d=Math.abs(v-y);
-  return d<(.021+.008*Math.sin(TAU*(u+.12))**2);
- };
- let roadNo=0;
- function add(samples,kind,tag,{voidClipping=false}={}){
-  let partial=[];
+ const {w,h,cell,left,top,inside,scale}=domain,n=w*h;
+ const density=clamp((parameters.roadDensity??88)/100,.05,1),wool=clamp((parameters.woolStrength??88)/100,0,1);
+ const bundle=clamp((parameters.bundleStrength??85)/100,0,1),avoid=clamp((parameters.floodAvoidance??58)/100,0,1);
+ const wet=Float32Array.from({length:n},(_,i)=>(domain.depth?.[i]||0)/((domain.depth?.[i]||0)+.16));
+ const field=smoothSiteField({w,h,mask:inside,ax:domain.ax,ay:domain.ay?Float32Array.from(domain.ay,v=>-v):null,wet},.55+.45*clamp((parameters.curvatureSmoothing??90)/100,0,1));
+ const size=Math.min(w,h),roads=[],bundles=[],displayRoads=[],lengths={main:0,secondary:0,local:0};
+ const stats={main:0,secondary:0,local:0},rejections={outside:0,short:0};
+ const cellAt=([x,y])=>{const xx=Math.floor(x),yy=Math.floor(y);return xx>=0&&yy>=0&&xx<w&&yy<h?yy*w+xx:-1;};
+ const inSite=p=>{const i=cellAt(p);return i>=0&&inside[i];};
+ const waterAt=p=>{const i=cellAt(p);return i>=0?field.water[i]:0;};
+ // No pseudo-random template: flood distribution, eigenaxes and parcel mask
+ // all influence seed placement. Uniform input is allowed to stay uniform.
+ const candidates=[];
+ for(let y=1;y<h;y+=2)for(let x=1;x<w;x+=2)if(inSite([x,y]))candidates.push([x,y]);
+ if(candidates.length<8)throw Error('场地有效范围不足，无法生成二维羊毛图案');
+ let mean=[0,0];for(const p of candidates){mean[0]+=p[0];mean[1]+=p[1];}mean=mean.map(v=>v/candidates.length);
+ const seedCount=Math.round(15+12*density+3*(parameters.branchingStrength??78)/100);
+ const seeds=[];
+ for(let k=0;k<seedCount;k++){
+  let best=null,score=-Infinity;
+  for(const p of candidates){
+   const d=k?Math.min(...seeds.map(q=>dist(p,q))):-dist(p,mean);
+   const value=d*(1-.45*waterAt(p)*avoid)+(k?0:waterAt(p)*size*.06);
+   if(value>score){score=value;best=p;}
+  }
+  if(!best||seeds.some(p=>dist(p,best)<.1))break;seeds.push(best.slice());
+ }
+ // Two centroidal relaxation passes; boundary clipped cells retain coverage.
+ for(let k=0;k<2;k++){
+  const cells=voronoi(seeds,w,h);
+  for(let i=0;i<seeds.length;i++)if(cells[i].length>2){
+   const q=mix(seeds[i],areaCentroid(cells[i]),.7);if(inSite(q))seeds[i]=q;
+  }
+ }
+ const cells=voronoi(seeds,w,h);
+ function scalar(data,x,y){
+  const bx=Math.floor(x-.5),by=Math.floor(y-.5),fx=x-.5-bx,fy=y-.5-by;let sum=0,total=0;
+  for(let oy=0;oy<2;oy++)for(let ox=0;ox<2;ox++){
+   const i=cellAt([bx+ox+.5,by+oy+.5]);if(i<0||!inside[i])continue;
+   const t=(ox?fx:1-fx)*(oy?fy:1-fy);sum+=(data[i]||0)*t;total+=t;
+  }return total?sum/total:0;
+ }
+ function warp(p){
+  let [x,y]=p;
+  for(let k=0;k<12;k++){
+   const c=scalar(field.c,x,y),s=scalar(field.s,x,y);
+   const gx=(scalar(field.water,x+1,y)-scalar(field.water,x-1,y))*.5;
+   const gy=(scalar(field.water,x,y+1)-scalar(field.water,x,y-1))*.5;
+   const edge=clamp(Math.min(x,y,w-x,h-y)/(size*.12),0,1);
+   // Coherent elastic pull + water repulsion applied to every road point.
+   const vx=(c*.12-s*.06-gx*2.8*avoid),vy=(s*.14-gy*2.8*avoid);
+   x+=vx*size*wool*edge/12;y+=vy*size*wool*edge/12;
+  }
+  return [x,y];
+ }
+ const project=p=>[left+p[0]*cell,top-p[1]*cell];
+ let serial=0;
+ function add(samples,kind,tag,decorative=false,display=false){
+  let run=[];
   const flush=()=>{
-   if(partial.length<5){partial=[];return}
-   // A path consisting of several interrupted fragments is not accepted as
-   // one giant "road" spanning a masked-out void.
-   let len=0;
-   for(let i=1;i<partial.length;i++)
-    len+=Math.hypot(partial[i][0]-partial[i-1][0],
-      partial[i][1]-partial[i-1][1])*scale;
-   if(len<Math.max(domain.groundCell*1.8,8)){failures.short++;partial=[];return}
-   const id='WOOL-'+String(++roadNo).padStart(5,'0');
-   roads.push({id,kind,points:partial,lengthM:len,
-     start:domain.cellAt(partial[0]),end:domain.cellAt(partial.at(-1)),
-     provenance:ORGANIC_EXHIBITION_NOTE+' / wool-attraction-and-bundling / '+tag});
-   stats[kind]++;lengths[kind]+=len;partial=[];
+   if(run.length<3){run=[];return;}
+   let lengthM=0;for(let i=1;i<run.length;i++)lengthM+=dist(run[i-1],run[i])*cell*scale;
+   if(lengthM<domain.groundCell*.75){rejections.short++;run=[];return;}
+   const points=run.map(project);
+   if(display)displayRoads.push({kind,points});
+   else if(decorative)bundles.push({kind,points});
+   else{roads.push({id:'WOOL-'+String(++serial).padStart(5,'0'),kind,points,lengthM,
+    start:domain.cellAt(points[0]),end:domain.cellAt(points.at(-1)),
+    provenance:'ARTISTIC PREVIEW / site-derived wool-attraction-and-bundling / '+tag});stats[kind]++;lengths[kind]+=lengthM;}
+   run=[];
   };
   for(const p of samples){
-   if(!Number.isFinite(p[0])||!Number.isFinite(p[1])||
-     !insideParcel(p)||voidClipping&&isArtVoid(...p)){
-    if(partial.length)flush();failures.outside++;continue;
-   }
-   partial.push(project(p));
-  }
-  flush();
+   // Local streets leave actual wet negative space. No invented sine river.
+   const allowed=inSite(p)&&(kind!=='local'||waterAt(p)<.32+.25*(1-avoid));
+   if(!allowed){flush();rejections.outside++;continue;}
+   // Also inspect segment interior to prevent holes being bridged.
+   if(run.length){const a=run.at(-1);let clear=true;
+    for(let t=.25;t<1;t+=.25)if(!inSite(mix(a,p,t))){clear=false;break;}
+    if(!clear)flush();
+   }run.push(p);
+  }flush();
  }
- const sampleBezier=(a,b,c,d,n=160)=>Array.from({length:n+1},(_,k)=>
-  cubicBezier(a,b,c,d,k/n));
- // District subdivision FIRST: local fabrics are *closed* at shared,
- // deformed district rings and are sampled from shared elastic material.
- // Their endpoints land on the same mathematical ring as the collector.
- const ringCount=[],localLines=[];
- DISTRICTS.forEach((district,index)=>{
-  const n=useLevel+(index%3===1?1:0);
-  const familyX=unevenLevels(n,index*.17+.25).map(t=>(t-.5)*1.86);
-  const familyY=unevenLevels(n-2,index*.23+.59).map(t=>(t-.5)*1.86);
-  // Use a single material map for ring and local orthogonal families.
-  const map=(a,b)=>districtMap(district,a,b,wool);
+ // Unique district edges produce one planar collector graph, not overlapping rings.
+ const nodes=[],nodeMap=new Map(),edges=[],edgeMap=new Map();
+ const node=p=>{const k=key(p);if(!nodeMap.has(k)){nodeMap.set(k,nodes.length);nodes.push({p,edges:[]});}return nodeMap.get(k);};
+ cells.forEach((poly,d)=>{for(let j=0;j<poly.length;j++){
+  const a=poly[j],b=poly[(j+1)%poly.length];if(dist(a,b)<.02)continue;
+  const u=node(a),v=node(b),k=[u,v].sort((a,b)=>a-b).join(':');
+  if(edgeMap.has(k)){edges[edgeMap.get(k)].districts.push(d);continue;}
+  const index=edges.length;edgeMap.set(k,index);edges.push({u,v,districts:[d],kind:'secondary'});nodes[u].edges.push(index);nodes[v].edges.push(index);
+ }});
+ // Select a few long connected routes along the graph, never independent diagonals.
+ function shortest(start,end){
+  const costs=nodes.map(()=>Infinity),prev=new Map(),todo=new Set(nodes.map((_,i)=>i));costs[start]=0;
+  while(todo.size){let u=-1,best=Infinity;for(const i of todo)if(costs[i]<best){u=i;best=costs[i];}if(u<0||u===end)break;todo.delete(u);
+   for(const ei of nodes[u].edges){const e=edges[ei],v=e.u===u?e.v:e.u;
+    const p=mix(nodes[u].p,nodes[v].p,.5),axis=field.read(...p),delta=[nodes[v].p[0]-nodes[u].p[0],nodes[v].p[1]-nodes[u].p[1]],len=dist(nodes[u].p,nodes[v].p);
+    const alignment=axis?Math.abs((delta[0]*axis[0]+delta[1]*axis[1])/Math.max(.001,len)):0;
+    const cost=len*(1+waterAt(p)*avoid*2+(.4*(parameters.tensorAlignment??78)/100)*(1-alignment))*(e.kind==='main'?.68:1);
+    if(costs[u]+cost<costs[v]){costs[v]=costs[u]+cost;prev.set(v,[u,ei]);}
+   }
+  }
+  const path=[];let u=end;while(prev.has(u)&&path.length<edges.length){const [v,e]=prev.get(u);path.push(e);u=v;}return u===start?path:[];
+ }
+ const nearest=p=>nodes.reduce((best,node,i)=>dist(node.p,p)<dist(nodes[best].p,p)?i:best,0);
+ for(const [a,b] of [[[0,h*.45],[w,h*.60]],[[w*.4,0],[w*.6,h]],[[0,h*.85],[w*.85,0]]])
+  for(const e of shortest(nearest(a),nearest(b)))edges[e].kind='main';
+ function edgeSamples(a,b){const count=Math.max(8,Math.ceil(dist(a,b)/.75));return Array.from({length:count+1},(_,i)=>warp(mix(a,b,i/count)));}
+ for(const e of edges){e.samples=edgeSamples(nodes[e.u].p,nodes[e.v].p);add(e.samples,e.kind,'collector');}
+ // Local orthogonal subdivision in each NON-overlapping cell. Rotated to the
+ // local real eigenframe, then deformed by the same Wool map as the collectors.
+ let localCandidates=0;
+ cells.forEach((poly,d)=>{
+  if(poly.length<3)return;
+  const center=seeds[d],axis=field.read(...center)||[1,0],theta=Math.atan2(axis[1],axis[0]);
+  const ca=Math.cos(theta),sa=Math.sin(theta);
+  const coords=poly.map(p=>[(p[0]-center[0])*ca+(p[1]-center[1])*sa,-(p[0]-center[0])*sa+(p[1]-center[1])*ca]);
   for(const vertical of [false,true]){
-   const family=vertical?familyX:familyY;
-   for(let k=0;k<family.length;k++){
-    const c=family[k],extent=Math.sqrt(Math.max(0,1-c*c));
-    if(extent<.2)continue;
-    const series=Array.from({length:65},(_,i)=>{
-      const t=-extent+2*extent*i/64;
-      return vertical?map(c,t):map(t,c);
-    });
-    // Light Wool bundling: concentrate successive fibers towards nearest
-    // collector; the shared warp preserves intersection continuity.
-    localLines.push({series,index,vertical});
+   const dim=vertical?0:1,min=Math.min(...coords.map(p=>p[dim])),max=Math.max(...coords.map(p=>p[dim]));
+   const spacing=size/(24+45*density),count=Math.max(1,Math.floor((max-min)/spacing));
+   for(let k=1;k<count;k++){
+    const fixed=min+(max-min)*k/count,hits=[];
+    for(let j=0;j<coords.length;j++){
+     const a=coords[j],b=coords[(j+1)%coords.length];
+     if((a[dim]<fixed)!==(b[dim]<fixed))hits.push(mix(a,b,(fixed-a[dim])/(b[dim]-a[dim])));
+    }
+    if(hits.length!==2)continue;
+    const back=p=>[center[0]+p[0]*ca-p[1]*sa,center[1]+p[0]*sa+p[1]*ca];
+    add(edgeSamples(back(hits[0]),back(hits[1])),'local','district-'+d);localCandidates++;
    }
   }
-  const ring=Array.from({length:220},(_,i)=>{
-   const t=TAU*i/219;return map(Math.cos(t),Math.sin(t));
-  });
-  ringCount.push({district:index,points:ring});
  });
- // Draw small street network (fine lines) with limited clear-space gaps.
- for(const item of localLines)
-  add(item.series,'local','district-fiber-'+item.index,{voidClipping:true});
- // Distinct collector rings and connections make larger enclosed cells.
- ringCount.forEach(({points,district})=>
-  add(points,'secondary','district-collector-'+district));
- const hubs=DISTRICTS.map(d=>d.c);
- // Connect ring-to-ring along smoothly bulged paths; no straight diagonal
- // cuts that would imitate arbitrary vectors.
- for(let i=0;i<LINKS.length;i++){
-  const [a,b]=LINKS[i],p=hubs[a],q=hubs[b];
-  const vx=q[0]-p[0],vy=q[1]-p[1],normal=[-vy,vx];
-  const bend=(i%2?-1:1)*(.14+.11*bundled);
-  const c1=[p[0]+vx*.28+normal[0]*bend,p[1]+vy*.28+normal[1]*bend];
-  const c2=[p[0]+vx*.72-normal[0]*bend,p[1]+vy*.72-normal[1]*bend];
-  add(sampleBezier(p,c1,c2,q,105),'secondary','wool-link-'+a+'-'+b);
+ // Rounded Y junction fibres: these are display-only strands of the final
+ // bundles, never counted as extra roads, loops or planning area.
+ const strandCount=Math.round(2+4*bundle),radius=size*(.016+.026*wool);
+ // Rounded display strokes share edge anchors with the junction fans.
+ // The analytical graph remains separately available for STEP06.
+ for(const e of edges){
+  const a=nodes[e.u],b=nodes[e.v],len=dist(a.p,b.p);
+  const ta=a.edges.length>=3?Math.min(.32,radius/len):0;
+  const tb=b.edges.length>=3?Math.min(.32,radius/len):0;
+  add(edgeSamples(mix(a.p,b.p,ta),mix(b.p,a.p,tb)),e.kind,'rounded-collector',false,true);
  }
- // Long arteries are organically continuous, even when crossing unbuilt land.
- for(let i=0;i<ARTERIES.length;i++){
-  const [a,b,c,d]=ARTERIES[i];
-  const wobble=.015*(1-smooth);
-  const sampled=sampleBezier(a,b,c,d,260).map(([x,y])=>
-    [x+wobble*Math.sin(TAU*2.3*y+i),y+wobble*Math.sin(TAU*2.2*x-i)]);
-  add(sampled,'main','wool-bundled-artery-'+i);
+ for(let ni=0;ni<nodes.length;ni++){
+  const node=nodes[ni];if(node.edges.length<3)continue;
+  const incident=node.edges.map(ei=>{const e=edges[ei],other=nodes[e.u===ni?e.v:e.u];return {e,p:other.p,angle:Math.atan2(other.p[1]-node.p[1],other.p[0]-node.p[0])};}).sort((a,b)=>a.angle-b.angle);
+  for(let j=0;j<incident.length;j++){
+   const a=incident[j],b=incident[(j+1)%incident.length],kind=a.e.kind==='main'||b.e.kind==='main'?'main':'secondary';
+   const anchorA=mix(node.p,a.p,Math.min(.32,radius/dist(node.p,a.p)));
+   const anchorB=mix(node.p,b.p,Math.min(.32,radius/dist(node.p,b.p)));
+   const rounded=Array.from({length:33},(_,i)=>{const t=i/32,z=1-t;return warp([z*z*anchorA[0]+2*z*t*node.p[0]+t*t*anchorB[0],z*z*anchorA[1]+2*z*t*node.p[1]+t*t*anchorB[1]]);});
+   add(rounded,a.e.kind==='main'&&b.e.kind==='main'?'main':'secondary','rounded-junction',false,true);
+   for(let k=0;k<strandCount;k++){
+    const r=radius*(.60+k*.18),p=mix(node.p,a.p,Math.min(.42,r/dist(node.p,a.p))),q=mix(node.p,b.p,Math.min(.42,r/dist(node.p,b.p)));
+    const samples=Array.from({length:25},(_,i)=>{const t=i/24,z=1-t;return warp([z*z*p[0]+2*z*t*node.p[0]+t*t*q[0],z*z*p[1]+2*z*t*node.p[1]+t*t*q[1]]);});
+    add(samples,kind,'junction-strand',true);
+   }
+  }
  }
- // Wool consolidation: connect selected collector-ring points to nearby
- // arteries along softly curved links. This creates genuine branch structure,
- // not a final paint-layer fake.
- for(let i=0;i<DISTRICTS.length;i++){
-  const center=hubs[i],angle=TAU*(i*.61803398875);
-  const ring=ringCount[i].points,anchor=ring[Math.floor((i*.18+.13)%1*219)];
-  const endpoint=[center[0]+.22*Math.cos(angle),center[1]+.16*Math.sin(angle)];
-  const b=[anchor[0]*.65+endpoint[0]*.35,anchor[1]*.7+endpoint[1]*.3];
-  const c=[anchor[0]*.4+endpoint[0]*.6,anchor[1]*.3+endpoint[1]*.7];
-  add(sampleBezier(anchor,b,c,endpoint,44),'secondary','wool-reconnect-'+i);
+ // Parallel bundled filaments follow final collector curves with tapered ends.
+ for(const e of edges){
+  const count=e.kind==='main'?strandCount:2;
+  for(let k=1;k<=count;k++)for(const side of [-1,1]){
+   const samples=e.samples.map((p,i,a)=>{
+    const before=a[Math.max(0,i-1)],after=a[Math.min(a.length-1,i+1)],len=Math.max(.001,dist(before,after));
+    const offset=side*k*size*.0012*bundle*Math.sin(Math.PI*i/(a.length-1));
+    return [p[0]-(after[1]-before[1])/len*offset,p[1]+(after[0]-before[0])/len*offset];
+   });add(samples,e.kind,'parallel-strand',true);
+  }
  }
- if(roads.filter(r=>r.kind==='local').length<8||
-    roads.filter(r=>r.kind==='main').length<2)
-  throw Error('选区可用范围不足，无法生成完整 Wool 层级；请扩大地块再试');
- return {roads,access:[],candidates:[],stats:{
-   ...stats,syntheticPresentation:true,woolCombinedOnly:true,
-   displayMethod:'shared Wool elastic district fabric + attracting collectors + independent bundled arteries',
-   independentArterials:ARTERIES.length,districtRingSeeds:DISTRICTS.length,
-   generatedDistricts:DISTRICTS.length,localFiberCandidates:localLines.length,
-   generatedLengthM:lengths,targetRoads:roads.length,rejections:failures,
-   eligibleCells:domain.dryCells,visitedCells:0
- }};
+ return {roads,bundles,displayRoads,access:[],candidates:[],stats:{...stats,
+  syntheticPresentation:false,siteDerived:true,woolCombinedOnly:true,
+  displayMethod:'site tensor / wetness -> planar district graph -> shared elastic pull -> hierarchical bundled drawing',
+  generatedDistricts:cells.length,localFiberCandidates:localCandidates,bundleStrands:bundles.length,
+  generatedLengthM:lengths,targetRoads:roads.length,rejections,eligibleCells:domain.dryCells,visitedCells:0}};
 }
