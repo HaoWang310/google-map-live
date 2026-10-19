@@ -32,8 +32,11 @@ export function readSiteTensor(input,ring){
  const f=snapshot.fields||snapshot;
  const primaryX=decoded(f.primaryX,n,'primaryX'),primaryY=decoded(f.primaryY,n,'primaryY');
  const confidence=decoded(f.confidence,n,'confidence');
+ const anisotropy=decoded(f.anisotropy,n,'anisotropy');
  const valid=decoded(f.validMask,n,'validMask');
  const depth=decoded(snapshot.depthMm,n,'depthMm');
+ const sourceRevision=[snapshot.scenario?.year,snapshot.scenario?.token,
+  snapshot.scenario?.rainfallCase,grid.left,grid.top,grid.cellProjectedM,cols,rows].join(':');
  const drainage=decoded(f.drainageMask,n,'drainageMask');
  // Native DEM may be exported with the tensor; optional for older auditable
  // fixtures, but always reuses the same original georeferenced grid.
@@ -65,7 +68,8 @@ export function readSiteTensor(input,ring){
  const year=Number(snapshot.scenario?.year??snapshot.scenarioYear);
  if(year!==2100)throw Error('请导入含有 2100 年计算结果的场地诊断 JSON（不是仅2026年的预览）');
  return {cols,rows,grid:{left:grid.left,top:grid.top,cellProjectedM:grid.cellProjectedM},
-  primaryX,primaryY,confidence,valid,depth,drainage,terrain,polygon,
+  primaryX,primaryY,confidence,anisotropy,valid,depth,drainage,terrain,polygon,
+  sourceRevision,scenarioToken:snapshot.scenario?.token||null,rainfallCase:snapshot.scenario?.rainfallCase||null,
   year,source:'London Map computed hydrological tensor + 2100 flood depth',
   metricScale:Math.cos(ring.reduce((s,p)=>s+p[1],0)/ring.length*Math.PI/180)};
 }
@@ -77,7 +81,7 @@ export function makeRoadDomain(source,parameters={}){
  const count=w*h;
  const inside=new Uint8Array(count),safe=new Uint8Array(count),
   depth=new Float32Array(count),ax=new Float32Array(count),ay=new Float32Array(count),
-  certainty=new Float32Array(count),hydro=new Uint8Array(count),cost=new Float32Array(count),
+  certainty=new Float32Array(count),anisotropy=new Float32Array(count),hydro=new Uint8Array(count),cost=new Float32Array(count),
   slope=new Float32Array(count);
  const maxNormal=clamp(Number(parameters.floodLimitM??.15),.03,.6)*1000;
  const avoid=clamp(Number(parameters.floodAvoidance??85)/100,0,1);
@@ -103,7 +107,7 @@ export function makeRoadDomain(source,parameters={}){
   inside[i]=1;depth[i]=maximumDepth/1000;
   const v=Math.hypot(source.primaryX[j],source.primaryY[j]);
   if(v>.25){ax[i]=source.primaryX[j]/v;ay[i]=-source.primaryY[j]/v;}
-  certainty[i]=source.confidence[j];
+  certainty[i]=source.confidence[j];anisotropy[i]=source.anisotropy[j];
   hydro[i]=drainageEvidence>0?1:0;
   // Real physical slope is estimated from DEM elevations in ground metres.
   // Keep the DEM as a *cost*, not a reason to fabricate a new street direction.
@@ -134,7 +138,9 @@ export function makeRoadDomain(source,parameters={}){
  if(dry<36&&parameters.visualMode!=='presentation')throw Error('洪涝/地形约束后可规划格网不足；请检查场地或水深阈值');
  const siteGroundCell=cell*metricScale;
  return {w,h,cell,groundCell:siteGroundCell,left:grid.left,top:grid.top,
-  inside,safe,depth,ax,ay,certainty,hydro,cost,slope,dryCells:dry,wetCells:wet,
+  inside,safe,depth,ax,ay,certainty,anisotropy,hydro,cost,slope,
+  sourceRevision:source.sourceRevision,scenarioToken:source.scenarioToken,sourceYear:source.year,
+  dryCells:dry,wetCells:wet,
   diagnostics:{steepExcluded:steep,deepExcluded:deep,shallowTraversable:shallow},
   boundary:source.polygon,scale:metricScale,stride,
   toPoint:i=>[grid.left+((i%w)+.5)*cell,grid.top-(Math.floor(i/w)+.5)*cell],
