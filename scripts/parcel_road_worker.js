@@ -1,9 +1,9 @@
 /* STEP05 worker: real tensor streamlines -> Wool branch growth/relaxation ->
    minimal A* connectivity repair -> flood-safe planar topology -> export. */
-import {readSiteTensor,makeRoadDomain,floodReserves,lonlat} from './parcel_road_constraints.js';
+import {readSiteTensor,makeRoadDomain,floodReserves,lonlat} from './parcel_road_constraints.js?v=3.28.0-tensor-wool-linked';
 import {initialRoadSkeleton,repairRoadConnectivity} from './parcel_road_skeleton.js';
-import {buildPresentationRoadNetwork} from './parcel_road_presentation.js?v=3.27.0-site-wool';
-import {optimiseWool} from './parcel_wool_solver.js';
+import {buildPresentationRoadNetwork} from './parcel_road_presentation.js?v=3.28.0-tensor-wool-linked';
+import {optimiseWool} from './parcel_wool_solver.js?v=3.28.0-tensor-wool-linked';
 import {createRoadTopology} from './parcel_road_topology.js';
 import {smoothSiteField} from './site_visual_field.js?v=3.28.0-tensor-wool-linked';
 let source=null,ring=null,latest=null,parameters=null;
