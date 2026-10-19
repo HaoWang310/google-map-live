@@ -4072,9 +4072,22 @@ export function createLocalFloodUI({
     });
   }
 
+  function selectionEntryBlocker(){
+    if(isolatedSelection)return '已在独立场地视图中。';
+    if(drawing)return '正在绘制地块。请先双击结束绘制，再按 Enter 确认范围。';
+    if(isPreparingSelection)return '正在生成建筑及水文网格，请等待准备完成。';
+    if(!polygon?.[0]||polygon[0].length<4)return '请先完成红色选区。';
+    if(selectionDirty)return '地块边界已更改，请先按 Enter 重新生成，再双击进入。';
+    if(!prepared)return '独立场地尚未准备完成；请按 Enter 确认范围并等待水文网格加载成功。';
+    return null;
+  }
+
   function enterSelectionIsolate(){
-    if(isolatedSelection||!prepared||selectionDirty||
-      !polygon?.[0]||polygon[0].length<4)return false;
+    const blocker=selectionEntryBlocker();
+    if(blocker){
+      if(!isolatedSelection)status('无法进入独立场地：'+blocker,true);
+      return false;
+    }
     isolateCamera={
       center:map.getCenter().toArray(),zoom:map.getZoom(),
       pitch:map.getPitch(),bearing:map.getBearing()
@@ -4171,6 +4184,11 @@ export function createLocalFloodUI({
       if(button)button.disabled=parcelDisabled;
     }
     $('localFloodFinish').disabled=!drawing||vertices.length<3||isPreparingSelection;
+    const enterSite=$('localFloodEnterSite');
+    if(enterSite){
+      enterSite.disabled=Boolean(drawing||isPreparingSelection||selectionDirty||!prepared||isolatedSelection);
+      enterSite.title=selectionEntryBlocker()||'进入场地的独立 3D 洪涝模拟；也可双击红色选区内部';
+    }
     const simulationLocked=!prepared||selectionDirty||isPreparingSelection;
     $('localFloodRun').disabled=simulationLocked;
     $('localFloodPause').disabled=simulationLocked;
@@ -4380,7 +4398,7 @@ export function createLocalFloodUI({
         status(
           hideSelectedBuildings
             ?'范围已生成；当前“隐藏选区内建筑”已开启。关闭开关即可恢复橙色建筑。'
-            :'范围已生成：框内建筑已显示为橙色。可继续移动/修改红框后按 Enter 重新生成；需要时再勾选“隐藏选区内建筑”。'
+            :'范围已生成：框内建筑已显示为橙色。现在可双击红框内部，或点击「进入独立场地」；修改边界后需要按 Enter 重新生成。'
         );
       }else{
         editingSelection=true;
@@ -5092,26 +5110,24 @@ export function createLocalFloodUI({
       if(vertices.length>=3)finishAndConfirmSelection();
       return;
     }
-
-    if(!editingSelection||isPreparingSelection)return;
+    if(isolatedSelection)return;
 
     hideAreaPopup();
 
-    // Prepared selection: double-click anywhere INSIDE the red polygon enters
-    // isolated-site view immediately. This takes priority over edge/anchor editing,
-    // because the primary post-generation interaction is "enter this site".
+    // Test the actual polygon before edit-mode guards. An orange/ready site
+    // must always be accessible from its interior, regardless of stale tool UI.
+    // If generation is unfinished, show the exact blocker instead of silently
+    // swallowing the user's double-click.
     const clickedLngLat=[event.lngLat.lng,event.lngLat.lat];
     const clickedInside=Boolean(
-      prepared&&
-      !selectionDirty&&
-      polygon?.[0]&&
-      pointInRingLngLat(clickedLngLat,polygon[0])
+      polygon?.[0]?.length>=4&&pointInRingLngLat(clickedLngLat,polygon[0])
     );
 
-    if(clickedInside){
+    if(clickedInside&&(prepared||isPreparingSelection||selectionDirty)){
       enterSelectionIsolate();
       return;
     }
+    if(!editingSelection||isPreparingSelection)return;
 
     // Only when not entering the prepared site do we interpret double-click as
     // anchor/edge editing.
@@ -5339,6 +5355,21 @@ export function createLocalFloodUI({
 
   const onCanvasMouseLeave=()=>hideAreaPopup();
 
+  // MapLibre map dblclick events can be lost when a competing interaction
+  // consumes them. Native canvas-target capture is a second entry path;
+  // keep the existing map dblclick handler for polygon edit controls.
+  const onNativeSiteDoubleClick=event=>{
+    if(drawing||isolatedSelection||!polygon?.[0]||dragVertexIndex>=0)return;
+    const point=pointFromMouseEvent(event);
+    const lngLat=map.unproject([point.x,point.y]);
+    if(!pointInRingLngLat([lngLat.lng,lngLat.lat],polygon[0]))return;
+    event.preventDefault();
+    event.stopImmediatePropagation?.();
+    event.stopPropagation();
+    hideAreaPopup();
+    enterSelectionIsolate();
+  };
+  map.getCanvas().addEventListener('dblclick',onNativeSiteDoubleClick,true);
   canvasContainer.addEventListener('mousedown',onAnchorMouseDownCapture,true);
   canvasContainer.addEventListener('mouseleave',onCanvasMouseLeave);
   window.addEventListener('mousemove',onAnchorMouseMoveWindow,{passive:false});
@@ -5402,6 +5433,7 @@ export function createLocalFloodUI({
   }
   $('localFloodDraw').addEventListener('click',startDrawing);
   $('localFloodFinish').addEventListener('click',()=>finishAndConfirmSelection());
+  $('localFloodEnterSite')?.addEventListener('click',()=>enterSelectionIsolate());
   $('localFloodClear').addEventListener('click',()=>{
     clearSimulation(false);
     status('已清除局部洪涝模拟。');
