@@ -2,7 +2,7 @@
    minimal A* connectivity repair -> flood-safe planar topology -> export. */
 import {readSiteTensor,makeRoadDomain,floodReserves,lonlat} from './parcel_road_constraints.js';
 import {initialRoadSkeleton,repairRoadConnectivity} from './parcel_road_skeleton.js';
-import {buildPresentationRoadNetwork} from './parcel_road_presentation.js';
+import {buildPresentationRoadNetwork} from './parcel_road_presentation.js?v=3.26.3-organic-art-direction';
 import {optimiseWool} from './parcel_wool_solver.js';
 import {createRoadTopology} from './parcel_road_topology.js';
 let source=null,ring=null,latest=null,parameters=null;

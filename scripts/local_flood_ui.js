@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.2-visual-first';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.2-visual-first';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.26.2-visual-first';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.2-visual-first';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.2-visual-first';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.3-organic-art-direction';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.3-organic-art-direction';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.26.3-organic-art-direction';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.3-organic-art-direction';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.3-organic-art-direction';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -3001,7 +3001,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.2-visual-first</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.3-organic-art-direction</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3101,7 +3101,7 @@ export function createLocalFloodUI({
       '<label class="site-hydro-check site-vector-enable"><input id="siteHudShowFlow" type="checkbox"> 雨水完成后进入张量场（2026–2100）</label>',
       '<div class="site-hydro-mini site-tensor-caption">勾选后准备真实张量场，不自动播放。点击下方「运行」从2026连续模拟到2100；再次点击从2026重播。「暂停」停留在当前画面，只有「重置」返回已完成的雨水模拟。</div>',
       '<div class="site-vector-modes" role="group"><button type="button" class="site-vector-mode" data-vector-mode="analysis" aria-pressed="false">分析模式</button><button type="button" class="site-vector-mode active" data-vector-mode="presentation" aria-pressed="true">演示模式</button></div>',
-      '<div class="site-hydro-mini" style="color:#9ddcff">演示模式：全场双向柔性网格属于艺术设计示意，并非实测流向；分析模式仍显示真实水文张量和方向可信度。</div>',
+      '<div class="site-hydro-mini" style="color:#9ddcff">演示模式：非等间距双向柔性织网，局部弯曲与旋转仅为概念设计；不是实测流向。切换分析模式可核查真实水文张量。</div>',
       '<div class="site-hydro-mini site-tensor-year">模拟年份 · <strong id="siteHudTensorYear">2026</strong> / 2100</div>',
       '<div class="site-hydro-section-title site-tensor-subtitle">方向结构</div>',
       '<div class="site-vector-modes site-tensor-directions" role="group"><button type="button" class="site-vector-mode" data-tensor-direction="primary" aria-pressed="false">主方向</button><button type="button" class="site-vector-mode" data-tensor-direction="secondary" aria-pressed="false">次方向</button><button type="button" class="site-vector-mode active" data-tensor-direction="dual" aria-pressed="true">双方向</button></div>',

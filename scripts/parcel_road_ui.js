@@ -57,7 +57,7 @@ export function createParcelRoadUI({
  <div class="pg-section"><div class="pg-label">设计显示模式 · 本轮优先视觉效果</div>
  <label class="pg-option" style="display:flex;align-items:center;gap:8px">
  <span>模式</span><select id="pg-road-visualMode" style="flex:1;min-width:0">
- <option value="presentation" selected>展示模式 · 柔性有机路网</option>
+ <option value="presentation" selected>展示模式 · 柔性有机路网 · 非规则织网</option>
  <option value="analysis">分析模式 · 水文约束道路</option>
  </select></label>
  <div class="pg-note" id="pg-road-mode-note" style="color:#a6deef">
@@ -96,7 +96,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.2-visual-first',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.3-organic-art-direction',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -163,8 +163,8 @@ export function createParcelRoadUI({
       {'line-join':'round','line-cap':'round'})},
     paint:kind==='reserved'?{'fill-color':'#163146','fill-opacity':.22}:
      kind==='footprints'?{'fill-color':'#c7d0d8','fill-opacity':.14}:
-     {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#eeeeee':'#a8b1bd',
-      'line-width':kind==='main'?4.5:kind==='secondary'?2.15:.8,
+     {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#eeeeee':'#d2dde9',
+      'line-width':kind==='main'?4.4:kind==='secondary'?2.0:.72,
       'line-opacity':kind==='main'?1:kind==='secondary'?.92:.78}
    },outlineLayer);
   }
@@ -239,7 +239,7 @@ export function createParcelRoadUI({
   el('pg-road-visualMode').onchange=()=>{
     const present=el('pg-road-visualMode').value==='presentation';
     el('pg-road-mode-note').textContent=present?
-      '展示模式：全场连续柔性路网与闭合街区，仅供视觉评审，不能代替水文与道路工程验算。':
+      '展示模式：非等间距柔性路网、独立弧形主路及片区环路；仅为概念视觉图，不能替代工程验算。':
       '分析模式：从真实水文张量出发，使用洪涝禁行、Wool 生长和 A* 安全修复。';
     scheduleRegenerate();
   };
