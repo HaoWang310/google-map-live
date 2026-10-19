@@ -5123,11 +5123,22 @@ export function createLocalFloodUI({
       polygon?.[0]?.length>=4&&pointInRingLngLat(clickedLngLat,polygon[0])
     );
 
-    if(clickedInside&&(prepared||isPreparingSelection||selectionDirty)){
+    if(clickedInside&&prepared&&!selectionDirty&&!isPreparingSelection){
       enterSelectionIsolate();
       return;
     }
+    if(clickedInside&&isPreparingSelection){
+      enterSelectionIsolate(); // Reports the current preparation state.
+      return;
+    }
     if(!editingSelection||isPreparingSelection)return;
+    // After an edit, interior double-click still edits nearby anchors/edges.
+    // Away from an edit handle, show the Enter-to-regenerate instruction.
+    if(clickedInside&&selectionDirty&&
+       findAnchorAtPoint(event.point)===null&&!nearestEdgeAtPoint(event.point)){
+      enterSelectionIsolate();
+      return;
+    }
 
     // Only when not entering the prepared site do we interpret double-click as
     // anchor/edge editing.
@@ -5359,7 +5370,8 @@ export function createLocalFloodUI({
   // consumes them. Native canvas-target capture is a second entry path;
   // keep the existing map dblclick handler for polygon edit controls.
   const onNativeSiteDoubleClick=event=>{
-    if(drawing||isolatedSelection||!polygon?.[0]||dragVertexIndex>=0)return;
+    if(drawing||isolatedSelection||!prepared||selectionDirty||
+       isPreparingSelection||!polygon?.[0]||dragVertexIndex>=0)return;
     const point=pointFromMouseEvent(event);
     const lngLat=map.unproject([point.x,point.y]);
     if(!pointInRingLngLat([lngLat.lng,lngLat.lat],polygon[0]))return;
