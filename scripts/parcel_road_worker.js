@@ -5,6 +5,7 @@ import {initialRoadSkeleton,repairRoadConnectivity} from './parcel_road_skeleton
 import {buildPresentationRoadNetwork} from './parcel_road_presentation.js?v=3.27.0-site-wool';
 import {optimiseWool} from './parcel_wool_solver.js';
 import {createRoadTopology} from './parcel_road_topology.js';
+import {smoothSiteField} from './site_visual_field.js?v=3.28.0-tensor-wool-linked';
 let source=null,ring=null,latest=null,parameters=null;
 const send=(id,progress,message)=>postMessage({type:'progress',id,progress,message});
 const collection=features=>({type:'FeatureCollection',features});
@@ -44,6 +45,8 @@ function packageNetwork(domain,plan,network,wool,mode){
   displayRoads:collection((plan.displayRoads||[]).map(b=>({type:'Feature',properties:{hierarchy:b.kind,displayOnly:true},geometry:{type:'LineString',coordinates:b.points.map(lonlat)}}))),
   schema:'london-road-step05-v1',step:'05',title:'Tensor-integrated Wool-grown Road Network',
   provenance:{tensor:'London Map computed 2100 tensor, same-parcel memory snapshot',
+    sourceRevision:domain.sourceRevision,sourceYear:domain.sourceYear,
+    tensorFlow:'Analysis Tensor -> confidence-aware smoothed orientation -> constrained Wool growth',
     designMode:parameters.visualMode==='presentation'?
       'ARTISTIC PRESENTATION ONLY — elastic Wool-inspired morphology, not a hydrologically certified road alignment':
       'analysis with original physical safety masks',
@@ -75,9 +78,14 @@ function packageNetwork(domain,plan,network,wool,mode){
     grewRoads:(wool.stats.grownSecondary||0)+(wool.stats.grownLocal||0),
     astarRepairs:wool.stats.astarRepairs||0,
     generationMethod:parameters.visualMode==='presentation'?
-      'site-derived planar districts + shared elastic deformation + rounded Wool bundles; visual only':
+      'same-source weighted doubled-angle smoothing + organic RK2 local growth + Wool relaxation + safe A* repair':
       'tensor bidirectional RK2 + Wool active branching; A* connectivity repair only',
     visualMode:parameters.visualMode||'analysis',
+    presentationTensor:{sourceRevision:domain.sourceRevision,
+      scenarioYear:domain.sourceYear,grid:{left:domain.left,top:domain.top,cellProjectedM:domain.cell},
+      meanAngleErrorDeg:domain.presentationTensor?.diagnostics?.meanAngleErrorDeg||0,
+      maxAngleErrorDeg:domain.presentationTensor?.diagnostics?.maxAngleErrorDeg||0,
+      validCells:domain.presentationTensor?.diagnostics?.smoothedValid||0},
     cycleRank:network.statistics.cycleRank,
     approximateCycleDensity:Math.round(1000*network.statistics.cycleRank/
       Math.max(1,network.statistics.roadCount))/1000,
@@ -97,16 +105,34 @@ async function run(id,mode,params){
  parameters={...params};
  send(id,.07,'校验真实场地、洪涝深度与张量方向…');
  const domain=makeRoadDomain(source,parameters);
+ // STEP04 and STEP05 use the exact SAME doubled-angle smoothing routine.
+ // The exported validated 2100 tensor is immutable. STEP05 stores a separate
+ // native-grid-derived guidance raster with its source revision identifier.
+ const guide=smoothSiteField({w:domain.w,h:domain.h,mask:domain.safe,
+   ax:domain.ax,ay:Float32Array.from(domain.ay,y=>-y),
+   confidence:domain.certainty,anisotropy:domain.anisotropy,
+   wet:Float32Array.from(domain.depth,d=>d/(d+.16))},
+   .55+.45*Math.max(0,Math.min(1,Number(parameters.curvatureSmoothing??90)/100)));
+ domain.presentationTensor={source:'analysisTensor',sourceRevision:domain.sourceRevision,
+   scenarioYear:domain.sourceYear,grid:{left:domain.left,top:domain.top,cellProjectedM:domain.cell},
+   smoothPrimaryX:guide.smoothPrimaryX,smoothPrimaryY:guide.smoothPrimaryY,
+   confidence:guide.confidence,validMask:guide.validMask,
+   diagnostics:guide.diagnostics,field:guide};
+ domain.smoothAxisX=guide.smoothPrimaryX;
+ domain.smoothAxisY=Float32Array.from(guide.smoothPrimaryY,y=>-y);
+ if(domain.sourceYear!==2100)throw Error('STEP05 输入不是2100年张量');
+
  send(id,.15,'已完成 DEM 坡度、深水禁建区与浅水绕行成本计算');
  let skeleton,repaired;
  if(parameters.visualMode==='presentation'){
    send(id,.32,'展示模式：Wool 弹性织构和片区分叉同步生长（仅输出最终形态）…');
    skeleton=buildPresentationRoadNetwork(domain,parameters);
-   repaired={roads:skeleton.roads,stats:{...skeleton.stats,
-     grownSecondary:skeleton.stats.secondary,
-     grownLocal:skeleton.stats.local,astarRepairs:0,
-     woolCombinedOnly:true,
-     exhibitionOnly:true}};
+   const wool=optimiseWool(skeleton,domain,{...parameters,
+     woolStrength:mode==='generate'?0:parameters.woolStrength},
+     (progress,message)=>send(id,progress,message));
+   repaired=repairRoadConnectivity(wool,domain,parameters,
+     (progress,message)=>send(id,progress,message));
+   repaired.stats.exhibitionOnly=true;
  }else{
    skeleton=initialRoadSkeleton(domain,parameters,(progress,message)=>send(id,progress,message));
    const wool=optimiseWool(skeleton,domain,{...parameters,
