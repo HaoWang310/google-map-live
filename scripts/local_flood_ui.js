@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.6-step05-controls-visible';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.6-step05-controls-visible';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.24.6-step05-controls-visible';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.6-step05-controls-visible';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.6-step05-controls-visible';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.24.7-site-entry';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.24.7-site-entry';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.24.7-site-entry';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.24.7-site-entry';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.24.7-site-entry';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -883,6 +883,7 @@ export function createLocalFloodUI({
   let selectionDirty=false;
   let isPreparingSelection=false;
   let dragVertexIndex=-1;
+  let anchorDragStart=null,anchorDragMoved=false;
   let dragPanWasEnabled=true;
   let vertices=[];
   let polygon=null;
@@ -2993,7 +2994,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.6-step05-controls-visible</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.24.7-site-entry</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -4071,9 +4072,22 @@ export function createLocalFloodUI({
     });
   }
 
+  function selectionEntryBlocker(){
+    if(isolatedSelection)return '已在独立场地视图中。';
+    if(drawing)return '仍在绘制地块。请先完成边界并按 Enter 确认。';
+    if(isPreparingSelection)return '正在生成场地建筑和水文格网，请等待完成。';
+    if(!polygon?.[0]||polygon[0].length<4)return '请先闭合红色选区。';
+    if(selectionDirty)return '选区边界已更改，请按 Enter 重新生成后再进入。';
+    if(!prepared)return '地块未完成初始化，请先按 Enter 确认并等待成功。';
+    return null;
+  }
+
   function enterSelectionIsolate(){
-    if(isolatedSelection||!prepared||selectionDirty||
-      !polygon?.[0]||polygon[0].length<4)return false;
+    const blocker=selectionEntryBlocker();
+    if(blocker){
+      if(!isolatedSelection)status('无法进入独立场地：'+blocker,true);
+      return false;
+    }
     isolateCamera={
       center:map.getCenter().toArray(),zoom:map.getZoom(),
       pitch:map.getPitch(),bearing:map.getBearing()
@@ -4170,6 +4184,11 @@ export function createLocalFloodUI({
       if(button)button.disabled=parcelDisabled;
     }
     $('localFloodFinish').disabled=!drawing||vertices.length<3||isPreparingSelection;
+    const enterSite=$('localFloodEnterSite');
+    if(enterSite){
+      enterSite.disabled=Boolean(drawing||isPreparingSelection||selectionDirty||!prepared||isolatedSelection);
+      enterSite.title=selectionEntryBlocker()||'进入独立 3D 洪涝模拟；也可以双击红色选区内部';
+    }
     const simulationLocked=!prepared||selectionDirty||isPreparingSelection;
     $('localFloodRun').disabled=simulationLocked;
     $('localFloodPause').disabled=simulationLocked;
@@ -4379,7 +4398,7 @@ export function createLocalFloodUI({
         status(
           hideSelectedBuildings
             ?'范围已生成；当前“隐藏选区内建筑”已开启。关闭开关即可恢复橙色建筑。'
-            :'范围已生成：框内建筑已显示为橙色。可继续移动/修改红框后按 Enter 重新生成；需要时再勾选“隐藏选区内建筑”。'
+            :'范围已生成：双击红框内部或点击「进入独立场地」即可进入；边界编辑后请按 Enter 重新生成。'
         );
       }else{
         editingSelection=true;
@@ -5092,28 +5111,33 @@ export function createLocalFloodUI({
       return;
     }
 
-    if(!editingSelection||isPreparingSelection)return;
-
+    if(isolatedSelection)return;
     hideAreaPopup();
 
-    // Prepared selection: double-click anywhere INSIDE the red polygon enters
-    // isolated-site view immediately. This takes priority over edge/anchor editing,
-    // because the primary post-generation interaction is "enter this site".
+    // A confirmed polygon can be opened from its interior even if the editor
+    // toolbar changed. Keep edge and vertex double-clicks for editing.
     const clickedLngLat=[event.lngLat.lng,event.lngLat.lat];
     const clickedInside=Boolean(
-      prepared&&
-      !selectionDirty&&
-      polygon?.[0]&&
-      pointInRingLngLat(clickedLngLat,polygon[0])
+      polygon?.[0]?.length>=4&&pointInRingLngLat(clickedLngLat,polygon[0])
     );
-
-    if(clickedInside){
+    const atHandle=editingSelection&&(
+      findAnchorAtPoint(event.point)!==null||Boolean(nearestEdgeAtPoint(event.point))
+    );
+    if(clickedInside&&prepared&&!selectionDirty&&!isPreparingSelection&&!atHandle){
       enterSelectionIsolate();
       return;
     }
+    if(clickedInside&&isPreparingSelection){
+      enterSelectionIsolate(); // Show why the site is still loading.
+      return;
+    }
+    if(!editingSelection||isPreparingSelection)return;
+    if(clickedInside&&selectionDirty&&!atHandle){
+      enterSelectionIsolate(); // Explain the Enter-to-confirm requirement.
+      return;
+    }
 
-    // Only when not entering the prepared site do we interpret double-click as
-    // anchor/edge editing.
+    // Edge and anchor editing take priority only when the cursor is on a handle.
     const anchorIndex=findAnchorAtPoint(event.point);
     if(anchorIndex!==null){
       if(vertices.length<=3){
@@ -5265,18 +5289,13 @@ export function createLocalFloodUI({
 
     hideAreaPopup();
     dragVertexIndex=index;
+    anchorDragStart=point;
+    anchorDragMoved=false;
     dragPanWasEnabled=map.dragPan.isEnabled();
     if(dragPanWasEnabled)map.dragPan.disable();
-
-    simulator?.pause();
-    selectionDirty=true;
-    setButtons();
+    // A mouse DOWN is not an edit: wait for real pointer displacement before
+    // invalidating the prepared site. This preserves double-click entry.
     map.getCanvas().style.cursor='grabbing';
-    status(
-      prepared
-        ?'正在调整锚点 '+(index+1)+'；拖动实时修改红色范围。松开后仍可拖动地图空白处移动视窗，按 Enter 重新生成。'
-        :'正在调整锚点 '+(index+1)+'；拖动实时修改红色范围。松开后可移动视窗，按 Enter 生成建筑。'
-    );
   };
 
   const onAnchorMouseMoveWindow=event=>{
@@ -5284,19 +5303,28 @@ export function createLocalFloodUI({
     event.preventDefault();
 
     const point=pointFromMouseEvent(event);
+    if(!anchorDragMoved){
+      if(Math.hypot(point.x-anchorDragStart.x,point.y-anchorDragStart.y)<5)return;
+      anchorDragMoved=true;
+      simulator?.pause();
+      selectionDirty=true;
+      setButtons();
+    }
     const lngLat=map.unproject([point.x,point.y]);
     vertices[dragVertexIndex]=[lngLat.lng,lngLat.lat];
-    selectionDirty=true;
     syncEditablePolygon();
-    setButtons();
   };
 
   const onAnchorMouseUpWindow=()=>{
     if(dragVertexIndex<0)return;
 
+    const moved=anchorDragMoved;
     dragVertexIndex=-1;
+    anchorDragStart=null;anchorDragMoved=false;
     if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
     map.getCanvas().style.cursor='';
+    setButtons();
+    if(!moved)return; // Pure click or double-click did not change the boundary.
 
     status(
       prepared
@@ -5338,6 +5366,24 @@ export function createLocalFloodUI({
 
   const onCanvasMouseLeave=()=>hideAreaPopup();
 
+  // Capture before MapLibre's own double-click zoom and before map-layer
+  // interaction handlers. Covers canvas children as well as the base canvas.
+  // Only a confirmed interior double-click enters; near-boundary interactions
+  // are left to MapLibre's existing anchor/edge editor.
+  const onNativeSiteDoubleClick=event=>{
+    if(drawing||isolatedSelection||!prepared||selectionDirty||
+       isPreparingSelection||dragVertexIndex>=0||!polygon?.[0])return;
+    const point=pointFromMouseEvent(event);
+    if(findAnchorAtPoint(point)!==null||nearestEdgeAtPoint(point))return;
+    const lngLat=map.unproject([point.x,point.y]);
+    if(!pointInRingLngLat([lngLat.lng,lngLat.lat],polygon[0]))return;
+    event.preventDefault();
+    event.stopImmediatePropagation?.();
+    event.stopPropagation();
+    hideAreaPopup();
+    enterSelectionIsolate();
+  };
+  canvasContainer.addEventListener('dblclick',onNativeSiteDoubleClick,true);
   canvasContainer.addEventListener('mousedown',onAnchorMouseDownCapture,true);
   canvasContainer.addEventListener('mouseleave',onCanvasMouseLeave);
   window.addEventListener('mousemove',onAnchorMouseMoveWindow,{passive:false});
@@ -5401,6 +5447,7 @@ export function createLocalFloodUI({
   }
   $('localFloodDraw').addEventListener('click',startDrawing);
   $('localFloodFinish').addEventListener('click',()=>finishAndConfirmSelection());
+  $('localFloodEnterSite')?.addEventListener('click',()=>enterSelectionIsolate());
   $('localFloodClear').addEventListener('click',()=>{
     clearSimulation(false);
     status('已清除局部洪涝模拟。');
@@ -5485,6 +5532,7 @@ export function createLocalFloodUI({
       hideAreaPopup();
       if(map.getLayer(ISOLATE_MASK))map.removeLayer(ISOLATE_MASK);
       if(map.getSource(ISOLATE_SOURCE))map.removeSource(ISOLATE_SOURCE);
+      canvasContainer.removeEventListener('dblclick',onNativeSiteDoubleClick,true);
       canvasContainer.removeEventListener('mousedown',onAnchorMouseDownCapture,true);
       canvasContainer.removeEventListener('mouseleave',onCanvasMouseLeave);
       window.removeEventListener('mousemove',onAnchorMouseMoveWindow);

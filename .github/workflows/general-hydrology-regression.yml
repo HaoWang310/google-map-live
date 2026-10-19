@@ -8,6 +8,7 @@ on:
       - 'scripts/parcel_generator.js'
       - 'scripts/parcel_road_ui.js'
       - 'scripts/test_release_version.mjs'
+      - 'scripts/test_isolated_site_entry.mjs'
       - 'scripts/flood_water_visual.js'
       - 'scripts/test_flood_water_visual.mjs'
       - 'scripts/site_element_decisions.js'
@@ -51,6 +52,8 @@ jobs:
           node --check scripts/test_retained_tensor_constraints.mjs
       - name: Check release label and nested worker cache keys
         run: node scripts/test_release_version.mjs
+      - name: Verify prepared-site double-click, entry button, and edit guards
+        run: node scripts/test_isolated_site_entry.mjs
       - name: Verify mask-safe 2D and 3D water antialiasing
         run: node scripts/test_flood_water_visual.mjs
       - name: Verify original OSM planning selection and persistence

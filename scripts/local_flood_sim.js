@@ -11,7 +11,7 @@ export function createLocalFloodSimulator(config){
 
   function ensureWorker(){
     if(worker)return;
-    worker=new Worker(new URL('./local_flood_worker.js?v=3.24.6-step05-controls-visible',import.meta.url),{type:'module'});
+    worker=new Worker(new URL('./local_flood_worker.js?v=3.24.7-site-entry',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>{
       if(data.type==='setup-complete'){
         const request=pending.get(data.requestId);

@@ -86,7 +86,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.6-step05-controls-visible',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.7-site-entry',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
