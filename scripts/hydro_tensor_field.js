@@ -1,4 +1,4 @@
-import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.27.0-site-wool';
+import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.28.0-tensor-wool-linked';
 import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.27.0-site-wool';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
