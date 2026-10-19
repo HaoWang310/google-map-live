@@ -1,7 +1,8 @@
 /* Site-derived 2D Wool drawing. A shared planar district partition is pulled
    through the current hydrological field. Local streets end at collectors;
    adjacent districts never overlap. Display bundles are separate from roads. */
-import {smoothSiteField} from './site_visual_field.js?v=3.27.0-site-wool';
+import {smoothSiteField} from './site_visual_field.js?v=3.28.0-tensor-wool-linked';
+import {growOrganicLocalRoads} from './parcel_road_organic.js?v=3.28.0-tensor-wool-linked';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
 const mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];
@@ -36,7 +37,8 @@ export function buildPresentationRoadNetwork(domain,parameters={}){
  const density=clamp((parameters.roadDensity??88)/100,.05,1),wool=clamp((parameters.woolStrength??88)/100,0,1);
  const bundle=clamp((parameters.bundleStrength??85)/100,0,1),avoid=clamp((parameters.floodAvoidance??58)/100,0,1);
  const wet=Float32Array.from({length:n},(_,i)=>(domain.depth?.[i]||0)/((domain.depth?.[i]||0)+.16));
- const field=smoothSiteField({w,h,mask:inside,ax:domain.ax,ay:domain.ay?Float32Array.from(domain.ay,v=>-v):null,wet},.55+.45*clamp((parameters.curvatureSmoothing??90)/100,0,1));
+ const field=smoothSiteField({w,h,mask:domain.safe,ax:domain.ax,ay:domain.ay?Float32Array.from(domain.ay,v=>-v):null,
+   confidence:domain.certainty,anisotropy:domain.anisotropy,wet},.55+.45*clamp((parameters.curvatureSmoothing??90)/100,0,1));
  const size=Math.min(w,h),roads=[],bundles=[],displayRoads=[],lengths={main:0,secondary:0,local:0};
  const stats={main:0,secondary:0,local:0},rejections={outside:0,short:0};
  const cellAt=([x,y])=>{const xx=Math.floor(x),yy=Math.floor(y);return xx>=0&&yy>=0&&xx<w&&yy<h?yy*w+xx:-1;};
@@ -105,11 +107,14 @@ export function buildPresentationRoadNetwork(domain,parameters={}){
   };
   for(const p of samples){
    // Local streets leave actual wet negative space. No invented sine river.
-   const allowed=inSite(p)&&(kind!=='local'||waterAt(p)<.32+.25*(1-avoid));
+   const i=cellAt(p);
+    const allowed=inSite(p)&&(decorative||display||Boolean(domain.safe[i]))&&
+     (kind!=='local'||waterAt(p)<.32+.25*(1-avoid));
    if(!allowed){flush();rejections.outside++;continue;}
    // Also inspect segment interior to prevent holes being bridged.
    if(run.length){const a=run.at(-1);let clear=true;
-    for(let t=.25;t<1;t+=.25)if(!inSite(mix(a,p,t))){clear=false;break;}
+    for(let t=.2;t<1;t+=.2){const probe=mix(a,p,t),ci=cellAt(probe);
+      if(!inSite(probe)||(!decorative&&!display&&(ci<0||!domain.safe[ci]))){clear=false;break;}}
     if(!clear)flush();
    }run.push(p);
   }flush();
@@ -141,29 +146,14 @@ export function buildPresentationRoadNetwork(domain,parameters={}){
   for(const e of shortest(nearest(a),nearest(b)))edges[e].kind='main';
  function edgeSamples(a,b){const count=Math.max(8,Math.ceil(dist(a,b)/.75));return Array.from({length:count+1},(_,i)=>warp(mix(a,b,i/count)));}
  for(const e of edges){e.samples=edgeSamples(nodes[e.u].p,nodes[e.v].p);add(e.samples,e.kind,'collector');}
- // Local orthogonal subdivision in each NON-overlapping cell. Rotated to the
- // local real eigenframe, then deformed by the same Wool map as the collectors.
+ // Organic local roads guided by the SAME smoothed source tensor as STEP04.
+ const organic=growOrganicLocalRoads(domain,field,edges.map(e=>e.samples),parameters);
  let localCandidates=0;
- cells.forEach((poly,d)=>{
-  if(poly.length<3)return;
-  const center=seeds[d],axis=field.read(...center)||[1,0],theta=Math.atan2(axis[1],axis[0]);
-  const ca=Math.cos(theta),sa=Math.sin(theta);
-  const coords=poly.map(p=>[(p[0]-center[0])*ca+(p[1]-center[1])*sa,-(p[0]-center[0])*sa+(p[1]-center[1])*ca]);
-  for(const vertical of [false,true]){
-   const dim=vertical?0:1,min=Math.min(...coords.map(p=>p[dim])),max=Math.max(...coords.map(p=>p[dim]));
-   const spacing=size/(24+45*density),count=Math.max(1,Math.floor((max-min)/spacing));
-   for(let k=1;k<count;k++){
-    const fixed=min+(max-min)*k/count,hits=[];
-    for(let j=0;j<coords.length;j++){
-     const a=coords[j],b=coords[(j+1)%coords.length];
-     if((a[dim]<fixed)!==(b[dim]<fixed))hits.push(mix(a,b,(fixed-a[dim])/(b[dim]-a[dim])));
-    }
-    if(hits.length!==2)continue;
-    const back=p=>[center[0]+p[0]*ca-p[1]*sa,center[1]+p[0]*sa+p[1]*ca];
-    add(edgeSamples(back(hits[0]),back(hits[1])),'local','district-'+d);localCandidates++;
-   }
-  }
- });
+ for(const road of organic.roads){
+  const before=roads.length;
+  add(road.points,'local','analysis-linked-organic-integration');
+  localCandidates+=roads.length-before;
+ }
  // Rounded Y junction fibres: these are display-only strands of the final
  // bundles, never counted as extra roads, loops or planning area.
  const strandCount=Math.round(2+4*bundle),radius=size*(.016+.026*wool);
@@ -204,7 +194,8 @@ export function buildPresentationRoadNetwork(domain,parameters={}){
  }
  return {roads,bundles,displayRoads,access:[],candidates:[],stats:{...stats,
   syntheticPresentation:false,siteDerived:true,woolCombinedOnly:true,
-  displayMethod:'site tensor / wetness -> planar district graph -> shared elastic pull -> hierarchical bundled drawing',
-  generatedDistricts:cells.length,localFiberCandidates:localCandidates,bundleStrands:bundles.length,
+  displayMethod:'source analysis tensor -> shared weighted field -> organic Wool road growth',
+  generatedDistricts:cells.length,localFiberCandidates:localCandidates,
+   organicDiagnostics:organic.diagnostics,presentationDirection:field.diagnostics,bundleStrands:bundles.length,
   generatedLengthM:lengths,targetRoads:roads.length,rejections,eligibleCells:domain.dryCells,visitedCells:0}};
 }
