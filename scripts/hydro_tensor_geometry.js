@@ -1,4 +1,5 @@
-import {smoothSiteField,traceSiteWeave} from './site_visual_field.js?v=3.28.0-tensor-wool-linked';
+import {smoothSiteField} from './site_visual_field.js?v=3.29.0-global-warp';
+import {buildGlobalWarpedWeave} from './global_warped_weave.js?v=3.29.0-global-warp';
 /* Static geometry only. Never writes tensor arrays, DEM, water depth or masks.
    Subcell samples interpolate existing evidence; they add no DEM resolution.
    Deterministic adaptive streamline placement + scalar-area mask skeleton. */
@@ -246,11 +247,14 @@ export function createTensorGeometry(result,options={}){
     const field=smoothSiteField({w,h,mask:presentationMask,ax:f.primaryX,ay:f.primaryY,
       wet:f.rainfallInfluence,confidence:f.confidence,anisotropy:f.anisotropy,
       obstacle:result.obstacleMask},.65+.35*smoothing);
-    const weave=traceSiteWeave(field,{density,dx,dy,direction:options.direction||'dual'});
+    // One globally parameterized elastic sheet: U/V are iso-curves of the SAME F(u,v).
+    // Analysis mode continues using its original streamlines and source masks.
+    const weave=buildGlobalWarpedWeave(field,{density,dx,dy,direction:options.direction||'dual'});
     diagnostics.field=weave.diagnostics;
     diagnostics.visualizationOnly=true;
     diagnostics.siteDerived=true;
-    diagnostics.displayMethod='Current parcel doubled-angle tensor smoothing + bidirectional integration';
+    diagnostics.displayMethod='Shared global elastic parametric mapping F(u,v); U/V iso-curves';
+    diagnostics.globalWarp=weave.globalMapping;
     diagnostics.nativeTensorUnchanged=true;
     diagnostics.smoothingPasses=field.passes;
     diagnostics.presentationSource=field.diagnostics;
@@ -262,8 +266,8 @@ export function createTensorGeometry(result,options={}){
       displayDirectionCells:field.diagnostics.smoothedValid
     };
     diagnostics.presentationFromAnalysis=true;
-    diagnostics.primarySpacingM=weave.gap*cell;
-    diagnostics.secondarySpacingM=weave.gap*cell;
+    diagnostics.primarySpacingM=weave.gap*Math.min(dx,dy);
+    diagnostics.secondarySpacingM=weave.gap*Math.min(dx,dy);
     return weave.lines;
   }
   function buildLines(){
