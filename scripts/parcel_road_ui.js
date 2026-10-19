@@ -1,15 +1,15 @@
 /* STEP 05 independent Parcel Generator presentation/controller.
    No STEP 01–04 changes or fabricated tensor data. */
 const PARAMETERS=[
- ['woolStrength','Wool Strength',70,0,100],
- ['tensorAlignment','Tensor Alignment',75,0,100],
- ['floodAvoidance','Flood Avoidance',85,0,100],
- ['roadDensity','Road Density',55,5,100],
- ['branchingStrength','Branching Strength',60,0,100],
- ['bundleStrength','Bundle Strength',60,0,100],
- ['reconnectionStrength','Reconnection Strength',60,0,100],
- ['curvatureSmoothing','Curvature Smoothing',75,0,100],
- ['agriculturalContinuity','Agricultural Continuity',75,0,100]
+ ['woolStrength','羊毛拉力',88,0,100],
+ ['tensorAlignment','张量贴合度',78,0,100],
+ ['floodAvoidance','洪涝避让',58,0,100],
+ ['roadDensity','路网密度',88,5,100],
+ ['branchingStrength','分叉强度',78,0,100],
+ ['bundleStrength','线束聚合强度',85,0,100],
+ ['reconnectionStrength','重连强度',86,0,100],
+ ['curvatureSmoothing','曲率平滑度',90,0,100],
+ ['agriculturalContinuity','农业连续性',65,0,100]
 ];
 const empty=()=>({type:'FeatureCollection',features:[]});
 const statusText=(node,txt,bad=false)=>{if(node){
@@ -48,46 +48,47 @@ export function createParcelRoadUI({
 }){
  const el=id=>root?.querySelector('#'+id);
  let worker=null,serial=0,ready=false,result=null,active=false,pending=false;
- let loadedSource=null,autoGenerateOnReady=false;
+ let loadedSource=null,autoGenerateOnReady=false,regenerateTimer=null,rerunAfterDone=false;
  function inform(msg,bad=false){statusText(el('pg-road-status'),msg,bad);
    onStatus?.(msg,bad);}
  const html=()=>`
  <div class="pg-label">STEP 05 · 羊毛道路生成与优化</div>
  <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，一步完成初始道路骨架和 Wool 优化。下方按钮可手动重新生成。'}</p>
- <div class="pg-section"><div class="pg-label">GENERATE / OPTIMISE · 道路生成</div>
+ <div class="pg-section"><div class="pg-label">生成 / 优化 · 三级有机路网</div>
  <div class="pg-road-actions">
- <button id="pg-road-generate" disabled>① 生成道路网络</button>
- <button id="pg-road-wool" disabled>② Wool 优化</button>
+ <button id="pg-road-generate" disabled>① 生成道路骨架</button>
+ <button id="pg-road-wool" disabled>② 羊毛优化并重连</button>
  <button id="pg-road-reset">重置路网</button>
  </div>
  <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
- <div class="pg-status" id="pg-road-status">尚未加载真实 2100 年张量与水深，生成道路暂不可用。</div>
+ <div class="pg-status" id="pg-road-status">等候当前选区真实2100年张量与水深结果。</div>
+ <div class="pg-status" id="pg-road-quality" style="white-space:pre-line;font-size:10px">运行后显示道路分级、路网覆盖率、闭环与候选街区面积。</div>
  </div>
  <div class="pg-note" id="pg-road-source">等待同一地块真实张量/水深数据。</div>
  ${showImport?`<label class="pg-option" style="display:block">备用：导入真实场地诊断 JSON
   <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
  </label>`:''}
- <div class="pg-section"><div class="pg-label">WOOL / FLOOD / URBAN CONTROL · 参数</div>
+ <div class="pg-section"><div class="pg-label">羊毛 / 洪涝 / 城市控制 · 参数</div>
  ${PARAMETERS.map(([k,label,v,min,max])=>`
   <label class="pg-road-param"><span>${label} <output id="pg-road-val-${k}">${v}</output></span>
-   <input type="range" id="pg-road-${k}" min="${min}" max="${max}" step="5" value="${v}"></label>`).join('')}
+   <input type="range" id="pg-road-${k}" min="${min}" max="${max}" step="1" value="${v}"></label>`).join('')}
  <label class="pg-road-param"><span>普通道路水深阈值（米）</span>
-  <input id="pg-road-floodLimitM" type="number" min=".03" max=".6" step=".01" value=".15" style="width:68px"></label></div>
- <div class="pg-section"><div class="pg-label">VISIBILITY / HIERARCHY</div>
- ${[['main','Main Roads (主道路)'],['secondary','Secondary Roads (次道路)'],
-  ['local','Local Roads (支路)'],['reserved','Flood / ecological reserves'],
-  ['footprints','Road Footprints']].map(([k,label])=>
+  <input id="pg-road-floodLimitM" type="number" min=".03" max=".6" step=".01" value=".12" style="width:68px"></label></div>
+ <div class="pg-section"><div class="pg-label">显示 / 道路层级</div>
+ ${[['main','主道路'],['secondary','次道路'],
+  ['local','局部支路'],['reserved','洪涝 / 生态保留带'],
+  ['footprints','道路占地范围']].map(([k,label])=>
   `<label class="pg-option"><input type="checkbox" id="pg-road-show-${k}"
      ${k!=='footprints'?'checked':''}> ${label}</label>`).join('')}
  </div>
- <div class="pg-section"><div class="pg-label">STEP 06 HANDOFF</div>
+ <div class="pg-section"><div class="pg-label">进入第六步 · 地块分割</div>
  <div class="pg-road-actions">
- <button id="pg-road-export" disabled>↓ Export GeoJSON</button>
- <button id="pg-road-package" disabled>↓ Full topology JSON</button></div>
+ <button id="pg-road-export" disabled>↓ 导出 GeoJSON</button>
+ <button id="pg-road-package" disabled>↓ 导出完整拓扑 JSON</button></div>
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.24.8-auto-wool',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.25.0-organic-wool',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -103,6 +104,14 @@ export function createParcelRoadUI({
     if(autoGenerateOnReady)generate('optimise');
    }else if(data.type==='done'){
     pending=false;result=data.result;
+    const q=el('pg-road-quality'),stat=result.diagnostics;
+    if(q)q.textContent='主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
+      ' km · 支路 '+stat.localKm+' km' +
+      '\n安全格网道路覆盖率 '+stat.rasterCorridorCoveragePct+'% · 独立连通块 '+
+      stat.components+' · 闭环秩 '+stat.cycleRank+
+      '\n候选街区 '+stat.candidateBlocks+' 个 · 面积中位数 '+
+      stat.medianBlockAreaM2+' m²' +
+      (stat.qualityFlags?.length?'\n需要复核：'+stat.qualityFlags.join('、'):'');
     for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package'])
       el(id).disabled=false;
     el('pg-road-progressbar').style.width='100%';
@@ -111,11 +120,12 @@ export function createParcelRoadUI({
       ' 个路口 · '+(data.result.mode==='optimise'?'Wool 优化':'初始道路骨架'));
     updateMap();
     onDone(result);
+    if(rerunAfterDone){rerunAfterDone=false;generate('optimise');}
    }else if(data.type==='error'){
     pending=false;
     for(const id of ['pg-road-generate','pg-road-wool'])el(id).disabled=!ready;
     el('pg-road-source').textContent='⚠ 当前场地真实张量／洪涝数据校验失败，请检查 STEP 04。';
-    inform('STEP 05 失败：'+data.message,true);
+    rerunAfterDone=false;inform('STEP 05 失败：'+data.message,true);
    }else if(data.type==='cleared'){
     result=null;pending=false;updateMap();
    }
@@ -135,11 +145,11 @@ export function createParcelRoadUI({
     id,type:kind==='reserved'||kind==='footprints'?'fill':'line',source:id,
     layout:{visibility:'none',...(kind==='reserved'||kind==='footprints'?{}:
       {'line-join':'round','line-cap':'round'})},
-    paint:kind==='reserved'?{'fill-color':'#28516c','fill-opacity':.5}:
+    paint:kind==='reserved'?{'fill-color':'#163146','fill-opacity':.22}:
      kind==='footprints'?{'fill-color':'#c7d0d8','fill-opacity':.14}:
      {'line-color':kind==='main'?'#ffffff':kind==='secondary'?'#eeeeee':'#a8b1bd',
-      'line-width':kind==='main'?5.5:kind==='secondary'?2.75:1.0,
-      'line-opacity':kind==='main'?1:.9}
+      'line-width':kind==='main'?4.5:kind==='secondary'?2.15:.8,
+      'line-opacity':kind==='main'?1:kind==='secondary'?.92:.78}
    },outlineLayer);
   }
   return true;
@@ -190,17 +200,31 @@ export function createParcelRoadUI({
   try{acceptSnapshot(JSON.parse(await file.text()),file.name);}
   catch(e){inform('场地 JSON 读取失败：'+e.message,true)}
  }
+ function scheduleRegenerate(){
+  if(!ready||!active)return;
+  if(regenerateTimer!==null)clearTimeout(regenerateTimer);
+  regenerateTimer=setTimeout(()=>{
+   regenerateTimer=null;
+   if(pending){rerunAfterDone=true;return}
+   generate('optimise');
+  },450);
+ }
  function mount(target){
   target.innerHTML=html();
   for(const [k] of PARAMETERS){
    const slider=el('pg-road-'+k),out=el('pg-road-val-'+k);
    slider.oninput=()=>{out.textContent=slider.value;};
+   slider.onchange=()=>scheduleRegenerate();
   }
   if(el('pg-road-import'))el('pg-road-import').onchange=e=>importSource(e.target.files?.[0]);
+  el('pg-road-floodLimitM').onchange=()=>scheduleRegenerate();
   el('pg-road-generate').onclick=()=>generate('generate');
   el('pg-road-wool').onclick=()=>generate('optimise');
   el('pg-road-reset').onclick=()=>{
-   result=null;pending=false;
+   result=null;pending=false;rerunAfterDone=false;
+   if(regenerateTimer!==null)clearTimeout(regenerateTimer);
+   regenerateTimer=null;
+   if(el('pg-road-quality'))el('pg-road-quality').textContent='尚未生成路网。';
    onReset();
    if(worker){worker.terminate();worker=null;}
    ready=false;
@@ -208,8 +232,8 @@ export function createParcelRoadUI({
    for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package'])
     el(id).disabled=true;
    updateMap();
-   inform('道路已重置。重新导入真实张量场后可再次生成。');
-   el('pg-road-source').textContent='尚未导入真实场地';
+   inform('道路已重置。需由 STEP 04 提供同一地块真实张量数据。');
+   el('pg-road-source').textContent='等待真实场地数据';
   };
   for(const kind of Object.keys(names))
    el('pg-road-show-'+kind).onchange=updateMap;
@@ -252,7 +276,8 @@ export function createParcelRoadUI({
   inform('已载入 Hydro Lab 生成的 STEP 05 道路网络 · '+(result.diagnostics?.roadCount||0)+' 条');
   updateMap();
  }
- function dispose(){serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
+ function dispose(){if(regenerateTimer!==null)clearTimeout(regenerateTimer);
+  serial++;worker?.terminate();worker=null;active=false;ready=false;result=null;}
  return {mount,setActive,setAutoGenerate,attachMap:updateMap,generateInitial,loadSnapshot,loadResult,resetRoads,dispose,
   get isReady(){return ready},get result(){return result}};
 }

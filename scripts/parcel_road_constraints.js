@@ -35,6 +35,11 @@ export function readSiteTensor(input,ring){
  const valid=decoded(f.validMask,n,'validMask');
  const depth=decoded(snapshot.depthMm,n,'depthMm');
  const drainage=decoded(f.drainageMask,n,'drainageMask');
+ // Native DEM may be exported with the tensor; optional for older auditable
+ // fixtures, but always reuses the same original georeferenced grid.
+ const nativeTerrain=snapshot.input?.terrain?.values??snapshot.input?.terrain;
+ const terrain=Array.isArray(nativeTerrain)&&nativeTerrain.length===n?
+  Float32Array.from(nativeTerrain,v=>Number.isFinite(Number(v))?Number(v):NaN):null;
  // If the export carries the original selected polygon, verify the exact
  // parcel rather than only accepting any other site inside the same raster.
  const original=input?.selection?.coordinates?.[0];
@@ -60,7 +65,7 @@ export function readSiteTensor(input,ring){
  const year=Number(snapshot.scenario?.year??snapshot.scenarioYear);
  if(year!==2100)throw Error('请导入含有 2100 年计算结果的场地诊断 JSON（不是仅2026年的预览）');
  return {cols,rows,grid:{left:grid.left,top:grid.top,cellProjectedM:grid.cellProjectedM},
-  primaryX,primaryY,confidence,valid,depth,drainage,polygon,
+  primaryX,primaryY,confidence,valid,depth,drainage,terrain,polygon,
   year,source:'London Map computed hydrological tensor + 2100 flood depth',
   metricScale:Math.cos(ring.reduce((s,p)=>s+p[1],0)/ring.length*Math.PI/180)};
 }
@@ -72,11 +77,12 @@ export function makeRoadDomain(source,parameters={}){
  const count=w*h;
  const inside=new Uint8Array(count),safe=new Uint8Array(count),
   depth=new Float32Array(count),ax=new Float32Array(count),ay=new Float32Array(count),
-  certainty=new Float32Array(count),hydro=new Uint8Array(count),cost=new Float32Array(count);
+  certainty=new Float32Array(count),hydro=new Uint8Array(count),cost=new Float32Array(count),
+  slope=new Float32Array(count);
  const maxNormal=clamp(Number(parameters.floodLimitM??.15),.03,.6)*1000;
  const avoid=clamp(Number(parameters.floodAvoidance??85)/100,0,1);
  const floodLimit=maxNormal*(1.25-avoid*.25);
- let dry=0,wet=0;
+ let dry=0,wet=0,steep=0,shallow=0,deep=0;
  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
   const i=y*w+x,sx=Math.min(cols-1,x*stride+Math.floor(stride/2)),
     sy=Math.min(rows-1,y*stride+Math.floor(stride/2)),j=sy*cols+sx;
@@ -85,30 +91,51 @@ export function makeRoadDomain(source,parameters={}){
   // Conservative downsampling: NEVER accept a dry centre sample as proof
   // that a narrow deep-water channel is safe. Use the source-cell peak and
   // maximum drainage evidence within the coarse planning cell.
-  let maximumDepth=0,drainageEvidence=0,invalidCell=false;
+  let maximumDepth=0,drainageEvidence=0,invalidCount=0,sourceCount=0;
   for(let oy=0;oy<stride;oy++)for(let ox=0;ox<stride;ox++){
     const xx=x*stride+ox,yy=y*stride+oy;
     if(xx>=cols||yy>=rows)continue;
     const z=yy*cols+xx;
     maximumDepth=Math.max(maximumDepth,source.depth[z]);
     drainageEvidence=Math.max(drainageEvidence,source.drainage[z]);
-    if(!source.valid[z])invalidCell=true;
+    sourceCount++;if(!source.valid[z])invalidCount++;
   }
   inside[i]=1;depth[i]=maximumDepth/1000;
   const v=Math.hypot(source.primaryX[j],source.primaryY[j]);
   if(v>.25){ax[i]=source.primaryX[j]/v;ay[i]=-source.primaryY[j]/v;}
   certainty[i]=source.confidence[j];
   hydro[i]=drainageEvidence>0?1:0;
-  const dangerous=invalidCell||maximumDepth>=floodLimit||
-    (hydro[i]&&maximumDepth>=30);
-  if(!dangerous){safe[i]=1;dry++}else wet++;
-  cost[i]=1+avoid*Math.pow(Math.max(0,depth[i])/.2,1.5)*4+
-   (hydro[i]?avoid*2.5:0);
+  // Real physical slope is estimated from DEM elevations in ground metres.
+  // Keep the DEM as a *cost*, not a reason to fabricate a new street direction.
+  if(source.terrain){
+   const dem=source.terrain,cols0=source.cols,rows0=source.rows;
+   const a=dem[sy*cols0+Math.max(0,sx-1)],
+     b=dem[sy*cols0+Math.min(cols0-1,sx+1)],
+     c=dem[Math.max(0,sy-1)*cols0+sx],
+     e=dem[Math.min(rows0-1,sy+1)*cols0+sx];
+   if([a,b,c,e].every(Number.isFinite)){
+    const unit=Math.max(1,source.grid.cellProjectedM*metricScale);
+    slope[i]=Math.hypot((b-a)/(2*unit),(e-c)/(2*unit));
+   }
+  }
+  // Deep inundation and major actively flooded drainage are hard exclusion.
+  // Shallow wet edges are traversable but increasingly expensive; the solver
+  // always validates its centreline against the hard mask.
+  const invalid=sourceCount===0||invalidCount>sourceCount*.3;
+  const dangerous=invalid||maximumDepth>=floodLimit||
+    (hydro[i]&&maximumDepth>=Math.min(floodLimit,90))||slope[i]>.65;
+  if(!dangerous){safe[i]=1;dry++;if(maximumDepth>=20)shallow++}
+  else{wet++;if(slope[i]>.65)steep++;if(maximumDepth>=floodLimit)deep++}
+  const wetCost=Math.pow(Math.max(0,depth[i])/.12,1.45)*avoid*3.6;
+  cost[i]=1+wetCost+(hydro[i]?avoid*(depth[i]>.02?1.5:.7):0)+
+    Math.min(8,slope[i]*slope[i]*12);
+
  }
  if(dry<36)throw Error('洪涝/地形约束后可规划格网不足；请检查场地或水深阈值');
  const siteGroundCell=cell*metricScale;
  return {w,h,cell,groundCell:siteGroundCell,left:grid.left,top:grid.top,
-  inside,safe,depth,ax,ay,certainty,hydro,cost,dryCells:dry,wetCells:wet,
+  inside,safe,depth,ax,ay,certainty,hydro,cost,slope,dryCells:dry,wetCells:wet,
+  diagnostics:{steepExcluded:steep,deepExcluded:deep,shallowTraversable:shallow},
   boundary:source.polygon,scale:metricScale,stride,
   toPoint:i=>[grid.left+((i%w)+.5)*cell,grid.top-(Math.floor(i/w)+.5)*cell],
   cellAt:p=>{

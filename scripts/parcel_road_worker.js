@@ -30,7 +30,7 @@ function packageNetwork(domain,plan,network,wool,mode){
   geometry:{type:'Polygon',coordinates:[ring]}}]);
  return {
   schema:'london-road-step05-v1',step:'05',title:'Generate and Optimise the Road Network',
-  provenance:{tensor:'London Map calculated, imported 2100 year',
+  provenance:{tensor:'London Map computed 2100 tensor, same-parcel memory snapshot',
     flood:'same computed 2100 snapshot',crs:'EPSG:4326',
     metricBasis:'EPSG:3857 in worker, latitude corrected for physical widths',
     reality:'Computational planning proposal; road alignments and access not field verified',
@@ -50,23 +50,40 @@ function packageNetwork(domain,plan,network,wool,mode){
     localRoadsAreConceptual:true,finalUseZoningIsNotGenerated:true},
   diagnostics:{...network.statistics,skeleton:plan.stats,wool:wool.stats,
     sourceValidCells:domain.dryCells+domain.wetCells,safeCells:domain.dryCells,
-    hazardCells:domain.wetCells},
+    hazardCells:domain.wetCells,
+    safeAreaM2:Math.round(domain.dryCells*domain.groundCell**2),
+    unsafeAreaM2:Math.round(domain.wetCells*domain.groundCell**2),
+    rasterCorridorCoveragePct:Math.round(10000*plan.stats.visitedCells/
+      Math.max(1,domain.dryCells))/100,
+    cycleRank:network.statistics.cycleRank,
+    approximateCycleDensity:Math.round(1000*network.statistics.cycleRank/
+      Math.max(1,network.statistics.roadCount))/1000,
+    terrainAndFlood:domain.diagnostics,
+    failureCounts:plan.stats.rejections,
+    qualityFlags:[
+      ...(plan.stats.local<6?['local-network-sparse']:[]),
+      ...(plan.stats.visitedCells/Math.max(1,domain.dryCells)<.08?['low-centerline-cell-coverage']:[]),
+      ...(network.statistics.components>1?['disconnected-components']:[]),
+      ...(network.statistics.cycleRank<2?['few-loops']:[])
+    ]},
  };
 }
 async function run(id,mode,params){
- if(!source||!ring)throw Error('STEP 05 尚未导入同一场地的真实张量与洪涝数据');
+ if(!source||!ring)throw Error('STEP 05 尚未收到同一地块的2100年真实张量与洪涝结果');
+ const started=performance.now();
  parameters={...params};
  send(id,.07,'校验真实场地、洪涝深度与张量方向…');
  const domain=makeRoadDomain(source,parameters);
- send(id,.15,'已计算可建设区域与保留洪涝走廊');
+ send(id,.15,'已完成 DEM 坡度、深水禁建区与浅水绕行成本计算');
  const skeleton=initialRoadSkeleton(domain,parameters,(progress,message)=>send(id,progress,message));
  const wool=optimiseWool(skeleton,domain,{...parameters,
   woolStrength:mode==='generate'?0:parameters.woolStrength},(progress,message)=>send(id,progress,message));
- send(id,.88,'正在计算道路交叉口、路面宽度与真实拓扑…');
+ send(id,.88,'正在重连路网拓扑并检查连通性、闭环与候选地块面积…');
  const network=createRoadTopology(wool,domain,parameters,(progress,message)=>send(id,progress,message));
  const output=packageNetwork(domain,skeleton,network,wool,mode);
+ output.diagnostics.elapsedMs=Math.round(performance.now()-started);
  latest=output;
- send(id,1,'STEP 05 已生成可导出的真实场地道路几何与拓扑');
+ send(id,1,'STEP 05 已完成三级路网、Wool 优化和闭环诊断');
  postMessage({type:'done',id,result:output});
 }
 onmessage=async event=>{

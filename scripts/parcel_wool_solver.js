@@ -32,8 +32,9 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
   points:resample(r.points,step)
  }));
  // Endpoint graph vertices are fixed; all fibre relaxation is interior-only.
- const rounds=Math.max(0,Math.round(strength*15));
- const proximity=domain.cell*(2.0+bundle*1.8);
+ const rounds=Math.max(0,Math.round(strength*19));
+ const proximity=domain.cell*(2.0+bundle*2.2);
+ let unsafeRejected=0,relaxedPoints=0,filamentPairs=0;
  for(let pass=0;pass<rounds;pass++){
   const cellSize=Math.max(domain.cell*1.8,proximity),buckets=new Map();
   const key=p=>Math.floor(p[0]/cellSize)+','+Math.floor(p[1]/cellSize);
@@ -74,16 +75,19 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
       const neighbors=buckets.get((gx+ox)+','+(gy+oy))||[];
       for(const other of neighbors){
        if(other.k===k)continue;
-       if(roads[other.k].kind!==road.kind&&road.kind==='main')continue;
+       // Do not pull major roads into thin local branches. Fibres in the
+       // same hierarchy may share a bundle, but must remain distinct streets.
+       if(roads[other.k].kind!==road.kind)continue;
        const d=length(p,other.p);
-       if(d<domain.cell*.7||d>proximity)continue;
+       if(d<domain.cell*.85||d>proximity)continue;
        const w=(1-d/proximity)**2;
+       filamentPairs++;
        wx+=other.p[0]*w;wy+=other.p[1]*w;wSum+=w;
       }
      }
      if(wSum>0){
       const centroid=[wx/wSum,wy/wSum];
-      target=mix(target,centroid,Math.min(.12,bundle*.09));
+      target=mix(target,centroid,Math.min(.09,bundle*.075));
      }
     }
     const taper=Math.min(1,j/4,(a.length-1-j)/4);
@@ -91,12 +95,38 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
     const pull=taper*(.3+.45*strength)*(.65+.35*branch);
     const candidate=mix(p,target,pull);
     if(safePoint(domain,candidate)&&safeSegment(domain,prev,candidate)&&
-       safeSegment(domain,candidate,post))next[j]=candidate;
+       safeSegment(domain,candidate,post)){
+      next[j]=candidate;relaxedPoints++;
+    }else unsafeRejected++;
    }
    road.points=next;
   }
   if(pass%3===2)progress(.68+.18*(pass+1)/Math.max(1,rounds),
     'Wool 弹性松弛 '+(pass+1)+'/'+rounds);
+ }
+ // Constrained Chaikin-like refinement: round away 45-degree A* corners,
+ // but reject any new tangent which cuts across flood/DEM exclusion cells.
+ let curveRefinements=0;
+ for(const road of roads){
+  if(strength===0||road.points.length<4)continue;
+  const input=road.points,refined=[input[0]];
+  for(let k=0;k<input.length-1;k++){
+   const a=input[k],b=input[k+1];
+   if(k===0||k===input.length-2){
+    refined.push(b);continue;
+   }
+   const q=mix(a,b,.25),r=mix(a,b,.75);
+   const previous=refined.at(-1);
+   const next=input[k+2];
+   if(safePoint(domain,q)&&safePoint(domain,r)&&
+       safeSegment(domain,previous,q)&&safeSegment(domain,q,r)&&
+       safeSegment(domain,r,next)){
+    refined.push(q,r);
+    curveRefinements++;
+   }else refined.push(b);
+  }
+  if(refined.length>1&&refined.length<=input.length*2)
+   road.points=refined;
  }
  // Curve sampling remains dense, preserving narrow valid corridors.
  for(const road of roads){
@@ -110,5 +140,6 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
  }
  return {roads,stats:{iterations:rounds,optimizedRoads:roads.length,
   totalLengthM:roads.reduce((sum,r)=>sum+r.lengthM,0),
-  formula:'elastic tension + principal-axis correction + fibre bundle attraction; flood collision projection'}};
+  unsafeRejected,relaxedPoints,filamentPairs,curveRefinements,
+  formula:'tensor-guided elastic relaxation + hierarchy-aware fibre bundling + flood-safe Chaikin curves'}};
 }

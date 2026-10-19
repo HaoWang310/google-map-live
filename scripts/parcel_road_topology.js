@@ -107,10 +107,73 @@ export function createRoadTopology(optimised,domain,parameters={},progress=()=>{
   degrees.set(edge.target,(degrees.get(edge.target)||0)+1);
  }
  for(const node of nodes)node.degree=degrees.get(node.id)||0;
+ // Explicit undirected graph connectivity and cycle rank. Count cycles by
+ // E−V+C rather than treating every visual crossing as a valid road loop.
+ const parent=new Map(nodes.map(n=>[n.id,n.id]));
+ const root=a=>{let p=a;while(parent.get(p)!==p)p=parent.get(p);
+  while(parent.get(a)!==a){const b=parent.get(a);parent.set(a,p);a=b}
+  return p;
+ };
+ for(const e of edges){const a=root(e.source),b=root(e.target);if(a!==b)parent.set(b,a)}
+ const componentCount=new Set(nodes.filter(n=>n.degree>0).map(n=>root(n.id))).size;
+ const isolatedEnds=nodes.filter(n=>n.degree===1).length;
+ const cyclicRank=Math.max(0,edges.length-nodes.filter(n=>n.degree>0).length+componentCount);
+ // Planar half-edge walks locate *candidate* inner faces. This is a
+ // diagnostic only; exact geometric union/subtraction belongs to STEP 06.
+ const adj=new Map(nodes.map(n=>[n.id,[]]));
+ const projected=new Map(nodes.map(n=>[n.id,n.metric]));
+ for(const e of edges){
+  adj.get(e.source).push(e.target);
+  adj.get(e.target).push(e.source);
+ }
+ for(const [id,neighbors] of adj){
+  const p=projected.get(id);
+  neighbors.sort((a,b)=>{
+   const q=projected.get(a),r=projected.get(b);
+   return Math.atan2(q[1]-p[1],q[0]-p[0])-
+    Math.atan2(r[1]-p[1],r[0]-p[0]);
+  });
+ }
+ const seen=new Set(),potentialBlocks=[],stepsLimit=Math.max(300,edges.length*3);
+ for(const e of edges)for(const [u0,v0] of [[e.source,e.target],[e.target,e.source]]){
+  const key=u0+'>'+v0;if(seen.has(key))continue;
+  let u=u0,v=v0,ring=[],closed=false;
+  for(let iter=0;iter<stepsLimit;iter++){
+   const k=u+'>'+v;if(seen.has(k))break;seen.add(k);
+   ring.push(projected.get(u));
+   const nexts=adj.get(v),idx=nexts.indexOf(u);
+   if(idx<0||!nexts.length)break;
+   // Immediate clockwise turn keeps bounded planar faces on the left.
+   const w=nexts[(idx-1+nexts.length)%nexts.length];
+   u=v;v=w;
+   if(u===u0&&v===v0){closed=true;break}
+  }
+  if(!closed||ring.length<3)continue;
+  let twiceArea=0;
+  for(let j=0;j<ring.length;j++){
+   const a=ring[j],b=ring[(j+1)%ring.length];
+   twiceArea+=a[0]*b[1]-b[0]*a[1];
+  }
+  // Ignore outer/infinite face (opposite winding) and tiny sliver intersections.
+  const areaM2=twiceArea*.5*scale*scale;
+  if(areaM2>domain.groundCell*domain.groundCell*.85&&
+     areaM2<domain.dryCells*domain.groundCell*domain.groundCell*.98)
+    potentialBlocks.push({areaM2,vertices:ring.length});
+ }
+ const blockAreas=potentialBlocks.map(b=>b.areaM2).sort((a,b)=>a-b);
+ const medianBlockAreaM2=blockAreas.length?
+  round(blockAreas[Math.floor(blockAreas.length/2)]):0;
+ const preliminaryBlockAreaM2=round(blockAreas.reduce((a,b)=>a+b,0));
+ progress(.975,'已检查路网连通分量、潜在闭环和候选街区面积');
  const topology={type:'planar-street-graph',crs:'EPSG:4326',
   nodes:nodes.map(({metric,...n})=>n),edges,
   properties:{crossings,junctions:nodes.filter(n=>n.degree>=3).length,
    topologyVerified:true,closedFacesComputed:false,
+   potentialClosedLoops:cyclicRank,connectedComponents:componentCount,
+   deadEndNodes:isolatedEnds,candidateFacesDiagnosed:true,
+   candidateBlockCount:potentialBlocks.length,
+   preliminaryBlockAreaM2,medianBlockAreaM2,
+   faceWarning:'Candidate cycles are provisional only. STEP06 must polygonize/clip and exclude flood corridors.',
    warning:'Buffer footprints are segment strips; STEP 06 must union/clip them and polygonize blocks'}};
  const collection=features=>({type:'FeatureCollection',features});
  return {mainRoads:collection(roadLines.filter(f=>f.properties.hierarchy==='main')),
@@ -119,6 +182,8 @@ export function createRoadTopology(optimised,domain,parameters={},progress=()=>{
   roadCenterlines:collection(roadLines),roadFootprints:collection(footprints),topology,
   statistics:{roadCount:roadLines.length,segments:segments.length,
    nodes:nodes.length,edges:edges.length,crossings,junctions:topology.properties.junctions,
+   components:componentCount,deadEnds:isolatedEnds,cycleRank:cyclicRank,
+   candidateBlocks:potentialBlocks.length,medianBlockAreaM2,preliminaryBlockAreaM2,
    lengthKm:round(roadLines.reduce((sum,f)=>sum+f.properties.lengthM,0)/1000),
    mainKm:round(roadLines.filter(f=>f.properties.hierarchy==='main')
     .reduce((s,f)=>s+f.properties.lengthM,0)/1000),
