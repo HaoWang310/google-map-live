@@ -150,6 +150,15 @@ async function run(id,mode,params){
  if(parameters.visualMode==='presentation'){
    send(id,.32,'展示模式：Wool 弹性织构和片区分叉同步生长（仅输出最终形态）…');
    skeleton=buildPresentationRoadNetwork(domain,parameters);
+   // If water/obstacle clipping leaves no valid macro-road, prefer the real
+   // tensor-based skeleton rather than silently publishing an empty picture.
+   if(!skeleton.roads.some(road=>road.kind==='main')){
+     send(id,.38,'展示主路受到真实水文障碍阻断，改用真实张量骨架重建…');
+     const fallback=initialRoadSkeleton(domain,parameters,
+       (progress,message)=>send(id,progress,message));
+     skeleton={...fallback,displayRoads:[],bundles:[],
+       stats:{...fallback.stats,presentationFallback:'insufficient-safe-organic-main-roads'}};
+   }
    const wool=optimiseWool(skeleton,domain,{...parameters,
      woolStrength:mode==='generate'?0:parameters.woolStrength},
      (progress,message)=>send(id,progress,message));
@@ -165,6 +174,7 @@ async function run(id,mode,params){
  }
  send(id,.88,'正在计算分级道路交叉、路网闭环与概念街区…');
  const network=createRoadTopology(repaired,domain,parameters,(progress,message)=>send(id,progress,message));
+ if(!network.roadCenterlines.features.length)throw Error('当前张量与洪涝约束无法生成有效道路，请检查积水阈值与有效区域，未输出虚假路网');
  const output=packageNetwork(domain,skeleton,network,repaired,mode);
  output.diagnostics.elapsedMs=Math.round(performance.now()-started);
  latest=output;
