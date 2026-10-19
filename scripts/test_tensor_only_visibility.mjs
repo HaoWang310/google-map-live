@@ -29,7 +29,14 @@ const keys={
  FOCUS_GREEN_VISIBLE:'focus-existing-greens-visible',
  FOCUS_PLAN_ROAD:'focus-plan-road-outline',
  FOCUS_PLAN_GREEN:'focus-plan-green-outline',
- FOCUS_PLAN_BUILDING:'focus-plan-building-outline'
+ FOCUS_PLAN_BUILDING:'focus-plan-building-outline',
+ FOCUS_FLOW_LAYER:'focus-flow-streamlines',
+ FOCUS_FLOW_GLOW:'focus-flow-streamlines-glow',
+ FOCUS_FLOW_PARTICLE_LAYER:'focus-flow-particle-layer',
+ FOCUS_TENSOR_RIBBON_LAYER:'focus-tensor-ribbon-line',
+ FOCUS_TENSOR_RIBBON_GLOW:'focus-tensor-ribbon-glow',
+ FOCUS_TENSOR_GAP_WET:'focus-tensor-gap-wet-underlay',
+ FOCUS_TENSOR_GAP_REASONS:'focus-tensor-gap-reason-overlay'
 };
 const visibleIds=[
  'focus-parcel-ground','focus-parcel-border',
