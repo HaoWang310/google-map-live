@@ -156,10 +156,16 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
   }
   return {minimum:lowest,invalid:flipped};
  }
- let strength=3.3,folds=minDeterminant(strength);
- while(folds.invalid&&strength>.035){
-  strength*=.7;folds=minDeterminant(strength);
+ // Maximise coherent field-driven deformation without crossing the
+ // .30 Jacobian safety margin. Binary search avoids arbitrary 30% jumps
+ // that made some real parcels unnecessarily rigid.
+ let low=0,high=4.8,folds=minDeterminant(high);
+ for(let iter=0;iter<11;iter++){
+  const mid=(low+high)*.5,d=minDeterminant(mid);
+  if(d.invalid||d.minimum<.30)high=mid;
+  else low=mid;
  }
+ let strength=low*.985;folds=minDeterminant(strength);
  if(folds.invalid){strength=0;folds=minDeterminant(0);}
  for(let i=0;i<N;i++){
   fx[i]=baseX[i]+strength*(fx[i]-baseX[i]);
