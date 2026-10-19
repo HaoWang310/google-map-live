@@ -108,7 +108,7 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
  // Iterative Poisson reconstruction of a curl-inconsistent target Jacobian:
  // X(right)-X(left) ≈ spacing * principal direction,
  // X(down)-X(up) ≈ spacing * orthogonal direction.
- const passes=105,tether=.024;
+ const passes=205,tether=.001;
  const nextX=new Float64Array(N),nextY=new Float64Array(N);
  const stride=nx+1;
  for(let pass=0;pass<passes;pass++){
@@ -156,7 +156,7 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
   }
   return {minimum:lowest,invalid:flipped};
  }
- let strength=1,folds=minDeterminant(strength);
+ let strength=3.3,folds=minDeterminant(strength);
  while(folds.invalid&&strength>.035){
   strength*=.7;folds=minDeterminant(strength);
  }
@@ -176,7 +176,7 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
  const smoothDensity=clamp(density,0,1);
  const gap=Math.max(.9,Math.min(w,h)/(24+58*smoothDensity));
  const sampleStep=Math.min(.45,Math.min(sx,sy)*.38,gap*.32);
- const limit=135000;
+ const familyLimit=115000;
  const lines=[],counts={primary:0,secondary:0};
  let pointsBudget=0,segmentsRejected=0;
  function addRun(run,branch){
@@ -194,6 +194,7 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
  // Uniform U / V isocurves sample the SAME F, so their crossings coincide.
  const branchList=direction==='primary'?['primary']:direction==='secondary'?['secondary']:['primary','secondary'];
  for(const branch of branchList){
+  const familyStart=pointsBudget;
   const isU=branch==='primary';
   const minConstant=isU?yMin:xMin,maxConstant=isU?yMin+yRange:xMin+xRange;
   const startVar=isU?xMin:yMin,endVar=isU?xMin+xRange:yMin+yRange;
@@ -220,7 +221,7 @@ export function buildGlobalWarpedWeave(field,{density=.7,dx=1,dy=1,direction='du
     run.push(p);last=p;
    }
    addRun(run,branch);
-   if(pointsBudget>=limit)break;
+   if(pointsBudget-familyStart>=familyLimit)break;
   }
  }
  // Residual estimates the angular difference, not a claim that an arbitrary
