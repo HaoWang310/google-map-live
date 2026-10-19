@@ -1,5 +1,5 @@
-import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.22.54-rainfall-responsive-tensor';
-import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.26.1-selection-two-enter';
+import {unpackTensorGeometryPacket} from './hydro_tensor_geometry.js?v=3.26.2-visual-first';
+import {rasterizeSitePlanning} from './site_planning_tensor.js?v=3.26.2-visual-first';
 import {sameHydroGrid,validHydroGrid,gridRenderGeometry,tensorDiagnosticGeoJSON} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
 import {baseTensorMaterial,ribbonTensorMaterial,particleTensorMaterial,traceGradient,traceGrowthWave,traceGrowthProgress,TENSOR_TRACE_WAVES} from './hydro_tensor_visual.js?v=3.22.68-particle-trace-growth';
 import {selectSpatialParticlePaths,thinVisibleParticles} from './hydro_tensor_particle_layout.js?v=3.22.76-tensor-particle-balance';
@@ -237,7 +237,7 @@ export function createHydroTensorRenderer(args){
   function workerStart(){
     if(worker)return true;
     try{
-      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.26.1-selection-two-enter',import.meta.url),{type:'module'});
+      worker=new Worker(new URL('./hydro_tensor_worker.js?v=3.26.2-visual-first',import.meta.url),{type:'module'});
       const current=worker;
       worker.onerror=e=>{
         if(disposed||worker!==current)return;
@@ -424,6 +424,13 @@ export function createHydroTensorRenderer(args){
       no_supported_skeleton:'没有可连续提取的骨架',no_supported_seeds:'骨架种子缺少方向支持',
       integration_blocked_or_ambiguous:'积分受边界、障碍或方向歧义阻断',
       all_below_physical_length:'积分均未达到物理长度要求',spacing_or_length_rejection:'间距或长度筛选淘汰'};
+    if(d.visualizationOnly){
+      const a=d.field.primary,b=d.field.secondary;
+      status('展示模式 · 柔性正交网格 '+(a?.finalLines||0)+' / '+(b?.finalLines||0)+
+        ' 组曲线 · 仅为视觉化设计示意，不是实际流向或可建道路。'+
+        '\n分析模式保留真实地形、水文张量与逐格可信度数据。');
+      return;
+    }
     const a=d.field.primary,b=d.field.secondary,pct=v=>(100*(v||0)).toFixed(1)+'%';
     const wet=result?.diagnostics?.rainfallResponse;
     const wetText=wet?(' · 受淹格(≥2cm) '+wet.wetCells20mm+
@@ -469,9 +476,12 @@ export function createHydroTensorRenderer(args){
     wetLines=lines.filter(line=>line.wetSupport>.035).map((line,index)=>({...line,index}));
     features=lines.map(line=>({type:'Feature',properties:{
       color:line.color,analysisColor:line.color,
-      width:Math.max(line.branch==='primary'?.85:.65,
-        settings.width*(line.branch==='primary'?.7:.5)*(1+.50*line.wet)),
-      opacity:line.visualOpacity,glowFactor:line.glowFactor,
+      width:settings.mode==='presentation'?
+        Math.max(.75,settings.width*(line.branch==='primary'?.78:.68)):
+        Math.max(line.branch==='primary'?.85:.65,
+          settings.width*(line.branch==='primary'?.7:.5)*(1+.50*line.wet)),
+      opacity:settings.mode==='presentation'?.94:line.visualOpacity,
+      glowFactor:line.glowFactor,
       family:'base',branch:line.branch,relativeGuidance:line.rank,
       wetSupport:line.wet,lengthM:line.lengthM,
       growthWave:traceGrowthWave(line.index,line.rank),
@@ -503,7 +513,7 @@ export function createHydroTensorRenderer(args){
     if(geometryBusy||!geometryPending||disposed||!enabled)return;
     if(!geometryWorker){
       try{
-        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.22.59-tensor-3d-performance',import.meta.url),{type:'module'});
+        geometryWorker=new Worker(new URL('./hydro_tensor_geometry_worker.js?v=3.26.2-visual-first',import.meta.url),{type:'module'});
         const active=geometryWorker;
         active.onmessage=({data})=>{
           if(disposed||geometryWorker!==active)return;
@@ -572,7 +582,8 @@ export function createHydroTensorRenderer(args){
         geometryActiveId=0;pumpGeometry();
       },180);
     }
-    status((scenario?.year??2026)+' 年 · 更新真实双方向流线，保留当前画面…');
+    status(settings.mode==='presentation'?'更新柔性正交展示网格（示意绘制，非实测流向）…':
+      (scenario?.year??2026)+' 年 · 更新真实双方向流线，保留当前画面…');
     pumpGeometry();
   }
   // Static parcel geometry is camera-independent. MapLibre reprojects existing
@@ -599,11 +610,11 @@ export function createHydroTensorRenderer(args){
     // Static mesh remains faint; travelling blue/purple traces carry the image.
     const fractionClamped=clamp(fraction,0,1);
     ensureTraceLayers();
-    const paintKey=settings.opacity+'|'+settings.glow;
+    const paintKey=settings.opacity+'|'+settings.glow+'|'+settings.mode;
     if(paintKey!==lastStaticPaintKey){
       if(map.getLayer(lineLayerId))
         map.setPaintProperty(lineLayerId,'line-opacity',
-          ['*',.13*settings.opacity,['get','opacity']]);
+          ['*',(settings.mode==='presentation'?.43:.13)*settings.opacity,['get','opacity']]);
       if(map.getLayer(glowLayerId))
         map.setPaintProperty(glowLayerId,'line-opacity',0);
       for(const [id,glow] of [[ribbonLayerId,false],[ribbonGlowLayerId,true]]){
@@ -949,7 +960,9 @@ export function createHydroTensorRenderer(args){
         if(enabled&&result&&!disposed)queueGeometry();
       },240);
       status('参数预览中 · '+timelineYear+' 年流线重算中…');
-    }else if(modeChanged||visibilityChanged)restart();
+    }else if(modeChanged&&result){
+      queueGeometry();restart();
+    }else if(visibilityChanged)restart();
   }
   function setField(data,spatialContext,meta={}){
     if(disposed||!data)return;
@@ -1145,7 +1158,7 @@ export function createHydroTensorRenderer(args){
         visibility:map.getLayoutProperty?.(id,'visibility'),filter:map.getFilter?.(id),
         width:map.getPaintProperty?.(id,'line-width'),opacity:map.getPaintProperty?.(id,'line-opacity')};
     };
-    return {schema:'london-tensor-site-v1',version:'3.26.1-selection-two-enter',
+    return {schema:'london-tensor-site-v1',version:'3.26.2-visual-first',
       savedAt:new Date().toISOString(),camera,config:{...settings},viewOptions:viewOptions(),
       current:save(result),scenarios:[...scenarioSnapshots.values()].map(save),
       planningDiagnostics:result.planningDiagnostics||null,

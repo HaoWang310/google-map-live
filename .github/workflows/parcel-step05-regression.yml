@@ -10,10 +10,14 @@ on:
       - 'scripts/parcel_wool_solver.js'
       - 'scripts/parcel_road_topology.js'
       - 'scripts/parcel_road_worker.js'
+      - 'scripts/parcel_road_presentation.js'
+      - 'scripts/hydro_tensor_geometry.js'
+      - 'scripts/hydro_tensor_field.js'
       - 'scripts/test_parcel_step05.mjs'
       - 'scripts/test_organic_road_network.mjs'
       - 'scripts/test_tensor_wool_growth.mjs'
       - 'scripts/test_wool_collision_regression.mjs'
+      - 'scripts/test_visual_first_presentation.mjs'
       - 'scripts/test_parcel_step05_navigation.mjs'
       - 'scripts/test_auto_wool_pipeline.mjs'
       - 'diagnostics/tensor-audit.json'
@@ -38,6 +42,11 @@ jobs:
           node --check scripts/parcel_wool_solver.js
           node --check scripts/parcel_road_topology.js
           node --check scripts/parcel_road_worker.js
+          node --check scripts/parcel_road_presentation.js
+          node --check scripts/hydro_tensor_geometry.js
+          node --check scripts/hydro_tensor_field.js
+      - name: Verify continuous exhibition tensor mesh and dense presentation streets
+        run: node scripts/test_visual_first_presentation.mjs
       - name: Verify automatic hydrological tensor to Wool handoff
         run: node scripts/test_auto_wool_pipeline.mjs
       - name: Verify STEP 05 map interaction and entry navigation

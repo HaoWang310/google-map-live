@@ -228,7 +228,84 @@ export function createTensorGeometry(result,options={}){
       const dot=f.primaryX[i]*f.primaryX[j]+f.primaryY[i]*f.primaryY[j];sum+=1-dot*dot;total++;
     }return total?sum/total:0;
   }
+  // Exhibition-only visualization, independently removable from the real
+  // hydrological tensor analysis. A single smooth diffeomorphic-like warp is
+  // sampled by BOTH orthogonal grid families, so their intersections coincide.
+  // This is a conceptual woven mesh, NOT evidence-derived water flow lines.
+  function buildPresentationWeave(){
+    const out=[],pi2=Math.PI*2;
+    const densityFactor=.67+.48*density;
+    const cols=clamp(Math.round(w*densityFactor),9,56);
+    const rows=clamp(Math.round(h*densityFactor),9,56);
+    const amplitudeX=Math.min(3.1,w*.075)*(0.7+.3*smoothing);
+    const amplitudeY=Math.min(3.1,h*.075)*(0.7+.3*smoothing);
+    const step=.48;
+    const inside=(x,y)=>{
+      const i=index(x,y);
+      return i>=0&&(result.siteMask?Boolean(result.siteMask[i]):Boolean(f.validMask[i]));
+    };
+    // Global continuous deformation. Computed hydrology modulates intensity
+    // but cannot delete the visually continuous site-wide design fabric.
+    const warp=(x,y)=>{
+      const u=x/w,v=y/h;
+      const xw=x+amplitudeX*(.65*Math.sin(pi2*(.73*u+.61*v))+
+          .29*Math.sin(pi2*(1.37*v-.42*u))+
+          .06*Math.sin(pi2*(2.1*u+1.05*v)));
+      const yw=y+amplitudeY*(.66*Math.sin(pi2*(.76*u-.50*v))+
+          .29*Math.sin(pi2*(1.08*u+.84*v))+
+          .05*Math.sin(pi2*(1.4*v-1.1*u)));
+      return {x:xw,y:yw};
+    };
+    const families=options.direction==='primary'?['primary']:
+      options.direction==='secondary'?['secondary']:['primary','secondary'];
+    for(const branch of families){
+      const vertical=branch==='secondary',count=vertical?cols:rows,
+       maxT=vertical?h:w;
+      const summary={finalLines:0,candidateSeeds:count,integrationAttempts:count,
+        integrationSucceeded:0,totalLengthM:0,under50m:0,
+        meanLengthM:0,medianLengthM:0,
+        wholeValidCoverage:0,supportedCoverage:0,
+        visualizationOnly:true};
+      const lengths=[];
+      for(let k=0;k<count;k++){
+        const fixed=(k+.5)*(vertical?w:h)/count;
+        let part=[];
+        const flush=()=>{
+          if(part.length<4){part=[];return}
+          let metres=0;
+          for(let j=1;j<part.length;j++)
+            metres+=hypot((part[j].x-part[j-1].x)*dx,(part[j].y-part[j-1].y)*dy);
+          if(metres<cell*1.2){part=[];return}
+          lengths.push(metres);
+          out.push({branch,kind:'field',path:part,lengthM:metres,
+            rank:.60,wetSupport:0,visualizationOnly:true});
+          summary.finalLines++;summary.integrationSucceeded++;summary.totalLengthM+=metres;
+          part=[];
+        };
+        for(let t=.5;t<=maxT-.5+step*.5;t+=step){
+          const base=vertical?warp(fixed,Math.min(maxT-.5,t)):
+             warp(Math.min(maxT-.5,t),fixed);
+          if(base.x<.3||base.y<.3||base.x>w-.3||base.y>h-.3||
+              !inside(base.x,base.y)){flush();continue}
+          part.push({x:base.x,y:base.y,rank:.6,confidence:1});
+        }
+        flush();
+      }
+      lengths.sort((a,b)=>a-b);
+      summary.meanLengthM=lengths.length?summary.totalLengthM/lengths.length:0;
+      summary.medianLengthM=lengths.length?lengths[Math.floor(lengths.length/2)]:0;
+      summary.under50m=lengths.filter(n=>n<50).length;
+      diagnostics.field[branch]=summary;
+    }
+    diagnostics.visualizationOnly=true;
+    diagnostics.displayMethod='Continuous smooth-warp orthogonal exhibition mesh; not computed water-flow paths';
+    diagnostics.nativeTensorUnchanged=true;
+    diagnostics.primarySpacingM=(h*dy)/Math.max(1,rows);
+    diagnostics.secondarySpacingM=(w*dx)/Math.max(1,cols);
+    return out;
+  }
   function buildLines(){
+    if(options.mode==='presentation')return buildPresentationWeave();
     const output=[];
     const families=options.direction==='primary'?['primary']:options.direction==='secondary'?['secondary']:['primary','secondary'];
     for(const branch of families){
@@ -485,6 +562,10 @@ export function createTensorGeometry(result,options={}){
     skeletonPaths=paths;return paths;
   }
   function buildRibbons(){
+    if(options.mode==='presentation'){
+      diagnostics.ribbons={validSkeletonCells:0,seedCount:0,integrationSucceeded:0,integratedPieces:0,lengthRejected:0,finalBundles:0,reason:'presentation_weave_no_ribbons'};
+      return [];
+    }
     const cores=extractSkeleton(),output=[],stats=diagnostics.ribbons;
     if(stats.reason)return output;
     const gap=Math.max(cell*.50,spacing*(.45-.18*clamp((options.ribbonConcentration??68)/100,0,1)));

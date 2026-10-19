@@ -54,6 +54,14 @@ export function createParcelRoadUI({
  const html=()=>`
  <div class="pg-label">STEP 05 · 羊毛道路生成与优化</div>
  <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，一步完成张量纤维生长、Wool 分叉与安全连接。下方按钮支持重新生成。'}</p>
+ <div class="pg-section"><div class="pg-label">设计显示模式 · 本轮优先视觉效果</div>
+ <label class="pg-option" style="display:flex;align-items:center;gap:8px">
+ <span>模式</span><select id="pg-road-visualMode" style="flex:1;min-width:0">
+ <option value="presentation" selected>展示模式 · 柔性有机路网</option>
+ <option value="analysis">分析模式 · 水文约束道路</option>
+ </select></label>
+ <div class="pg-note" id="pg-road-mode-note" style="color:#a6deef">
+ 展示模式是概念视觉图，不代表安全道路、精确汇水或规划许可；分析模式保留原水文碰撞约束。</div></div>
  <div class="pg-section"><div class="pg-label">生成 / 优化 · 张量生长与 Wool 路网</div>
  <div class="pg-road-actions">
  <button id="pg-road-generate" disabled>① 仅生成张量纤维</button>
@@ -88,7 +96,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.1-selection-two-enter',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.2-visual-first',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -105,7 +113,13 @@ export function createParcelRoadUI({
    }else if(data.type==='done'){
     pending=false;result=data.result;
     const q=el('pg-road-quality'),stat=result.diagnostics;
-    if(q)q.textContent='算法：张量积分 → Wool 生长 → A* 补连\nWool 新生次路 '+(stat.wool?.grownSecondary||0)+' 条 · 新生支路 '+(stat.wool?.grownLocal||0)+' 条 · A* 补连 '+(stat.astarRepairs||0)+' 条\n主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
+    if(q)q.textContent=(stat.visualMode==='presentation'?
+      '【展示模式】艺术网格演化概念；不是水文验证道路\n':
+      '【分析模式】张量积分 → Wool 生长 → A* 补连\nWool 新生次路 '+
+        (stat.wool?.grownSecondary||0)+' 条 · 新生支路 '+
+        (stat.wool?.grownLocal||0)+' 条 · A* 补连 '+
+        (stat.astarRepairs||0)+' 条\n')+
+      '主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
       ' km · 支路 '+stat.localKm+' km' +
       '\n安全格网道路覆盖率 '+stat.rasterCorridorCoveragePct+'% · 独立连通块 '+
       stat.components+' · 闭环秩 '+stat.cycleRank+
@@ -115,7 +129,7 @@ export function createParcelRoadUI({
     for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package'])
       el(id).disabled=false;
     el('pg-road-progressbar').style.width='100%';
-    inform('生成完成 · '+result.diagnostics.roadCount+' 条道路，'+
+    inform((result.diagnostics.visualMode==='presentation'?'展示概念已生成（非工程道路）· ':'生成完成 · ')+result.diagnostics.roadCount+' 条道路，'+
       result.diagnostics.lengthKm+' km，'+result.diagnostics.junctions+
       ' 个路口 · '+(data.result.mode==='optimise'?'Wool 优化':'初始道路骨架'));
     updateMap();
@@ -176,6 +190,7 @@ export function createParcelRoadUI({
   const settings=Object.fromEntries(PARAMETERS.map(([k])=>
    [k,Number(el('pg-road-'+k).value)]));
   settings.floodLimitM=Number(el('pg-road-floodLimitM').value);
+  settings.visualMode=el('pg-road-visualMode')?.value||'analysis';
   return settings;
  }
  function generate(mode){
@@ -184,7 +199,8 @@ export function createParcelRoadUI({
   el('pg-road-progressbar').style.width='1%';
   el('pg-road-generate').disabled=true;el('pg-road-wool').disabled=true;
   el('pg-road-export').disabled=true;el('pg-road-package').disabled=true;
-  inform(mode==='optimise'?'按张量、洪涝和 Wool 弹性重新优化路网…':
+  inform(params().visualMode==='presentation'?'正在生成连续柔性主次道路与围合地块（展示示意）…':
+    mode==='optimise'?'按张量、洪涝和 Wool 弹性重新优化路网…':
     '沿真实张量主次方向生成初始道路纤维…');
   ensureWorker();worker.postMessage({type:mode,id:++serial,params:params()});
  }
@@ -220,6 +236,13 @@ export function createParcelRoadUI({
   }
   if(el('pg-road-import'))el('pg-road-import').onchange=e=>importSource(e.target.files?.[0]);
   el('pg-road-floodLimitM').onchange=()=>scheduleRegenerate();
+  el('pg-road-visualMode').onchange=()=>{
+    const present=el('pg-road-visualMode').value==='presentation';
+    el('pg-road-mode-note').textContent=present?
+      '展示模式：全场连续柔性路网与闭合街区，仅供视觉评审，不能代替水文与道路工程验算。':
+      '分析模式：从真实水文张量出发，使用洪涝禁行、Wool 生长和 A* 安全修复。';
+    scheduleRegenerate();
+  };
   el('pg-road-generate').onclick=()=>generate('generate');
   el('pg-road-wool').onclick=()=>generate('optimise');
   el('pg-road-reset').onclick=()=>{

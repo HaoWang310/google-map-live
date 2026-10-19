@@ -131,7 +131,7 @@ export function makeRoadDomain(source,parameters={}){
     Math.min(8,slope[i]*slope[i]*12);
 
  }
- if(dry<36)throw Error('洪涝/地形约束后可规划格网不足；请检查场地或水深阈值');
+ if(dry<36&&parameters.visualMode!=='presentation')throw Error('洪涝/地形约束后可规划格网不足；请检查场地或水深阈值');
  const siteGroundCell=cell*metricScale;
  return {w,h,cell,groundCell:siteGroundCell,left:grid.left,top:grid.top,
   inside,safe,depth,ax,ay,certainty,hydro,cost,slope,dryCells:dry,wetCells:wet,

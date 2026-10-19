@@ -2,6 +2,7 @@
    minimal A* connectivity repair -> flood-safe planar topology -> export. */
 import {readSiteTensor,makeRoadDomain,floodReserves,lonlat} from './parcel_road_constraints.js';
 import {initialRoadSkeleton,repairRoadConnectivity} from './parcel_road_skeleton.js';
+import {buildPresentationRoadNetwork} from './parcel_road_presentation.js';
 import {optimiseWool} from './parcel_wool_solver.js';
 import {createRoadTopology} from './parcel_road_topology.js';
 let source=null,ring=null,latest=null,parameters=null;
@@ -42,6 +43,9 @@ function packageNetwork(domain,plan,network,wool,mode){
  return {
   schema:'london-road-step05-v1',step:'05',title:'Tensor-integrated Wool-grown Road Network',
   provenance:{tensor:'London Map computed 2100 tensor, same-parcel memory snapshot',
+    designMode:parameters.visualMode==='presentation'?
+      'ARTISTIC PRESENTATION ONLY — warped road grid is not a hydrological solver result':
+      'analysis with original physical safety masks',
     flood:'same computed 2100 snapshot',crs:'EPSG:4326',
     metricBasis:'EPSG:3857 in worker, latitude corrected for physical widths',
     reality:'Computational planning proposal; road alignments and access not field verified',
@@ -58,7 +62,9 @@ function packageNetwork(domain,plan,network,wool,mode){
     cols:domain.w,rows:domain.h,crs:'EPSG:3857',valuesRLE:rle(domain.safe),
     hydrologyNotes:'safe mask threshold and DEM-derived drainage; cannot claim planning permission'},
   notes:{step06:'Union road strips, subtract from site polygon together with reserved flood corridors; polygonize remaining connected blocks. Do not mistake conceptual agricultural nodes for assigned zoning.',
-    localRoadsAreConceptual:true,finalUseZoningIsNotGenerated:true},
+    localRoadsAreConceptual:true,finalUseZoningIsNotGenerated:true,
+    presentationOnly:parameters.visualMode==='presentation',
+    doNotUseForEngineering:parameters.visualMode==='presentation'},
   diagnostics:{...network.statistics,skeleton:plan.stats,wool:wool.stats,
     sourceValidCells:domain.dryCells+domain.wetCells,safeCells:domain.dryCells,
     hazardCells:domain.wetCells,
@@ -67,7 +73,10 @@ function packageNetwork(domain,plan,network,wool,mode){
     rasterCorridorCoveragePct:Math.round(10000*used.size/Math.max(1,domain.dryCells))/100,
     grewRoads:(wool.stats.grownSecondary||0)+(wool.stats.grownLocal||0),
     astarRepairs:wool.stats.astarRepairs||0,
-    generationMethod:'tensor bidirectional RK2 + Wool active branching; A* connectivity repair only',
+    generationMethod:parameters.visualMode==='presentation'?
+      'artistic smooth-warp lattice (site clipped), not physically validated':
+      'tensor bidirectional RK2 + Wool active branching; A* connectivity repair only',
+    visualMode:parameters.visualMode||'analysis',
     cycleRank:network.statistics.cycleRank,
     approximateCycleDensity:Math.round(1000*network.statistics.cycleRank/
       Math.max(1,network.statistics.roadCount))/1000,
@@ -88,17 +97,28 @@ async function run(id,mode,params){
  send(id,.07,'校验真实场地、洪涝深度与张量方向…');
  const domain=makeRoadDomain(source,parameters);
  send(id,.15,'已完成 DEM 坡度、深水禁建区与浅水绕行成本计算');
- const skeleton=initialRoadSkeleton(domain,parameters,(progress,message)=>send(id,progress,message));
- const wool=optimiseWool(skeleton,domain,{...parameters,
-  woolStrength:mode==='generate'?0:parameters.woolStrength},(progress,message)=>send(id,progress,message));
- const repaired=repairRoadConnectivity(wool,domain,parameters,
-  (progress,message)=>send(id,progress,message));
- send(id,.92,'正在建立张量纤维路网交叉口、连通性与候选街区…');
+ let skeleton,repaired;
+ if(parameters.visualMode==='presentation'){
+   send(id,.32,'展示模式：生成连续的柔性路网网格与主次层级（艺术概念示意）…');
+   skeleton=buildPresentationRoadNetwork(domain,parameters);
+   repaired={roads:skeleton.roads,stats:{...skeleton.stats,
+     grownSecondary:0,grownLocal:0,astarRepairs:0,
+     exhibitionOnly:true}};
+ }else{
+   skeleton=initialRoadSkeleton(domain,parameters,(progress,message)=>send(id,progress,message));
+   const wool=optimiseWool(skeleton,domain,{...parameters,
+     woolStrength:mode==='generate'?0:parameters.woolStrength},(progress,message)=>send(id,progress,message));
+   repaired=repairRoadConnectivity(wool,domain,parameters,
+     (progress,message)=>send(id,progress,message));
+ }
+ send(id,.88,'正在计算分级道路交叉、路网闭环与概念街区…');
  const network=createRoadTopology(repaired,domain,parameters,(progress,message)=>send(id,progress,message));
  const output=packageNetwork(domain,skeleton,network,repaired,mode);
  output.diagnostics.elapsedMs=Math.round(performance.now()-started);
  latest=output;
- send(id,1,'STEP 05 张量积分 → Wool 分叉生长 → A* 安全修复 → 路网拓扑已完成');
+ send(id,1,parameters.visualMode==='presentation'?
+   '展示模式完成：艺术形态已生成，未进行道路工程与洪涝通行验证':
+   '分析模式完成：张量积分 → Wool 生长 → A* 安全修复 → 路网拓扑');
  postMessage({type:'done',id,result:output});
 }
 onmessage=async event=>{
