@@ -13,9 +13,13 @@ function fixture(mode='sparse'){
  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
   const i=y*w+x;
   if(x<4||y<4||x>=w-4||y>=h-4)continue;
-  siteMask[i]=fields.validMask[i]=1;
+  siteMask[i]=1;
+  // Entire missing-data islands must remain inside the red display parcel.
+  const unsupported=mode==='sparse'&&(
+   ((x+y)%9>=5)||x>=31&&x<=60&&y>=25&&y<=55);
+  fields.validMask[i]=unsupported?0:1;
   const theta=.28+.3*Math.sin(x*.038)+.25*Math.cos(y*.048);
-  if(mode==='dense'||(x+y)%9<5){
+  if(fields.validMask[i]){
    fields.primaryX[i]=Math.cos(theta);
    fields.primaryY[i]=Math.sin(theta);
    fields.confidence[i]=.22;
@@ -34,21 +38,30 @@ for(const mode of ['sparse','dense']){
   curvatureSmoothing:85,direction:'dual',viewRect:[0,0,result.cols,result.rows]});
  const lines=geometry.buildLines(),d=geometry.diagnostics;
  assert.deepEqual(result.fields.primaryX,before,'presentation must not modify the real tensor');
- assert.ok(d.presentationSource.smoothedValid/d.validCells>.90,
-  'display must cover the complete source-valid parcel, not high-confidence seed islands');
+ assert.equal(d.presentationSource.smoothedValid,d.presentationMaskCells,
+  'every parcel cell must receive an extended presentation orientation');
+ assert.equal(d.presentationCoverageFraction,1,'presentation must cover the full site');
+ if(mode==='sparse')assert.ok(d.presentationSource.harmonicFilledCells>300,
+  'missing analysis direction islands were not harmonically extended');
  assert.ok(d.field.primary.finalLines>=25,
   'principal-direction display prematurely terminated or collapsed');
  assert.ok(d.field.secondary.finalLines>=25,
   'orthogonal-direction display prematurely terminated or collapsed');
+ let missingSamples=0,buildingSamples=0;
  for(const line of lines){
   assert.ok(line.path.length>=8,'too-short isolated line was accepted');
   for(const p of line.path){
    const x=Math.floor(p.x),y=Math.floor(p.y),i=y*result.cols+x;
-   assert.ok(result.siteMask[i]&&result.fields.validMask[i]&&!result.obstacleMask[i],
-    'presentation line crosses parcel boundary / building obstacle / invalid cell');
+   assert.ok(result.siteMask[i],
+    'presentation line crosses the outer red parcel boundary');
+   if(!result.fields.validMask[i])missingSamples++;
+   if(result.obstacleMask[i])buildingSamples++;
   }
  }
- console.log(JSON.stringify({mode,principal:d.field.primary.finalLines,
+ if(mode==='sparse')assert.ok(missingSamples>100,
+  'presentation lines are still being clipped at missing tensor cells');
+ assert.ok(buildingSamples>10,'flood-water building mask still clips the presentation');
+ console.log(JSON.stringify({mode,missingSamples,buildingSamples,principal:d.field.primary.finalLines,
   orthogonal:d.field.secondary.finalLines,coverage:d.presentationCoverageFraction,
   points:lines.reduce((n,l)=>n+l.path.length,0)}));
 }
