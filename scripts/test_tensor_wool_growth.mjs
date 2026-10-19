@@ -15,8 +15,7 @@ assert.ok(initial.includes('trace(domain,i,false'), 'Initial main fibers must in
 assert.ok(initial.includes('trace(domain,i,true'), 'Initial secondary fibers must integrate secondary axes');
 assert.ok(!initial.includes('search(domain'), 'A* must not be called during initial generation');
 assert.ok(sk.slice(end).includes('search(domain,'), 'A* must remain as later connectivity repair');
-assert.ok(sk.includes('Math.cos(2'), 'Tensor axis interpolation should respect direction sign symmetry')===false || 
-  sk.includes('vx*vx-vy*vy'),'Tensor eigen-axis should be interpolated without arrow-sign ambiguity');
+assert.ok(sk.includes('vx*vx-vy*vy'), 'Tensor eigen-axis must interpolate orientations without sign ambiguity');
 assert.ok(wool.includes('function woolGrowth('));
 assert.ok(wool.includes("growTier('secondary'"));
 assert.ok(wool.includes("growTier('local'"));
