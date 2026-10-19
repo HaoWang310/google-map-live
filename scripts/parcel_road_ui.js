@@ -53,11 +53,11 @@ export function createParcelRoadUI({
    onStatus?.(msg,bad);}
  const html=()=>`
  <div class="pg-label">STEP 05 · 羊毛道路生成与优化</div>
- <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，一步完成初始道路骨架和 Wool 优化。下方按钮可手动重新生成。'}</p>
- <div class="pg-section"><div class="pg-label">生成 / 优化 · 三级有机路网</div>
+ <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，一步完成张量纤维生长、Wool 分叉与安全连接。下方按钮支持重新生成。'}</p>
+ <div class="pg-section"><div class="pg-label">生成 / 优化 · 张量生长与 Wool 路网</div>
  <div class="pg-road-actions">
- <button id="pg-road-generate" disabled>① 生成道路骨架</button>
- <button id="pg-road-wool" disabled>② 羊毛优化并重连</button>
+ <button id="pg-road-generate" disabled>① 仅生成张量纤维</button>
+ <button id="pg-road-wool" disabled>② Wool 生长与安全修复</button>
  <button id="pg-road-reset">重置路网</button>
  </div>
  <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
@@ -88,7 +88,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.25.1-wool-collision',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.26.0-tensor-wool-growth',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){
@@ -105,7 +105,7 @@ export function createParcelRoadUI({
    }else if(data.type==='done'){
     pending=false;result=data.result;
     const q=el('pg-road-quality'),stat=result.diagnostics;
-    if(q)q.textContent='主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
+    if(q)q.textContent='算法：张量积分 → Wool 生长 → A* 补连\nWool 新生次路 '+(stat.wool?.grownSecondary||0)+' 条 · 新生支路 '+(stat.wool?.grownLocal||0)+' 条 · A* 补连 '+(stat.astarRepairs||0)+' 条\n主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
       ' km · 支路 '+stat.localKm+' km' +
       '\n安全格网道路覆盖率 '+stat.rasterCorridorCoveragePct+'% · 独立连通块 '+
       stat.components+' · 闭环秩 '+stat.cycleRank+
@@ -185,7 +185,7 @@ export function createParcelRoadUI({
   el('pg-road-generate').disabled=true;el('pg-road-wool').disabled=true;
   el('pg-road-export').disabled=true;el('pg-road-package').disabled=true;
   inform(mode==='optimise'?'按张量、洪涝和 Wool 弹性重新优化路网…':
-    '建立真实数据约束及初始分级道路骨架…');
+    '沿真实张量主次方向生成初始道路纤维…');
   ensureWorker();worker.postMessage({type:mode,id:++serial,params:params()});
  }
  function acceptSnapshot(parsed,label){

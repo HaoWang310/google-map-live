@@ -1,7 +1,7 @@
-/* STEP 05 complete worker: source validation -> spatial constraints ->
-   initial A* skeleton -> constrained wool -> planar topology -> export package. */
+/* STEP05 worker: real tensor streamlines -> Wool branch growth/relaxation ->
+   minimal A* connectivity repair -> flood-safe planar topology -> export. */
 import {readSiteTensor,makeRoadDomain,floodReserves,lonlat} from './parcel_road_constraints.js';
-import {initialRoadSkeleton} from './parcel_road_skeleton.js';
+import {initialRoadSkeleton,repairRoadConnectivity} from './parcel_road_skeleton.js';
 import {optimiseWool} from './parcel_wool_solver.js';
 import {createRoadTopology} from './parcel_road_topology.js';
 let source=null,ring=null,latest=null,parameters=null;
@@ -17,6 +17,17 @@ function rle(mask){
  result.push([Number(last),length]);return result;
 }
 function packageNetwork(domain,plan,network,wool,mode){
+ const used=new Set();
+ for(const road of wool.roads)for(let j=1;j<road.points.length;j++){
+  const a=road.points[j-1],b=road.points[j];
+  const steps=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/(domain.cell*.45));
+  for(let k=0;k<=steps;k++){
+   const p=[a[0]+(b[0]-a[0])*k/Math.max(1,steps),
+    a[1]+(b[1]-a[1])*k/Math.max(1,steps)];
+   const i=domain.cellAt(p);
+   if(i>=0&&domain.safe[i])used.add(i);
+  }
+ }
  const candidateNodes=collection(plan.candidates.map((c,i)=>({
   type:'Feature',properties:{candidateId:i+1,role:c.role,
     evidence:c.evidence},
@@ -29,7 +40,7 @@ function packageNetwork(domain,plan,network,wool,mode){
  const boundary=collection([{type:'Feature',properties:{kind:'site_boundary',crs:'EPSG:4326'},
   geometry:{type:'Polygon',coordinates:[ring]}}]);
  return {
-  schema:'london-road-step05-v1',step:'05',title:'Generate and Optimise the Road Network',
+  schema:'london-road-step05-v1',step:'05',title:'Tensor-integrated Wool-grown Road Network',
   provenance:{tensor:'London Map computed 2100 tensor, same-parcel memory snapshot',
     flood:'same computed 2100 snapshot',crs:'EPSG:4326',
     metricBasis:'EPSG:3857 in worker, latitude corrected for physical widths',
@@ -53,16 +64,18 @@ function packageNetwork(domain,plan,network,wool,mode){
     hazardCells:domain.wetCells,
     safeAreaM2:Math.round(domain.dryCells*domain.groundCell**2),
     unsafeAreaM2:Math.round(domain.wetCells*domain.groundCell**2),
-    rasterCorridorCoveragePct:Math.round(10000*plan.stats.visitedCells/
-      Math.max(1,domain.dryCells))/100,
+    rasterCorridorCoveragePct:Math.round(10000*used.size/Math.max(1,domain.dryCells))/100,
+    grewRoads:(wool.stats.grownSecondary||0)+(wool.stats.grownLocal||0),
+    astarRepairs:wool.stats.astarRepairs||0,
+    generationMethod:'tensor bidirectional RK2 + Wool active branching; A* connectivity repair only',
     cycleRank:network.statistics.cycleRank,
     approximateCycleDensity:Math.round(1000*network.statistics.cycleRank/
       Math.max(1,network.statistics.roadCount))/1000,
     terrainAndFlood:domain.diagnostics,
     failureCounts:plan.stats.rejections,
     qualityFlags:[
-      ...(plan.stats.local<6?['local-network-sparse']:[]),
-      ...(plan.stats.visitedCells/Math.max(1,domain.dryCells)<.08?['low-centerline-cell-coverage']:[]),
+      ...(network.localRoads.features.length<6?['local-network-sparse']:[]),
+      ...(used.size/Math.max(1,domain.dryCells)<.08?['low-centerline-cell-coverage']:[]),
       ...(network.statistics.components>1?['disconnected-components']:[]),
       ...(network.statistics.cycleRank<2?['few-loops']:[])
     ]},
@@ -78,12 +91,14 @@ async function run(id,mode,params){
  const skeleton=initialRoadSkeleton(domain,parameters,(progress,message)=>send(id,progress,message));
  const wool=optimiseWool(skeleton,domain,{...parameters,
   woolStrength:mode==='generate'?0:parameters.woolStrength},(progress,message)=>send(id,progress,message));
- send(id,.88,'正在重连路网拓扑并检查连通性、闭环与候选地块面积…');
- const network=createRoadTopology(wool,domain,parameters,(progress,message)=>send(id,progress,message));
- const output=packageNetwork(domain,skeleton,network,wool,mode);
+ const repaired=repairRoadConnectivity(wool,domain,parameters,
+  (progress,message)=>send(id,progress,message));
+ send(id,.92,'正在建立张量纤维路网交叉口、连通性与候选街区…');
+ const network=createRoadTopology(repaired,domain,parameters,(progress,message)=>send(id,progress,message));
+ const output=packageNetwork(domain,skeleton,network,repaired,mode);
  output.diagnostics.elapsedMs=Math.round(performance.now()-started);
  latest=output;
- send(id,1,'STEP 05 已完成三级路网、Wool 优化和闭环诊断');
+ send(id,1,'STEP 05 张量积分 → Wool 分叉生长 → A* 安全修复 → 路网拓扑已完成');
  postMessage({type:'done',id,result:output});
 }
 onmessage=async event=>{

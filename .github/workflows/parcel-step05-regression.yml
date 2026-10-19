@@ -12,6 +12,7 @@ on:
       - 'scripts/parcel_road_worker.js'
       - 'scripts/test_parcel_step05.mjs'
       - 'scripts/test_organic_road_network.mjs'
+      - 'scripts/test_tensor_wool_growth.mjs'
       - 'scripts/test_wool_collision_regression.mjs'
       - 'scripts/test_parcel_step05_navigation.mjs'
       - 'scripts/test_auto_wool_pipeline.mjs'
@@ -45,5 +46,7 @@ jobs:
         run: node scripts/test_parcel_step05.mjs
       - name: Verify dense organic roads, three-tier hierarchy and flood-safe topology
         run: node scripts/test_organic_road_network.mjs
+      - name: Verify tensor-first, Wool growth, and A-star repair-only architecture
+        run: node scripts/test_tensor_wool_growth.mjs
       - name: Verify no false Wool collision after safe A-star spine restoration
         run: node scripts/test_wool_collision_regression.mjs

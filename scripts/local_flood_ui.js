@@ -1,9 +1,9 @@
 import {sameHydroGrid} from './hydro_tensor_grid.js?v=3.22.49-tensor-streamlines';
-import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.25.1-wool-collision';
-import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.25.1-wool-collision';
-import {smoothWetDepths} from './flood_water_visual.js?v=3.25.1-wool-collision';
-import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.25.1-wool-collision';
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.25.1-wool-collision';
+import {createLocalFloodSimulator} from './local_flood_sim.js?v=3.26.0-tensor-wool-growth';
+import {createHydroTensorRenderer} from './hydro_tensor_field.js?v=3.26.0-tensor-wool-growth';
+import {smoothWetDepths} from './flood_water_visual.js?v=3.26.0-tensor-wool-growth';
+import {sitePlanStorageKey,siteElementId,normalizeSiteDecisions,siteDecisionLabel} from './site_element_decisions.js?v=3.26.0-tensor-wool-growth';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.26.0-tensor-wool-growth';
 import {HYDRO_TENSOR_RIBBON_GRADIENT} from './hydro_tensor_visual.js?v=3.22.71-tensor-transport-stable';
 import * as polygonClippingModule from 'https://cdn.jsdelivr.net/npm/polygon-clipping@0.15.7/+esm';
 const polygonClipping=polygonClippingModule.default||polygonClippingModule;
@@ -3000,7 +3000,7 @@ export function createLocalFloodUI({
     shell.className='site-hydro-ui';
     shell.innerHTML=[
       '<header class="site-hydro-header"><div class="site-hydro-brand">LONDON 2100 · HYDRO LAB',
-      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.25.1-wool-collision</small></div>',
+      '<small>REAL SITE FLOOD ANALYSIS · OS TERRAIN 50 · v3.26.0-tensor-wool-growth</small></div>',
       '<span class="site-hydro-chip">EA RISK / DRAINAGE / RAINFALL</span>',
       '<button id="siteHudTop" class="site-hydro-btn" type="button" style="flex:0 0 58px">2D</button>',
       '<button id="siteHudIso" class="site-hydro-btn" type="button" style="flex:0 0 58px">3D</button>',
@@ -3136,10 +3136,10 @@ export function createLocalFloodUI({
       // flood → site keep/remove → tensor → Wool roads → final parcel generator.
       '<section class="site-hydro-section" id="siteHudStep05Section">',
       '<div class="site-hydro-section-title">05 · 羊毛道路生成与优化（Wool）</div>',
-      '<div class="site-hydro-mini">先完成 2100 年洪涝模拟与张量场，再使用真实场地数据进行三级道路骨架和 Wool 优化。结果只改变规划图层，不改变原始洪涝计算。</div>',
+      '<div class="site-hydro-mini">先使用真实张量主次方向连续生长道路纤维，再由 Wool 分叉、拉扯与连接，最后 A* 只修复必要断路。不改变原始洪涝计算。</div>',
       '<label class="site-hydro-check" style="display:flex;align-items:center;gap:8px;padding:10px 8px;background:#202024;border:1px solid #414146;border-radius:10px;margin:10px 0">',
       '<input type="checkbox" id="siteHudWoolAuto" style="width:18px;height:18px;flex-shrink:0">',
-      '<span><strong>结合 Wool 算法 · 自动生成</strong><small style="display:block;color:#a1a1a6;font-size:10px;font-weight:400">开启后自动读取 STEP 04 的真实 2100 年数据，并一次完成道路生成与 Wool 优化</small></span></label>',
+      '<span><strong>结合 Wool 算法 · 自动生成</strong><small style="display:block;color:#a1a1a6;font-size:10px;font-weight:400">开启后自动读取真实2100年水文数据，执行张量积分 → Wool 生长 → A* 安全修复</small></span></label>',
       '<div class="site-hydro-mini" id="siteHudStep05Status">开关默认关闭。完成真实2100年张量场后开启即可自动生成，无需导入文件。</div>',
       '<div id="siteHudStep05Controls"></div>',
       '<button type="button" class="site-vector-mode" id="siteHudStep05Final" disabled style="margin-top:9px">✓ 完成 STEP 05 → 进入最终 Parcel Generator</button>',

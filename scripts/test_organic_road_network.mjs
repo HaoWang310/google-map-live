@@ -2,7 +2,7 @@
 // Verifies organic street hierarchy, loops, hard flood mask and dense preset.
 import assert from 'node:assert/strict';
 import {makeRoadDomain} from './parcel_road_constraints.js';
-import {initialRoadSkeleton} from './parcel_road_skeleton.js';
+import {initialRoadSkeleton,repairRoadConnectivity} from './parcel_road_skeleton.js';
 import {optimiseWool} from './parcel_wool_solver.js';
 import {createRoadTopology} from './parcel_road_topology.js';
 const cols=90,rows=68,n=cols*rows,cellProjectedM=10;
@@ -39,17 +39,23 @@ assert.ok(domain.wetCells>100,'Deep-water corridor must stay excluded');
 assert.ok(domain.diagnostics.deepExcluded>0,'Flood hazard must be in diagnostics');
 const initial=initialRoadSkeleton(domain,config);
 assert.ok(initial.stats.main>=2,'Require continuous primary streets');
-assert.ok(initial.stats.secondary>=4,'Require a genuine district tier');
-assert.ok(initial.stats.local>=6,'Require local streets, not just a sparse skeleton');
+assert.ok(initial.stats.secondary>=2,'Require tensor-orthogonal district fibers');
+assert.equal(initial.stats.local,0,'Local growth must belong to Wool, not the A-star initializer');
+assert.ok(initial.roads.every(r=>r.provenance?.startsWith('tensor-')),
+ 'Initial fibers must be tensor-integrated, not A-star pathfinding');
 const wool=optimiseWool(initial,domain,config);
-const network=createRoadTopology(wool,domain,config);
+assert.ok(wool.stats.grownSecondary>=2,'Wool must actually grow secondary branches');
+assert.ok(wool.stats.grownLocal>=6,'Wool must actually grow new local fibers');
+const repaired=repairRoadConnectivity(wool,domain,config);
+assert.ok(repaired.stats.astarRepairs>=0,'Only final connectivity repair may use A-star');
+const network=createRoadTopology(repaired,domain,config);
 assert.ok(network.statistics.roadCount>=15,'More than a few lines');
 assert.ok(network.statistics.edges>0);
 assert.ok(network.statistics.nodes>0);
 assert.ok(network.statistics.cycleRank>=0);
 assert.equal(network.topology.properties.closedFacesComputed,false,
  'Preliminary faces do not mean STEP06 zoning is complete');
-for(const r of wool.roads){
+for(const r of repaired.roads){
  for(let i=0;i<r.points.length;i++){
   const k=domain.cellAt(r.points[i]);
   assert.ok(k>=0&&domain.safe[k], 'Wool vertex must avoid deep-water');
@@ -66,7 +72,8 @@ const elapsed=Math.round(performance.now()-start);
 console.log(JSON.stringify({
  result:'PASS',fixture:'deterministic synthetic georeferenced test, NOT measured',
  roads:network.statistics.roadCount,
- hierarchy:initial.stats,loops:network.statistics.cycleRank,
+ hierarchy:initial.stats,woolGrowth:wool.stats.grownLocal,astarRepairs:repaired.stats.astarRepairs,
+ loops:network.statistics.cycleRank,
  blocks:network.statistics.candidateBlocks,
  elapsedMs:elapsed
 },null,2));

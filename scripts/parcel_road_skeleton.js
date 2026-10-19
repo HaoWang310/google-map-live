@@ -1,5 +1,4 @@
-/* STEP 05 initial graph; real tensor/flood raster, deterministic A*.
-   These are tentative paths that MUST pass the wool and topology stages. */
+/* STEP 05: real hydrological tensor-integrated road fibers. A* is only for repair. */
 import {length} from './parcel_road_constraints.js';
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 class Heap{
@@ -113,157 +112,199 @@ function search(domain,start,end,usage,parameters,kind){
   start,end,lengthM:ids.slice(1).reduce((sum,j,k)=>sum+length(domain.toPoint(ids[k]),domain.toPoint(j))*scale,0),
   provenance:'deterministic tensor-aligned flood-aware A* spine'};
 }
-// Multi-scale organic street network: access spine → district loops → local mesh.
-// Every seed and connection is derived from the validated DEM/flood tensor grid.
+// STEP05 generation deliberately begins with tensor integration, NOT A*.
+// A* is retained solely as a late connectivity-repair utility.
+function axisAt(domain,p,secondary=false,reference=null){
+ const {w,h,cell,left,top,ax,ay,safe,certainty}=domain;
+ const fx=(p[0]-left)/cell-.5,fy=(top-p[1])/cell-.5,
+  x0=Math.floor(fx),y0=Math.floor(fy),dx=fx-x0,dy=fy-y0;
+ let c=0,s=0,total=0;
+ for(const [ox,oy,weight] of [
+  [0,0,(1-dx)*(1-dy)],[1,0,dx*(1-dy)],
+  [0,1,(1-dx)*dy],[1,1,dx*dy]]){
+  const x=x0+ox,y=y0+oy;
+  if(x<0||x>=w||y<0||y>=h||weight<=0)continue;
+  const j=y*w+x,vx=ax[j],vy=ay[j],mag=Math.hypot(vx,vy);
+  if(!safe[j]||mag<.25)continue;
+  const k=weight*(.12+Math.max(0,certainty[j]));
+  c+=k*(vx*vx-vy*vy)/(mag*mag);
+  s+=k*2*vx*vy/(mag*mag);total+=k;
+ }
+ if(total<1e-5||Math.hypot(c,s)/total<.09)return null;
+ const angle=.5*Math.atan2(s,c)+(secondary?Math.PI/2:0);
+ let out=[Math.cos(angle),Math.sin(angle)];
+ if(reference&&out[0]*reference[0]+out[1]*reference[1]<0)out=[-out[0],-out[1]];
+ return out;
+}
+function segmentSafe(domain,a,b){
+ const k=Math.max(2,Math.ceil(length(a,b)/(domain.cell*.28)));
+ for(let j=0;j<=k;j++){
+  const p=[a[0]+(b[0]-a[0])*j/k,a[1]+(b[1]-a[1])*j/k],
+   z=domain.cellAt(p);
+  if(z<0||!domain.safe[z])return false;
+ }
+ return true;
+}
+function integrate(domain,origin,secondary,sign,maxSteps,step){
+ const initial=axisAt(domain,origin,secondary);
+ if(!initial)return [origin];
+ let heading=sign<0?[-initial[0],-initial[1]]:initial;
+ const line=[origin],seen=new Set();
+ for(let iter=0;iter<maxSteps;iter++){
+  const p=line.at(-1),q=[p[0]+heading[0]*step*.5,p[1]+heading[1]*step*.5];
+  const mid=axisAt(domain,q,secondary,heading);
+  if(!mid)break;
+  const turn=heading[0]*mid[0]+heading[1]*mid[1];
+  if(turn<.05)break;
+  const blended=[heading[0]*.3+mid[0]*.7,heading[1]*.3+mid[1]*.7],
+   norm=Math.hypot(...blended);
+  if(norm<.01)break;
+  const dir=[blended[0]/norm,blended[1]/norm],
+   next=[p[0]+dir[0]*step,p[1]+dir[1]*step];
+  if(!segmentSafe(domain,p,next))break;
+  const z=domain.cellAt(next);
+  const key=z+'|'+(Math.round(Math.atan2(dir[1],dir[0])*4));
+  if(seen.has(key)&&iter>9)break;
+  seen.add(key);
+  line.push(next);heading=dir;
+ }
+ return line;
+}
+function trace(domain,i,secondary,maxSteps){
+ const origin=domain.toPoint(i),step=domain.cell*.64,
+  backward=integrate(domain,origin,secondary,-1,maxSteps,step),
+  forward=integrate(domain,origin,secondary,1,maxSteps,step);
+ return backward.reverse().concat(forward.slice(1));
+}
+function lengthOf(domain,points){
+ let sum=0;
+ for(let i=1;i<points.length;i++)sum+=length(points[i-1],points[i])*domain.scale;
+ return sum;
+}
+function selectSeeds(domain,spacing,limit,offset=0){
+ const {w,h,safe,certainty,depth,hydro,cost}=domain,chosen=[],
+  half=Math.max(1,Math.floor(spacing/2));
+ for(let row=half;row<h;row+=spacing)for(let col=half;col<w;col+=spacing){
+  let best=-1,score=-Infinity;
+  for(let oy=-half;oy<=half;oy++)for(let ox=-half;ox<=half;ox++){
+   const x=col+ox,y=row+oy;if(x<1||x>=w-1||y<1||y>=h-1)continue;
+   const i=y*w+x;
+   if(!safe[i])continue;
+   const criterion=certainty[i]*2.1-.2*cost[i]-1.2*depth[i]-
+      .3*hydro[i]-.018*(ox*ox+oy*oy)+
+      .01*Math.sin(i*1.73+offset);
+   if(criterion>score){score=criterion;best=i}
+  }
+  if(best>=0)chosen.push({i:best,score,
+   order:(Math.imul(best+17,2654435761)>>>0)});
+ }
+ // Alternating spatial bins prevent clusters in one corner; no random geometry.
+ chosen.sort((a,b)=>b.score-a.score);
+ const bySector=Array.from({length:9},()=>[]);
+ for(const item of chosen){
+  const x=item.i%w,y=Math.floor(item.i/w),
+   sec=Math.min(8,Math.floor(x*3/w)+3*Math.floor(y*3/h));
+  bySector[sec].push(item.i);
+ }
+ const picked=[];
+ while(picked.length<limit&&bySector.some(a=>a.length)){
+  for(const bucket of bySector){
+   if(bucket.length&&picked.length<limit)picked.push(bucket.shift());
+  }
+ }
+ return picked;
+}
 export function initialRoadSkeleton(domain,parameters={},progress=()=>{}){
- const {w,h,safe,groundCell,ax,ay,certainty,cost}=domain,n=w*h,
-  d=clamp(Number(parameters.roadDensity??88)/100,.05,1),
-  branching=clamp(Number(parameters.branchingStrength??78)/100,0,1),
-  reconnect=clamp(Number(parameters.reconnectionStrength??86)/100,0,1),
-  agriculture=clamp(Number(parameters.agriculturalContinuity??65)/100,0,1);
- const usage=new Uint16Array(n),roads=[],access=nearestCells(domain),
-  anchors=candidateNodes(domain,parameters),occupied=[],rejections={unsafe:0,duplicate:0,short:0,disconnected:0};
- if(access.length<2)throw Error('没有足够安全的场地边界入口，无法生成主道路');
- const maxRoads=Math.min(370,Math.max(75,Math.round(domain.dryCells*(.016+.013*d))));
- const sampleOccupied=(p,minimum,limit=14)=>{
-  const candidates=[];
-  // Candidates are drawn from actual computed corridors, never random locations.
-  const stride=Math.max(1,Math.floor(occupied.length/2400));
-  for(let k=0;k<occupied.length;k+=stride){
-   const i=occupied[k];if(i===p||!safe[i])continue;
-   const distance=length(domain.toPoint(p),domain.toPoint(i))*domain.scale;
-   if(distance<minimum||distance>groundCell*55)continue;
-   candidates.push({i,distance});
+ const d=clamp(Number(parameters.roadDensity??88)/100,.05,1),
+  agriculture=clamp(Number(parameters.agriculturalContinuity??65)/100,0,1),
+  maxMain=Math.min(22,Math.max(4,Math.round(domain.dryCells*(.0008+.0012*d)))),
+  mainSpacing=clamp(Math.round(Math.sqrt(domain.dryCells/Math.max(3,maxMain))),5,24),
+  seeds=selectSeeds(domain,mainSpacing,maxMain*3),
+  maxSteps=Math.min(125,Math.max(20,Math.round(Math.hypot(domain.w,domain.h)*.67)));
+ const roads=[],used=new Uint16Array(domain.w*domain.h),
+  access=nearestCells(domain),
+  candidates=candidateNodes(domain,parameters),
+  rejects={short:0,unsafe:0,duplicate:0,disconnected:0};
+ function add(points,kind,provenance){
+  if(points.length<6)return false;
+  const len=lengthOf(domain,points);
+  if(len<(kind==='main'?9:5)*domain.groundCell){rejects.short++;return false}
+  if(!points.every((p,k)=>segmentSafe(domain,p,k?points[k-1]:p))){
+   rejects.unsafe++;return false;
   }
-  return candidates.sort((a,b)=>a.distance-b.distance).slice(0,limit);
- };
- const add=(a,b,kind)=>{
-  if(a===b||roads.length>=maxRoads)return null;
-  if(!safe[a]||!safe[b]){rejections.unsafe++;return null}
-  const r=search(domain,a,b,usage,parameters,kind);
-  if(!r){rejections.disconnected++;return null}
-  const novel=r.indices.reduce((count,i)=>count+(usage[i]===0?1:0),0);
-  if(r.lengthM<groundCell*(kind==='main'?5:2.5)){rejections.short++;return null}
-  if(kind!=='main'&&novel<Math.max(3,r.indices.length*.12)){
-   rejections.duplicate++;return null;
-  }
-  const first=roads.find(p=>p.start===a&&p.end===b||p.start===b&&p.end===a);
-  if(first){rejections.duplicate++;return null}
-  for(const i of r.indices){
-   if(!usage[i])occupied.push(i);
-   usage[i]=Math.min(65535,usage[i]+1);
-  }
-  roads.push(r);return r;
- };
- const nearestSafe=(x,y,radius)=>{
-  let best=-1,value=Infinity;
-  for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){
-   const xx=x+dx,yy=y+dy;if(xx<0||xx>=w||yy<0||yy>=h)continue;
-   const i=yy*w+xx;if(!safe[i])continue;
-   const mag=Math.hypot(ax[i],ay[i]);
-   const weight=(dx*dx+dy*dy)+cost[i]*.3+(1-mag)*.3;
-   if(weight<value){value=weight;best=i}
-  }
-  return best;
- };
- function seeds(spacing,limit){
-  const list=[],seen=new Set(),half=Math.max(1,Math.floor(spacing*.5));
-  for(let y=half;y<h;y+=spacing)for(let x=half;x<w;x+=spacing){
-   // Deterministic pseudo-jitter prevents the seed sites forming a Cartesian pattern.
-   const jx=((x*37+y*17)%Math.max(1,spacing))-half;
-   const jy=((x*19+y*43)%Math.max(1,spacing))-half;
-   const i=nearestSafe(x+jx,y+jy,half+2);
-   if(i<0||seen.has(i))continue;seen.add(i);
-   const suitability=certainty[i]*1.3-cost[i]*.14+Math.hypot(ax[i],ay[i])*.2;
-   // More agricultural continuity removes low-evidence local development nodes.
-   if(suitability<-.05&&((x+y)%7)<Math.round(agriculture*5))continue;
-   list.push({i,suitability,ordinal:(x*13+y*31)%97});
-  }
-  // Spread rather than only pick the first (northwest) region.
-  list.sort((a,b)=>b.suitability-a.suitability||a.ordinal-b.ordinal);
-  return list.slice(0,limit).map(x=>x.i);
+  let newCells=0;
+  const visited=new Set();
+  for(const p of points){const i=domain.cellAt(p);if(i>=0)visited.add(i)}
+  for(const i of visited)if(!used[i])newCells++;
+  if(newCells<Math.max(3,visited.size*.18)){rejects.duplicate++;return false}
+  const a=points[0],b=points.at(-1);
+  if(roads.some(r=>length(r.points[0],a)<domain.cell*2&&
+    length(r.points.at(-1),b)<domain.cell*2)){rejects.duplicate++;return false}
+  roads.push({kind,points,start:domain.cellAt(a),end:domain.cellAt(b),
+   provenance,lengthM:len});
+  for(const i of visited)used[i]++;
+  return true;
  }
- // Phase 1: long-access spines followed by redundant access-to-access links.
- const hub=anchors.find(x=>x.role==='candidate_residential')?.i??
-  nearestSafe(Math.floor(w/2),Math.floor(h/2),Math.ceil(Math.max(w,h)/3));
- if(hub>=0&&safe[hub]){
-  for(const i of access){add(hub,i,'main')}
+ // Principal fibers are integrated bidirectionally from real directional evidence.
+ for(const i of seeds){
+  if(roads.filter(r=>r.kind==='main').length>=maxMain)break;
+  add(trace(domain,i,false,maxSteps),'main','tensor-primary-rk2');
  }
- if(!roads.length)add(access[0],access.at(-1),'main');
- for(let i=0;i<access.length;i++){
-  if(roads.filter(r=>r.kind==='main').length>=14)break;
-  const j=(i+Math.max(2,Math.floor(access.length/2)))%access.length;
-  add(access[i],access[j],'main');
+ // Orthogonal secondary fibers are ALSO integrated, instead of joining A* pairs.
+ const secSeeds=selectSeeds(domain,clamp(Math.round(mainSpacing*.72),4,17),
+   Math.min(64,maxMain*6),13);
+ for(const i of secSeeds){
+  if(roads.filter(r=>r.kind==='secondary').length>=Math.max(8,maxMain*2))break;
+  if(domain.hydro[i]&&agriculture>.7)continue;
+  add(trace(domain,i,true,Math.round(maxSteps*.55)),'secondary','tensor-secondary-rk2');
  }
- progress(.27,'主道路：连接场地入口和安全中心，形成连续骨架');
- // Phase 2: district-level branches and loops. Each distinct seed attempts
- // two connections to spatially separated points on the existing network.
- const secondaryStep=clamp(Math.round(15-8*d),5,15);
- const secondary=seeds(secondaryStep,Math.round(19+105*d));
- let secondaryLoops=0;
- for(const seed of secondary){
-  if(roads.length>=maxRoads*.59)break;
-  if(usage[seed])continue;
-  const targets=sampleOccupied(seed,groundCell*2.8,60);
-  if(!targets.length){rejections.disconnected++;continue}
-  const primary=targets[0].i,first=add(seed,primary,'secondary');
-  if(!first)continue;
-  if(reconnect<.2)continue;
-  const firstPt=domain.toPoint(primary),seedPt=domain.toPoint(seed);
-  const ranked=targets.filter(t=>t.i!==primary&&
-    length(domain.toPoint(t.i),firstPt)*domain.scale>
-      Math.max(groundCell*4,targets[0].distance*.55));
-  // A second remote attachment creates a loop, not a redundant line stub.
-  ranked.sort((a,b)=>{
-   const sep=p=>{
-    const u=domain.toPoint(p.i),
-      ux=(u[0]-seedPt[0]),uy=(u[1]-seedPt[1]),
-      vx=firstPt[0]-seedPt[0],vy=firstPt[1]-seedPt[1];
-    return Math.abs(ux*vy-uy*vx)/(Math.hypot(ux,uy)*Math.hypot(vx,vy)+1);
-   };
-   return b.distance*.025-a.distance*.025+sep(b)-sep(a);
-  });
-  const second=ranked[0];
-  if(second&&add(seed,second.i,'secondary'))secondaryLoops++;
- }
- progress(.46,'次道路：扩展安全片区并尝试跨路网闭环');
- // Phase 3: compact local service mesh, with perpendicular tensor hints and
- // independently sampled local sites. Never artificially draw a raster grid.
- const localStep=clamp(Math.round(8-5*d),3,8);
- const localSeeds=seeds(localStep,Math.round(30+265*d));
- let localLoops=0,localLinks=0;
- for(const seed of localSeeds){
-  if(roads.length>=maxRoads)break;
-  if(usage[seed])continue;
-  // Preserve flood/continuous farm corridors without eliminating all streets.
-  if(domain.hydro[seed]||domain.depth[seed]>.055)continue;
-  const targets=sampleOccupied(seed,groundCell*2,64);
-  if(!targets.length)continue;
-  let connected=add(seed,targets[0].i,'local');
-  if(!connected)continue;
-  localLinks++;
-  if(reconnect<.25||roads.length>=maxRoads)continue;
-  const a=domain.toPoint(targets[0].i),p=domain.toPoint(seed);
-  const options=targets.filter(t=>t.i!==targets[0].i&&
-    length(domain.toPoint(t.i),a)*domain.scale>groundCell*3.5);
-  options.sort((x,y)=>{
-   const deviation=q=>{
-    const z=domain.toPoint(q.i),v=[a[0]-p[0],a[1]-p[1]],u=[z[0]-p[0],z[1]-p[1]];
-    return Math.abs(u[0]*v[1]-u[1]*v[0])/(Math.hypot(...u)*Math.hypot(...v)+1);
-   };
-   return deviation(y)-deviation(x)||x.distance-y.distance;
-  });
-  if(options.length&&add(seed,options[0].i,'local'))localLoops++;
- }
- progress(.67,'局部支路：加密内部街坊，完成多级连接与闭环');
- if(!roads.length)throw Error('真实 DEM/洪涝约束下没有可生成的合法道路');
+ if(!roads.some(r=>r.kind==='main'))throw Error('该地块真实张量方向不足，无法积分生成主道路纤维');
+ progress(.34,'已沿张量主次方向积分初始连续纤维，准备进行 Wool 分叉生长');
  const hierarchy={main:0,secondary:0,local:0};
  for(const r of roads)hierarchy[r.kind]++;
- return {roads,access:access.map(i=>domain.toPoint(i)),
-  candidates:anchors.map(a=>({...a,point:domain.toPoint(a.i)})),
-  stats:{...hierarchy,secondaryLoops,localLoops,localConnections:localLinks,
-   targetRoads:maxRoads,rejections,eligibleCells:domain.dryCells,
-   visitedCells:usage.reduce((s,v)=>s+(v>0),0),
-   seedCounts:{secondary:secondary.length,local:localSeeds.length},
-   note:'Three-tier tensor-guided A*; deterministic adaptive seeds; flood masks remain authoritative'}};
+ return {roads,access:access.map(i=>domain.toPoint(i)),candidates:
+  candidates.map(c=>({...c,point:domain.toPoint(c.i)})),
+  stats:{...hierarchy,secondaryLoops:0,localLoops:0,localConnections:0,
+   targetRoads:Math.min(240,Math.max(65,Math.round(domain.dryCells*.032*d))),
+   rejections:rejects,seedCounts:{main:seeds.length,secondary:secSeeds.length},
+   eligibleCells:domain.dryCells,visitedCells:used.reduce((v,i)=>v+(i>0),0),
+   note:'Bidirectional RK2 integration on real primary and secondary tensor axes; no A* in primary growth'}};
+}
+// Called *after* Wool growth. A* may connect safe disconnected fiber components,
+// but it is never used to create the initial road hierarchy.
+export function repairRoadConnectivity(network,domain,parameters={},progress=()=>{}){
+ const roads=network.roads,usage=new Uint16Array(domain.w*domain.h),
+  seen=new Set(),repairs=[];
+ for(const r of roads)for(const p of r.points){
+  const i=domain.cellAt(p);if(i>=0)usage[i]++;
+ }
+ const anchors=roads.filter(r=>r.kind==='main').map(r=>domain.cellAt(r.points[0]))
+   .filter(i=>i>=0&&domain.safe[i]);
+ if(anchors.length<2)return {...network,stats:{...network.stats,astarRepairs:0}};
+ const group=[anchors[0]];
+ const maxRepairs=Math.min(8,Math.max(2,Math.round(anchors.length/2)));
+ for(let round=0;round<maxRepairs;round++){
+  const remain=anchors.filter(a=>!seen.has(a)&&!group.includes(a));
+  if(!remain.length)break;
+  let pair=null,best=Infinity;
+  for(const a of remain)for(const b of group){
+   const d=length(domain.toPoint(a),domain.toPoint(b))*domain.scale;
+   if(d<best){best=d;pair=[a,b]}
+  }
+  if(!pair)break;
+  const [a,b]=pair;seen.add(a);
+  // Short safe direct links need no pathfinder. For longer/unsafe links A*
+  // repairs only the missing connection and respects the hard flood mask.
+  const path=search(domain,a,b,usage,parameters,'secondary');
+  if(!path){continue}
+  if(path.indices.length<2||path.lengthM<domain.groundCell*2)continue;
+  // Connecting separate safe islands is impossible without bridging; preserve
+  // that disconnect rather than inventing a road through inundated cells.
+  repairs.push({...path,points:path.indices.map(i=>domain.toPoint(i)),
+   id:'REPAIR-'+(repairs.length+1),provenance:'astar-connectivity-repair'});
+  group.push(a);
+ }
+ progress(.9,'已按需使用 A* 修复少量安全断路，其余方向来自张量积分与 Wool 生长');
+ return {...network,roads:roads.concat(repairs),
+  stats:{...network.stats,astarRepairs:repairs.length}};
 }
