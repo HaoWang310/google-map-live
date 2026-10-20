@@ -1,6 +1,6 @@
 /* STEP 05 planar street topology and ground-metre carriageway strips.
    Full face subdivision and semantic zoning belong to STEP 06, not STEP 05. */
-import {lonlat,length} from './parcel_road_constraints.js';
+import {lonlat,length} from './parcel_road_constraints.js?v=3.29.4-english';
 const widths={main:14,secondary:9,local:5};
 const round=n=>Math.round(n*100)/100;
 const nodeKey=p=>Math.round(p[0])+'|'+Math.round(p[1]);
