@@ -6,7 +6,7 @@ export function smoothWetDepths(depthMm,width,height,validMask=null,thresholdMm=
   const count=width*height;
   if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||
      depthMm.length!==count||(validMask&&validMask.length!==count)){
-    throw new Error('水面显示插值：网格尺寸或掩膜不匹配');
+    throw new Error('Water display interpolation: raster dimensions or mask mismatch');
   }
   const wet=new Uint8Array(count);
   const metres=new Float32Array(count);
