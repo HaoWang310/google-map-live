@@ -22,7 +22,7 @@ export function createDrainageDisplayLoader(config){
     worker.onerror=()=>{
       for(const request of pending.values()){
         request.cleanup();
-        request.reject(new Error('排水网络 Worker 加载失败，请重新勾选图层'));
+        request.reject(new Error('Drainage Worker failed to load. Toggle the layer off and on again.'));
       }
       pending.clear();
       worker.terminate();
