@@ -582,7 +582,7 @@ export function createHydroTensorRenderer(args){
         geometryActiveId=0;pumpGeometry();
       },180);
     }
-    status(settings.mode==='presentation'?'Updating smooth presentation grid from this site's hydrological tensors…':
+    status(settings.mode==='presentation'?'Updating smooth presentation grid from the current site hydrological tensors…':
       (scenario?.year??2026)+' · updating computed bidirectional streamlines while retaining current view…');
     pumpGeometry();
   }
