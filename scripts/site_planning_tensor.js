@@ -20,7 +20,7 @@ export function rasterizeSitePlanning(features,grid,cols,rows){
   const step=Number(grid?.cellProjectedM),left=Number(grid?.left),top=Number(grid?.top);
   if(!Number.isInteger(cols)||!Number.isInteger(rows)||n<1||n>70000||
     !(step>0)||!Number.isFinite(left)||!Number.isFinite(top))
-    throw new Error('场地现状约束：与水文格网不匹配');
+    throw new Error('Existing-site planning constraints do not match the hydrological grid');
   const checked=new Set();
   let retainedRoads=0,retainedAreas=0;
   for(const f of features||[]){
