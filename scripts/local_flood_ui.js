@@ -3903,7 +3903,7 @@ export function createLocalFloodUI({
       a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
       const years=snapshot.scenarios.map(s=>s.scenario.year);
       hint.textContent='Current site exported; computed years: '+(years.join(', ')||snapshot.current.scenario.year)+
-        '。'+([2026,2100].every(y=>years.includes(y))?'':'Wait for calculations at both 2026 and 2100, then export to include both scenarios.')+
+        '. '+([2026,2100].every(y=>years.includes(y))?'':'Wait for calculations at both 2026 and 2100, then export to include both scenarios.')+
         (snapshot.pending.tensor||snapshot.pending.geometry?' Calculations are still running; the package marks pending results.':'');
     };
     if(showTensorBuildings){
@@ -4073,7 +4073,7 @@ export function createLocalFloodUI({
           '\nPonding ≥2 cm: '+pct(stats.wet)+
           ' · gaps as share of wet area '+(stats.wet?(100*stats.wetGap/stats.wet).toFixed(1):'0.0')+'%'+
           '\nDisplay categories are diagnostic evidence, not pointwise reasons for curvature/spacing termination.'+
-          (stats.visualStride>1?' (visual aggregation factor '+stats.visualStride+'）':'');
+          (stats.visualStride>1?' (visual aggregation factor '+stats.visualStride+')':'');
       },
       getBounds:()=>focusWaterBounds,
       onStatus:message=>setSiteHud('siteHudVectorStatus',message),
