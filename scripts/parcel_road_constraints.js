@@ -16,19 +16,19 @@ export function pointInPolygon(point,ring){
 }
 function decoded(entry,n,name){
  const data=entry?.values??entry;
- if(!Array.isArray(data)||data.length!==n)throw Error('STEP 05 缺失或错误的真实场地数据：'+name);
+ if(!Array.isArray(data)||data.length!==n)throw Error('STEP 05 missing or invalid real-site data: '+name);
  return Float32Array.from(data,v=>Number.isFinite(Number(v))?Number(v):0);
 }
 export function readSiteTensor(input,ring){
  const snapshot=input?.schema==='london-tensor-site-v1'?(input.scenarios||[])
    .find(s=>s?.scenario?.year===2100)??input.current:input;
- if(!snapshot)throw Error('请导入 London Map 导出的张量诊断 JSON');
+ if(!snapshot)throw Error('Import the tensor diagnostics JSON exported by London Map');
  const cols=Number(snapshot.cols),rows=Number(snapshot.rows),n=cols*rows;
  if(!Number.isInteger(cols)||!Number.isInteger(rows)||n<16||n>70000)
-  throw Error('张量场格网尺寸无效');
+  throw Error('Invalid tensor raster dimensions');
  const grid=snapshot.grid;
  if(!grid||!Number.isFinite(grid.left)||!Number.isFinite(grid.top)||
-    !(grid.cellProjectedM>0))throw Error('缺少原始 EPSG:3857 网格元数据');
+    !(grid.cellProjectedM>0))throw Error('Original EPSG:3857 raster metadata missing');
  const f=snapshot.fields||snapshot;
  const primaryX=decoded(f.primaryX,n,'primaryX'),primaryY=decoded(f.primaryY,n,'primaryY');
  const confidence=decoded(f.confidence,n,'confidence');
@@ -52,7 +52,7 @@ export function readSiteTensor(input,ring){
   const near=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1])*
     Math.cos(ring[0][1]*Math.PI/180)<3.0;
   if(!a.every(p=>b.some(q=>near(p,q)))||!b.every(p=>a.some(q=>near(p,q))))
-   throw Error('导入 JSON 属于另一块地块，请使用当前红色框选场地的张量/洪涝结果');
+   throw Error('Imported JSON belongs to another site; use tensor/flood data for the current red boundary');
  }
  const polygon=ring.map(merc);
  const minX=grid.left,maxX=grid.left+cols*grid.cellProjectedM;
@@ -60,13 +60,13 @@ export function readSiteTensor(input,ring){
  const contained=polygon.filter(p=>p[0]>=minX-2*grid.cellProjectedM&&
   p[0]<=maxX+2*grid.cellProjectedM&&p[1]>=minY-2*grid.cellProjectedM&&p[1]<=maxY+2*grid.cellProjectedM);
  if(contained.length<polygon.length-1)
-  throw Error('导入的张量/洪涝格网与当前红色场地不匹配，请重新导出同一地块');
+  throw Error('Imported tensor/flood raster does not match the selected site; export the same site again');
  let active=0,oriented=0;
  for(let i=0;i<n;i++)if(valid[i]>0){active++;if(Math.hypot(primaryX[i],primaryY[i])>.4)oriented++;}
- if(active<16||oriented<8)throw Error('张量方向证据不足；请先在 London Map 完成真实张量计算');
+ if(active<16||oriented<8)throw Error('Insufficient tensor orientation evidence; complete tensor calculation in London Map first');
  // A current-year 2026 snapshot cannot stand in for the 2100 flood constraints.
  const year=Number(snapshot.scenario?.year??snapshot.scenarioYear);
- if(year!==2100)throw Error('请导入含有 2100 年计算结果的场地诊断 JSON（不是仅2026年的预览）');
+ if(year!==2100)throw Error('Import site diagnostics containing computed 2100 results, not only a 2026 preview');
  return {cols,rows,grid:{left:grid.left,top:grid.top,cellProjectedM:grid.cellProjectedM},
   primaryX,primaryY,confidence,anisotropy,valid,depth,drainage,terrain,polygon,
   sourceRevision,scenarioToken:snapshot.scenario?.token||null,rainfallCase:snapshot.scenario?.rainfallCase||null,
@@ -135,7 +135,7 @@ export function makeRoadDomain(source,parameters={}){
     Math.min(8,slope[i]*slope[i]*12);
 
  }
- if(dry<36&&parameters.visualMode!=='presentation')throw Error('洪涝/地形约束后可规划格网不足；请检查场地或水深阈值');
+ if(dry<36&&parameters.visualMode!=='presentation')throw Error('Too few buildable cells remain after flood/terrain constraints; check site and depth threshold');
  const siteGroundCell=cell*metricScale;
  return {w,h,cell,groundCell:siteGroundCell,left:grid.left,top:grid.top,
   inside,safe,depth,ax,ay,certainty,anisotropy,hydro,cost,slope,
