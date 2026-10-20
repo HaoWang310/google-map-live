@@ -1,15 +1,15 @@
 /* STEP 05 independent Parcel Generator presentation/controller.
    No STEP 01–04 changes or fabricated tensor data. */
 const PARAMETERS=[
- ['woolStrength','羊毛拉力',88,0,100],
- ['tensorAlignment','张量贴合度',78,0,100],
- ['floodAvoidance','洪涝避让',58,0,100],
- ['roadDensity','路网密度',88,5,100],
- ['branchingStrength','分叉强度',78,0,100],
- ['bundleStrength','线束聚合强度',85,0,100],
- ['reconnectionStrength','重连强度',86,0,100],
- ['curvatureSmoothing','曲率平滑度',90,0,100],
- ['agriculturalContinuity','农业连续性',65,0,100]
+ ['woolStrength','Wool attraction',88,0,100],
+ ['tensorAlignment','Tensor alignment',78,0,100],
+ ['floodAvoidance','Flood avoidance',58,0,100],
+ ['roadDensity','Road density',88,5,100],
+ ['branchingStrength','Branching strength',78,0,100],
+ ['bundleStrength','Fiber bundling strength',85,0,100],
+ ['reconnectionStrength','Reconnection strength',86,0,100],
+ ['curvatureSmoothing','Curvature smoothing',90,0,100],
+ ['agriculturalContinuity','Agricultural continuity',65,0,100]
 ];
 const empty=()=>({type:'FeatureCollection',features:[]});
 const statusText=(node,txt,bad=false)=>{if(node){
@@ -52,48 +52,48 @@ export function createParcelRoadUI({
  function inform(msg,bad=false){statusText(el('pg-road-status'),msg,bad);
    onStatus?.(msg,bad);}
  const html=()=>`
- <div class="pg-label">STEP 05 · Wool 融合路网 · 仅最终结果</div>
- <p class="pg-note">${autoHandoff?'接收当前 London Map 已计算的真实张量与水深。':'打开「结合 Wool 算法」后，自动读取 STEP 04 的2100年数据，生成 Wool 融合的最终路网。STEP 04 张量线、中间纤维和原有地图均不在本步显示。'}</p>
- <div class="pg-section"><div class="pg-label">设计显示模式 · 本轮优先视觉效果</div>
+ <div class="pg-label">STEP 05 · Integrated Wool road network · final result only</div>
+ <p class="pg-note">${autoHandoff?'Receive the computed tensor and water depth for the current London Map site.':'After enabling Wool integration, the computed STEP 04 data for 2100 is loaded automatically to generate the final Wool road network. STEP 04 tensor curves, intermediate fibers and the existing basemap are hidden in this step.'}</p>
+ <div class="pg-section"><div class="pg-label">Design display mode · visual presentation first</div>
  <label class="pg-option" style="display:flex;align-items:center;gap:8px">
- <span>模式</span><select id="pg-road-visualMode" style="flex:1;min-width:0">
- <option value="presentation" selected>展示模式 · Wool 有机围合路网</option>
- <option value="analysis">分析模式 · 水文约束道路</option>
+ <span>Mode</span><select id="pg-road-visualMode" style="flex:1;min-width:0">
+ <option value="presentation" selected>Presentation · organic enclosed Wool network</option>
+ <option value="analysis">Analysis · hydrology-constrained roads</option>
  </select></label>
  <div class="pg-note" id="pg-road-mode-note" style="color:#a6deef">
- 根据当前地块张量与积水生成二维羊毛图案。展示模式整理形态；分析模式检查水文碰撞约束。</div></div>
- <div class="pg-section"><div class="pg-label">生成 / 优化 · 张量生长与 Wool 路网</div>
+ Generate a 2D Wool pattern using the selected site's tensor and ponding data. Presentation refines morphology; Analysis checks hydrological safety constraints.</div></div>
+ <div class="pg-section"><div class="pg-label">Generate / optimize · tensor growth and Wool roads</div>
  <div class="pg-road-actions">
- <button id="pg-road-generate" disabled style="display:none" aria-hidden="true" tabindex="-1">隐藏的旧骨架生成控制</button>
- <button id="pg-road-wool" disabled>重新生成 Wool 最终路网</button>
- <button id="pg-road-reset">重置路网</button>
+ <button id="pg-road-generate" disabled style="display:none" aria-hidden="true" tabindex="-1">Hidden legacy skeleton-generation control</button>
+ <button id="pg-road-wool" disabled>Regenerate final Wool network</button>
+ <button id="pg-road-reset">Reset network</button>
  </div>
  <div class="pg-road-progress"><div id="pg-road-progressbar"></div></div>
- <div class="pg-status" id="pg-road-status">等候当前选区真实2100年张量与水深结果。</div>
- <div class="pg-status" id="pg-road-quality" style="white-space:pre-line;font-size:10px">只显示 Wool 结合后的主干路、次干路与内部细密路网，不显示中间纤维。</div>
+ <div class="pg-status" id="pg-road-status">Waiting for 2100 tensor and depth results for this site.</div>
+ <div class="pg-status" id="pg-road-quality" style="white-space:pre-line;font-size:10px">Display only final Wool main, secondary and local roads; hide intermediate fibers.</div>
  </div>
- <div class="pg-note" id="pg-road-source">等待同一地块真实张量/水深数据。</div>
- ${showImport?`<label class="pg-option" style="display:block">备用：导入真实场地诊断 JSON
+ <div class="pg-note" id="pg-road-source">Waiting for real tensor/depth data from the same site.</div>
+ ${showImport?`<label class="pg-option" style="display:block">Fallback: import real-site diagnostic JSON
   <input type="file" accept=".json,application/json" id="pg-road-import" style="width:100%;font-size:11px;margin:6px 0">
  </label>`:''}
- <div class="pg-section"><div class="pg-label">羊毛 / 洪涝 / 城市控制 · 参数</div>
+ <div class="pg-section"><div class="pg-label">Wool / flood / urban controls · parameters</div>
  ${PARAMETERS.map(([k,label,v,min,max])=>`
   <label class="pg-road-param"><span>${label} <output id="pg-road-val-${k}">${v}</output></span>
    <input type="range" id="pg-road-${k}" min="${min}" max="${max}" step="1" value="${v}"></label>`).join('')}
- <label class="pg-road-param"><span>普通道路水深阈值（米）</span>
+ <label class="pg-road-param"><span>Maximum water depth for regular roads (m)</span>
   <input id="pg-road-floodLimitM" type="number" min=".03" max=".6" step=".01" value=".12" style="width:68px"></label></div>
- <div class="pg-section"><div class="pg-label">显示 / 道路层级</div>
- ${[['main','主道路'],['secondary','次道路'],
-  ['local','局部支路'],['reserved','洪涝 / 生态保留带'],
-  ['footprints','道路占地范围']].map(([k,label])=>
+ <div class="pg-section"><div class="pg-label">Display / road hierarchy</div>
+ ${[['main','Main roads'],['secondary','Secondary roads'],
+  ['local','Local roads'],['reserved','Flood / ecological reserves'],
+  ['footprints','Road footprints']].map(([k,label])=>
   `<label class="pg-option"><input type="checkbox" id="pg-road-show-${k}"
      ${['main','secondary','local'].includes(k)?'checked':''}> ${label}</label>`).join('')}
  </div>
- <div class="pg-section"><div class="pg-label">进入第六步 · 地块分割</div>
+ <div class="pg-section"><div class="pg-label">Go to STEP 06 · parcel subdivision</div>
  <div class="pg-road-actions">
- <button id="pg-road-export" disabled>↓ 导出 GeoJSON</button>
- <button id="pg-road-package" disabled>↓ 导出完整拓扑 JSON</button></div>
- <p class="pg-note">STEP 05 输出真实计算得到的道路中心线、分级、路面条带、多边形场地边界、洪涝保留区和交叉节点图。STEP 06 的地块切分/功能配色尚未执行。</p></div>`;
+ <button id="pg-road-export" disabled>↓ Export GeoJSON</button>
+ <button id="pg-road-package" disabled>↓ Export complete topology JSON</button></div>
+ <p class="pg-note">STEP 05 exports computed road centerlines, hierarchy, surface strips, site boundary, reserved flood areas and junction topology. STEP 06 parcel subdivision and functional zoning are not yet implemented.</p></div>`;
  function ensureWorker(){
   if(worker)return;
   worker=new Worker(new URL('./parcel_road_worker.js?v=3.29.4-english',import.meta.url),{type:'module'});
@@ -106,33 +106,33 @@ export function createParcelRoadUI({
     ready=true;pending=false;
     el('pg-road-generate').disabled=false;
     el('pg-road-wool').disabled=true;
-    inform('真实数据通过校验：'+data.diagnostics.cells+' 个张量格网；'+
-      '有效格 '+data.diagnostics.validCells+'；计算年 2100。');
-    el('pg-road-source').textContent='✓ 已自动读取当前场地的真实张量、水深与边界';
+    inform('Source data validated: '+data.diagnostics.cells+' tensor grid cells; '+
+      'valid cells '+data.diagnostics.validCells+'; calculation year 2100.');
+    el('pg-road-source').textContent='✓ Automatically loaded computed tensor, depth and boundary for the current site';
     if(autoGenerateOnReady)generate('optimise');
    }else if(data.type==='done'){
     pending=false;result=data.result;
     const q=el('pg-road-quality'),stat=result.diagnostics;
     if(q)q.textContent=(stat.visualMode==='presentation'?
-      '【展示模式】同源平滑张量 → 真实 Wool 优化 → 最终道路（概念设计）\n':
-      '【分析模式】张量积分 → Wool 生长 → A* 补连\nWool 新生次路 '+
-        (stat.wool?.grownSecondary||0)+' 条 · 新生支路 '+
-        (stat.wool?.grownLocal||0)+' 条 · A* 补连 '+
-        (stat.astarRepairs||0)+' 条\n')+
-      '张量平滑平均角差 '+(stat.presentationTensor?.meanAngleErrorDeg||0).toFixed(1)+'°'+
-      '\n主路 '+stat.mainKm+' km · 次路 '+stat.secondaryKm+
-      ' km · 支路 '+stat.localKm+' km' +
-      '\n安全格网道路覆盖率 '+stat.rasterCorridorCoveragePct+'% · 独立连通块 '+
-      stat.components+' · 闭环秩 '+stat.cycleRank+
-      '\n候选街区 '+stat.candidateBlocks+' 个 · 面积中位数 '+
+      '[Presentation] Shared-source smoothed tensor → Wool optimization → final roads (concept design)\n':
+      '[Analysis] Tensor integration → Wool growth → A* reconnection\nNew Wool secondary roads '+
+        (stat.wool?.grownSecondary||0)+' · new local roads '+
+        (stat.wool?.grownLocal||0)+' · A* repairs '+
+        (stat.astarRepairs||0)+' roads\n')+
+      'Mean tensor smoothing angular deviation '+(stat.presentationTensor?.meanAngleErrorDeg||0).toFixed(1)+'°'+
+      '\nMain roads '+stat.mainKm+' km · secondary roads '+stat.secondaryKm+
+      ' km · local roads '+stat.localKm+' km' +
+      '\nSafe-grid road coverage '+stat.rasterCorridorCoveragePct+'% · connected components '+
+      stat.components+' · cycle rank '+stat.cycleRank+
+      '\nCandidate blocks '+stat.candidateBlocks+' · median area '+
       stat.medianBlockAreaM2+' m²' +
-      (stat.qualityFlags?.length?'\n需要复核：'+stat.qualityFlags.join('、'):'');
+      (stat.qualityFlags?.length?'\nReview required: '+stat.qualityFlags.join(', '):'');
     for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package'])
       el(id).disabled=false;
     el('pg-road-progressbar').style.width='100%';
-    inform((result.diagnostics.visualMode==='presentation'?'Wool 最终有机路网已生成（展示概念）· ':'Wool 最终分析路网已生成 · ')+result.diagnostics.roadCount+' 条道路，'+
+    inform((result.diagnostics.visualMode==='presentation'?'Final organic Wool network generated (conceptual) · ':'Final analyzed Wool road network generated · ')+result.diagnostics.roadCount+' roads, '+
       result.diagnostics.lengthKm+' km，'+result.diagnostics.junctions+
-      ' 个路口 · '+(data.result.mode==='optimise'?'Wool 优化':'初始道路骨架'));
+      ' junctions · '+(data.result.mode==='optimise'?'Wool optimization':'Initial road skeleton'));
     updateMap();
     onDone(result);
     if(rerunAfterDone){rerunAfterDone=false;generate('optimise');}
@@ -140,14 +140,14 @@ export function createParcelRoadUI({
     pending=false;
     for(const id of ['pg-road-generate','pg-road-wool'])el(id).disabled=!ready;
     el('pg-road-source').textContent=ready?
-      '⚠ 数据已通过校验，但路网几何计算失败；请查看错误与参数。':
-      '⚠ 当前场地张量／洪涝数据校验失败，请检查 STEP 04。';
-    rerunAfterDone=false;inform('STEP 05 失败：'+data.message,true);
+      '⚠ Data validated, but road geometry computation failed; inspect parameters and errors.':
+      '⚠ Tensor/flood data validation failed for this site; check STEP 04.';
+    rerunAfterDone=false;inform('STEP 05 failed: '+data.message,true);
    }else if(data.type==='cleared'){
     result=null;pending=false;updateMap();
    }
   };
-  worker.onerror=e=>{pending=false;inform('STEP 05 道路 Worker 出错：'+e.message,true);};
+  worker.onerror=e=>{pending=false;inform('STEP 05 road Worker error: '+e.message,true);};
  }
  const names={reserved:'pg-road-reserved',footprints:'pg-road-footprints',local:'pg-road-local',bundles:'pg-road-bundles',secondary:'pg-road-secondary',main:'pg-road-main'};
  function layers(){
@@ -201,24 +201,24 @@ export function createParcelRoadUI({
   el('pg-road-progressbar').style.width='1%';
   el('pg-road-generate').disabled=true;el('pg-road-wool').disabled=true;
   el('pg-road-export').disabled=true;el('pg-road-package').disabled=true;
-  inform(params().visualMode==='presentation'?'正在生成连续柔性主次道路与围合地块（展示示意）…':
-    mode==='optimise'?'按张量、洪涝和 Wool 弹性重新优化路网…':
-    '沿真实张量主次方向生成初始道路纤维…');
+  inform(params().visualMode==='presentation'?'Generating continuous elastic primary/secondary roads and enclosed blocks (concept preview)…':
+    mode==='optimise'?'Re-optimizing the network using tensors, flooding and Wool elasticity…':
+    'Growing initial road fibers along primary and secondary tensor directions…');
   ensureWorker();worker.postMessage({type:mode,id:++serial,params:params()});
  }
  function acceptSnapshot(parsed,label){
   if(!root)return;
   ready=false;result=null;pending=false;updateMap();
   ensureWorker();
-  inform('正在核对 '+label+' 的2100年张量、洪涝结果与场地配准…');
+  inform('Validating '+label+' 2100 tensor/flood results and site alignment…');
   worker.postMessage({type:'source',id:++serial,snapshot:parsed,ring:getRing()});
   loadedSource=label;
  }
  async function importSource(file){
   if(!file)return;
-  if(file.size>75*1024*1024){inform('JSON 文件超过 75MB，请缩小场地。',true);return}
+  if(file.size>75*1024*1024){inform('JSON exceeds 75 MB; reduce the site size.',true);return}
   try{acceptSnapshot(JSON.parse(await file.text()),file.name);}
-  catch(e){inform('场地 JSON 读取失败：'+e.message,true)}
+  catch(e){inform('Failed to read site JSON: '+e.message,true)}
  }
  function scheduleRegenerate(){
   if(!ready||!active)return;
@@ -241,8 +241,8 @@ export function createParcelRoadUI({
   el('pg-road-visualMode').onchange=()=>{
     const present=el('pg-road-visualMode').value==='presentation';
     el('pg-road-mode-note').textContent=present?
-      '展示模式：只显示最终 Wool 形态，包括柔性主干路、片区汇合和密集细分地块；概念设计不代表工程安全验证。':
-      '分析模式：从真实水文张量出发，使用洪涝禁行、Wool 生长和 A* 安全修复。';
+      'Presentation: only the final Wool geometry, including elastic main roads, district confluences and subdivided blocks. Concept design is not engineering certification.':
+      'Analysis: start from computed hydrological tensors with flood exclusions, Wool growth and safe A* reconnection.';
     scheduleRegenerate();
   };
   el('pg-road-generate').onclick=()=>generate('generate');
@@ -251,7 +251,7 @@ export function createParcelRoadUI({
    result=null;pending=false;rerunAfterDone=false;
    if(regenerateTimer!==null)clearTimeout(regenerateTimer);
    regenerateTimer=null;
-   if(el('pg-road-quality'))el('pg-road-quality').textContent='尚未生成路网。';
+   if(el('pg-road-quality'))el('pg-road-quality').textContent='No road network generated.';
    onReset();
    if(worker){worker.terminate();worker=null;}
    ready=false;
@@ -259,8 +259,8 @@ export function createParcelRoadUI({
    for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package'])
     el(id).disabled=true;
    updateMap();
-   inform('道路已重置。需由 STEP 04 提供同一地块真实张量数据。');
-   el('pg-road-source').textContent='等待真实场地数据';
+   inform('Road network reset. STEP 04 must provide tensor data for the same site.');
+   el('pg-road-source').textContent='Waiting for real-site data';
   };
   for(const kind of Object.keys(names))
    if(el('pg-road-show-'+kind))el('pg-road-show-'+kind).onchange=updateMap;
@@ -272,16 +272,16 @@ export function createParcelRoadUI({
   // workspace. The worker rejects stale or mismatched parcel snapshots.
   if(autoHandoff){
    const previous=window.__londonParcelTensorHandoff;
-   if(previous)acceptSnapshot(previous,'London Map 当前会话张量/洪涝计算结果');
+   if(previous)acceptSnapshot(previous,'London Map current-session tensor/flood results');
   }
  }
  function setActive(value){
   active=Boolean(value);
   updateMap();
   if(active){
-   const readyMessage=result?'路网已生成，可拖动地图或查看各道路层级。':
-     ready?'已收到真实场地数据，点击「重新生成 Wool 最终路网」。':
-     '先完成 2100 年洪涝与张量计算，或从左侧导入真实场地诊断 JSON。';
+   const readyMessage=result?'Network generated. Pan the map or view different road classes.':
+     ready?'已收到真实场地数据，点击「Regenerate final Wool network」。':
+     'Complete 2100 flood/tensor calculations, or import real-site diagnostic JSON from the left.';
    inform(readyMessage);
   }
  }
@@ -290,17 +290,17 @@ export function createParcelRoadUI({
  function resetRoads(){
   el('pg-road-reset')?.click();
  }
- function loadSnapshot(snapshot,label='Hydro Lab 实时计算的张量与洪涝结果'){
+ function loadSnapshot(snapshot,label='Hydro Lab computed tensor and flood results'){
   acceptSnapshot(snapshot,label);
  }
  function loadResult(precomputed){
   if(!precomputed||precomputed.schema!=='london-road-step05-v1')
-   throw Error('STEP 05 道路成果格式不正确');
+   throw Error('Invalid STEP 05 road-output schema');
   result=precomputed;ready=true;pending=false;
   for(const id of ['pg-road-generate','pg-road-wool','pg-road-export','pg-road-package']){
    const control=el(id);if(control)control.disabled=false;
   }
-  inform('已载入 Hydro Lab 生成的 STEP 05 道路网络 · '+(result.diagnostics?.roadCount||0)+' 条');
+  inform('Loaded STEP 05 road network generated by Hydro Lab · '+(result.diagnostics?.roadCount||0)+' roads');
   updateMap();
  }
  function dispose(){if(regenerateTimer!==null)clearTimeout(regenerateTimer);
