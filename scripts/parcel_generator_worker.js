@@ -15,12 +15,12 @@ function inRing(x,y,ring){
 }
 async function pixels(url,w,h){
   const response=await fetch(url,{cache:'force-cache'});
-  if(!response.ok)throw Error('地理栅格读取失败 HTTP '+response.status);
+  if(!response.ok)throw Error('Geographic raster read failed HTTP '+response.status);
   const image=await createImageBitmap(await response.blob());
   try{
-    if(image.width!==w||image.height!==h)throw Error('栅格尺寸与已登记地理范围不一致');
+    if(image.width!==w||image.height!==h)throw Error('Raster dimensions do not match the registered geographic extent');
     const canvas=new OffscreenCanvas(w,h),ctx=canvas.getContext('2d',{willReadFrequently:true});
-    if(!ctx)throw Error('无法解码高程栅格');
+    if(!ctx)throw Error('Failed to decode elevation raster');
     ctx.drawImage(image,0,0);
     const rgba=ctx.getImageData(0,0,w,h).data;
     const data=new Uint16Array(w*h);
@@ -57,12 +57,12 @@ onmessage=async event=>{
   const {id,polygon,config,demUrl,areaUrl}=event.data||{};
   if(!id||!polygon||!config)return;
   try{
-    postMessage({id,type:'progress',message:'正在解码真实 OS Terrain 50 高程数据…'});
+    postMessage({id,type:'progress',message:'Decoding real OS Terrain 50 elevation data…'});
     const dem=await pixels(demUrl,config.width,config.height);
-    postMessage({id,type:'progress',message:'正在解码地形推导汇水数据…'});
+    postMessage({id,type:'progress',message:'Decoding terrain-derived accumulation data…'});
     let drainage=null;
     try{drainage=await pixels(areaUrl,config.width,config.height);}
-    catch(error){postMessage({id,type:'progress',message:'汇水栅格不可用，将单独计算地形指标：'+error.message});}
+    catch(error){postMessage({id,type:'progress',message:'Catchment raster unavailable; terrain metrics will be computed separately: '+error.message});}
     const ring=polygon.map(p=>merc(p[0],p[1]));
     const xMin=Math.min(...ring.map(p=>p[0]));
     const xMax=Math.max(...ring.map(p=>p[0]));
@@ -77,7 +77,7 @@ onmessage=async event=>{
     const cell=desired*stride;
     const cols=Math.ceil((xMax-xMin)/cell);
     const rows=Math.ceil((yMax-yMin)/cell);
-    if(cols*rows>65000)throw Error('场地样本网格过大，建议缩小圈选范围');
+    if(cols*rows>65000)throw Error('Site sampling grid too large; select a smaller area');
     let sampled=0,valid=0,elevMin=Infinity,elevMax=-Infinity,elevSum=0;
     let slopeSum=0,slopeMax=0,slopeN=0,channelCount=0;
     const visual=[];
@@ -115,7 +115,7 @@ onmessage=async event=>{
       }
     }
     if(!sampled||!valid||valid/sampled<.90)
-      throw Error('该地块缺少足够的真实地形覆盖（有效采样不足 90%），已停止分析。');
+      throw Error('Site has insufficient real DEM coverage (<90% valid samples); analysis stopped.');
     postMessage({id,type:'done',result:{
       gridSizeM:groundCell*stride,siteCells:sampled,validCells:valid,
       coveragePercent:Number((valid/sampled*100).toFixed(1)),
