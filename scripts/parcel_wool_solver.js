@@ -167,9 +167,9 @@ function woolGrowth(skeleton,domain,parameters,progress){
   }
  }
  growTier('secondary',Math.min(70,Math.max(8,Math.round(domain.dryCells*.010*density*branching))),7);
- progress(.48,'Wool 已从主纤维生长次级支路并建立局部连接');
+ progress(.48,'Wool has grown secondary branches and local connections from primary fibers');
  growTier('local',Math.min(130,Math.max(12,Math.round(domain.dryCells*.023*density*branching))),5);
- progress(.58,'Wool 已沿张量双方向分叉生长局部道路纤维');
+ progress(.58,'Wool has branched local road fibers along both tensor directions');
  return {roads,stats:{grownSecondary:branchCount.secondary,
   grownLocal:branchCount.local,snappedSecondary:snaps.secondary,
   snappedLocal:snaps.local,growthRejected:rejected,branchCandidates:roads.length,
@@ -193,7 +193,7 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
  const roads=grown.roads.map((r,k)=>{
   const spine=r.indices?.length>1?r.indices.map(i=>domain.toPoint(i)):r.points;
   if(!spine?.length||spine.length<2)
-   throw Error('缺失可通行的 A* 原始路径，不能用显示折线代替');
+   throw Error('No traversable source A* path; display curves cannot substitute for routing');
   const points=r.indices?.length>1?resample(spine,step):spine.map(p=>p.slice());
   return {...r,id:'ROAD-'+String(k+1).padStart(4,'0'),points};
  });
@@ -202,7 +202,7 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
  const basePaths=roads.map(r=>r.points.map(p=>p.slice()));
  for(let k=0;k<roads.length;k++)
   if(!pathSafe(roads[k].points))
-   throw Error('道路 '+roads[k].id+' 的真实 A* 路径穿越禁行区，请检查道路骨架数据');
+   throw Error('Road '+roads[k].id+' A* source route crosses a restricted area; check road skeleton data');
  // Endpoint graph vertices are fixed; all fibre relaxation is interior-only.
  const rounds=Math.max(0,Math.round(strength*19));
  const proximity=domain.cell*(2.0+bundle*2.2);
@@ -281,7 +281,7 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
    else{relaxedRollback++;road.points=a;}
   }
   if(pass%3===2)progress(.68+.18*(pass+1)/Math.max(1,rounds),
-    'Wool 弹性松弛 '+(pass+1)+'/'+rounds);
+    'Wool elastic relaxation '+(pass+1)+'/'+rounds);
  }
  // Constrained Chaikin-like refinement: round away 45-degree A* corners,
  // but reject any new tangent which cuts across flood/DEM exclusion cells.
@@ -316,7 +316,7 @@ export function optimiseWool(skeleton,domain,parameters={},progress=()=>{}){
   let count=0;
   for(let i=1;i<road.points.length;i++){
    if(!safeSegment(domain,road.points[i-1],road.points[i]))
-    throw Error('Wool 路径碰撞验证失败；已禁止穿越不可建设或深水区域');
+    throw Error('Wool path collision validation failed; passage through unbuildable or deep-water zones is prohibited');
    count+=length(road.points[i-1],road.points[i])*domain.scale;
   }
   road.lengthM=count;
