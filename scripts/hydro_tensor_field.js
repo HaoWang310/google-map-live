@@ -437,7 +437,7 @@ export function createHydroTensorRenderer(args){
       ' / '+(result?.diagnostics?.counts?.valid||0)+
       ' · mean depth '+wet.meanSiteDepthMm.toFixed(1)+'mm'):'';
 
-    status((geometrySnapshot?.scenario?.year??2026)+' · directional evidence '+d.supportedDirectionCells+'/'+d.validCells+' cells ('+pct(d.directionEvidenceRatio)+'）'+
+    status((geometrySnapshot?.scenario?.year??2026)+' · directional evidence '+d.supportedDirectionCells+'/'+d.validCells+' cells ('+pct(d.directionEvidenceRatio)+')'+
       '\nPrimary/secondary lines '+(a?.finalLines??0)+' / '+(b?.finalLines??0)+
       ' · whole-site coverage '+pct(a?.wholeValidCoverage)+' / '+pct(b?.wholeValidCoverage)+wetText+
       ' · evidence-area coverage '+pct(a?.supportedCoverage)+' / '+pct(b?.supportedCoverage)+
