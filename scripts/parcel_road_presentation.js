@@ -48,7 +48,7 @@ export function buildPresentationRoadNetwork(domain,parameters={}){
  // all influence seed placement. Uniform input is allowed to stay uniform.
  const candidates=[];
  for(let y=1;y<h;y+=2)for(let x=1;x<w;x+=2)if(inSite([x,y]))candidates.push([x,y]);
- if(candidates.length<8)throw Error('场地有效范围不足，无法生成二维羊毛图案');
+ if(candidates.length<8)throw Error('Insufficient valid site area to generate a 2D Wool pattern');
  let mean=[0,0];for(const p of candidates){mean[0]+=p[0];mean[1]+=p[1];}mean=mean.map(v=>v/candidates.length);
  const seedCount=Math.round(15+12*density+3*(parameters.branchingStrength??78)/100);
  const seeds=[];
