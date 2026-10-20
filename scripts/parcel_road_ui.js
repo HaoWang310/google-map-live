@@ -280,7 +280,7 @@ export function createParcelRoadUI({
   updateMap();
   if(active){
    const readyMessage=result?'Network generated. Pan the map or view different road classes.':
-     ready?'已收到真实场地数据，点击「Regenerate final Wool network」。':
+     ready?'Real-site data received. Click Regenerate final Wool network.':
      'Complete 2100 flood/tensor calculations, or import real-site diagnostic JSON from the left.';
    inform(readyMessage);
   }
