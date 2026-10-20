@@ -252,7 +252,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    if(bng.areaM2<50||!Number.isFinite(bng.areaM2))throw Error('Site is invalid or too small');
    update();
    status('Site area calculated; loading real DEM and catchment data…');
-   worker=new Worker(new URL('./parcel_generator_worker.js',import.meta.url));
+   worker=new Worker(new URL('./parcel_generator_worker.js?v=3.29.4-english',import.meta.url));
    worker.onmessage=e=>{
     if(!root||current!==id||e.data.id!==id)return;
     if(e.data.type==='progress')status(e.data.message);
