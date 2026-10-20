@@ -19,7 +19,7 @@ export function createTerrainLocalLoader(config){
       else request.resolve({data:data.data,cacheControl:'max-age=31536000'});
     };
     worker.onerror=(event)=>{
-      const error=new Error(event?.message||'本地地形瓦片加载失败');
+      const error=new Error(event?.message||'Local terrain tiles failed to load');
       for(const request of pending.values()){
         request.cleanup();
         request.reject(error);
