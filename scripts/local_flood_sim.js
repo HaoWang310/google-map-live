@@ -34,13 +34,13 @@ export function createLocalFloodSimulator(config){
         if(data.requestId&&pending.has(data.requestId)){
           const request=pending.get(data.requestId);
           pending.delete(data.requestId);
-          request.reject(new Error(data.message||'局部洪涝模拟初始化失败'));
+          request.reject(new Error(data.message||'Local flood simulation initialization failed'));
         }else{
-          callbacks.onError(new Error(data.message||'局部洪涝模拟失败'));
+          callbacks.onError(new Error(data.message||'Local flood simulation failed'));
         }
       }
     };
-    worker.onerror=event=>callbacks.onError(new Error(event?.message||'局部洪涝模拟 Worker 加载失败'));
+    worker.onerror=event=>callbacks.onError(new Error(event?.message||'Local flood simulation Worker failed to load'));
     worker.postMessage({
       type:'init',
       demUrl:config.demUrl,
@@ -74,7 +74,7 @@ export function createLocalFloodSimulator(config){
     resetInitial(){worker?.postMessage({type:'reset-initial'});},
     setParams(params){worker?.postMessage({type:'params',params});},
     destroy(){
-      for(const request of pending.values())request.reject(new Error('模拟已关闭'));
+      for(const request of pending.values())request.reject(new Error('Simulation closed'));
       pending.clear();
       worker?.terminate();
       worker=null;
