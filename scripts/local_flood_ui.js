@@ -3267,7 +3267,7 @@ export function createLocalFloodUI({
       '<option value="1.5">1.5×</option><option value="2">2.0×</option><option value="3">3.0×</option><option value="5">5.0×</option>',
       '</select></label>',
       '<span id="siteHudRunState" class="site-hydro-mini">Ready</span>',
-      '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="预测年份 2026 到 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
+      '</div><div class="site-hydro-track" style="position:relative;overflow:visible"><div id="siteHudProgress" class="site-hydro-progress"></div><input id="siteHudFooterYear" aria-label="Projection year 2026 to 2100" type="range" min="2026" max="2100" step="1" value="2026" style="position:absolute;inset:-8px 0 auto 0;width:100%;height:18px;margin:0;cursor:pointer;opacity:0.65;accent-color:#5dd2db"></div><div class="site-hydro-mini" style="display:flex;justify-content:space-between"><span>2026</span><span>2050</span><span>2075</span><span>2100</span></div>',
       '<div class="site-hydro-mini" id="siteHudNotice">The display evolves from a dry starting frame in 2026 to the 2100 design peak. Each modelled key year uses the entered rainfall allowance, then visually interpolates critical-storm depths. Intermediate years are conceptual design stages, not annual physical flood forecasts. Continuous water over building bases is display-only and adds no simulated volume.</div></div></footer>'
     ].join('');
     container.appendChild(shell);
@@ -4466,7 +4466,7 @@ export function createLocalFloodUI({
       if(dragPanWasEnabled&&!map.dragPan.isEnabled())map.dragPan.enable();
       map.getSource(SEL_SOURCE)?.setData({type:'FeatureCollection',features:[]});
     }
-    $('localFloodStats').textContent='尚未运行';
+    $('localFloodStats').textContent='Not started';
     setButtons();
   }
 
@@ -4514,7 +4514,7 @@ export function createLocalFloodUI({
 
     // Required interaction order:
     // edit polygon -> Enter -> ALWAYS show regenerated orange buildings first.
-    // The user may then choose "隐藏选区内Building" afterwards.
+    // The user may then choose "Hide buildings inside site" afterwards.
     hideSelectedBuildings=false;
     const hideToggle=$('localFloodHideSelectedBuildings');
     if(hideToggle)hideToggle.checked=false;
@@ -4971,7 +4971,7 @@ export function createLocalFloodUI({
         info.cellSizeM+' m raster · '+info.buildingCount+' buildings · '+
         (info.drainageAvailable?'Catchment pathways ready':'Terrain-only calculation (catchment unavailable)')+
         ' · '+(siteRiskAvailable?'EA surface water '+siteRiskMappedCount+' cells available':'EA surface-water classes unavailable')+
-        ' · Building roof drainage routed outdoors '+info.roofRoutedCells+'/'+info.roofCells+' 格';
+        ' · Building roof drainage routed outdoors '+info.roofRoutedCells+'/'+info.roofCells+' cells';
       $('localFloodStats').textContent=
         'Area '+(area/1e6).toFixed(2)+' km² · '+info.cellSizeM+' m raster · buildings inside site '+info.buildingCount+' buildings';
       setButtons();
