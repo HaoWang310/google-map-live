@@ -1216,7 +1216,7 @@
 
       <details class="layerSources">
         <summary>Data sources, analysis resolution and georeferencing</summary>
-        <p>Basemap: © OpenStreetMap contributors；OpenFreeMap provides map tiles.
+        <p>Basemap: © OpenStreetMap contributors; OpenFreeMap provides map tiles.
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OSM source</a>
         </p>
         <p>3D building footprints and locations use the same OSM / OpenFreeMap vector tiles. Heights are taken from available height or floor-count attributes; missing heights use estimates from the source. This is not a citywide measured 3D model.
@@ -1835,7 +1835,7 @@
       async function loadDem(){
         if(dem)return dem;
         const response=await fetch(cfg.url,{cache:'force-cache'});
-        if(!response.ok)throw new Error('OS Terrain 50 DEM failed to load（'+response.status+'）');
+        if(!response.ok)throw new Error('OS Terrain 50 DEM failed to load ('+response.status+')');
 
         const bitmap=await createImageBitmap(await response.blob());
         if(bitmap.width!==cfg.width||bitmap.height!==cfg.height){
@@ -2591,7 +2591,7 @@
         tasks.push((async()=>{
           if(floodImageUrls.has(key))return floodImageUrls.get(key);
           const response=await fetch(assetUrl('assets/flood_risk/'+(source==='combined'?'flood':source)+'_'+suffix+'.webp'),{cache:'force-cache'});
-          if(!response.ok)throw new Error((source==='combined'?'Combined risk':'Independent EA risk')+'Data file not published or failed to load（'+response.status+'）。No alternative source was substituted.');
+          if(!response.ok)throw new Error((source==='combined'?'Combined risk':'Independent EA risk')+' data file not published or failed to load ('+response.status+'). No alternative source was substituted.');
           const blob=await response.blob();
           const bitmap=await createImageBitmap(blob);
           const valid=bitmap.width===DRAINAGE_3857.baseWidth50m&&
