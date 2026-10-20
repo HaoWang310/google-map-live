@@ -30,7 +30,7 @@ export function smoothSiteField({w,h,mask,ax,ay,wet,confidence,anisotropy,obstac
     origin[i]=i;distance[i]=0;queue[back++]=i;sourceCount++;
    }
   }
-  if(sourceCount===0)throw Error('STEP04 演示模式无法找到任何真实张量方向证据，不能虚构网格');
+  if(sourceCount===0)throw Error('STEP04 Presentation cannot find real tensor direction evidence; a grid cannot be fabricated');
   while(front<back){
    const i=queue[front++],x=i%w,y=(i/w)|0;
    const neighbours=[x>0?i-1:-1,x<w-1?i+1:-1,y>0?i-w:-1,y<h-1?i+w:-1];
