@@ -258,8 +258,8 @@ export function initialRoadSkeleton(domain,parameters={},progress=()=>{}){
   if(domain.hydro[i]&&agriculture>.7)continue;
   add(trace(domain,i,true,Math.round(maxSteps*.55)),'secondary','tensor-secondary-rk2');
  }
- if(!roads.some(r=>r.kind==='main'))throw Error('该地块真实张量方向不足，无法积分生成主道路纤维');
- progress(.34,'已沿张量主次方向积分初始连续纤维，准备进行 Wool 分叉生长');
+ if(!roads.some(r=>r.kind==='main'))throw Error('Insufficient tensor orientation evidence to integrate main road fibers');
+ progress(.34,'Initial continuous fibers integrated along tensor directions; preparing Wool branch growth');
  const hierarchy={main:0,secondary:0,local:0};
  for(const r of roads)hierarchy[r.kind]++;
  return {roads,access:access.map(i=>domain.toPoint(i)),candidates:
@@ -304,7 +304,7 @@ export function repairRoadConnectivity(network,domain,parameters={},progress=()=
    id:'REPAIR-'+(repairs.length+1),provenance:'astar-connectivity-repair'});
   group.push(a);
  }
- progress(.9,'已按需使用 A* 修复少量安全断路，其余方向来自张量积分与 Wool 生长');
+ progress(.9,'A* repaired limited safe gaps where needed; other directions derive from tensor integration and Wool growth');
  return {...network,roads:roads.concat(repairs),
   stats:{...network.stats,astarRepairs:repairs.length}};
 }
