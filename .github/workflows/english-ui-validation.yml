@@ -1,0 +1,27 @@
+name: London Map English UI validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'scripts/**'
+      - 'tests/app-english-ui.mjs'
+      - '.github/workflows/english-ui-validation.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: English UI text audit
+        run: node tests/app-english-ui.mjs
+      - name: Syntax validation of application JavaScript
+        shell: bash
+        run: |
+          set -e
+          for file in scripts/*.js; do
+            node --experimental-default-type=module --check "$file"
+          done
