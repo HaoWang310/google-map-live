@@ -917,7 +917,7 @@
       <form class="searchForm" id="placeSearchForm" role="search">
         <input id="placeSearchInput" type="search" aria-label="Search place, address, or postcode"
           placeholder="Search place, address, or postcode…" maxlength="200" autocomplete="off" required>
-        <button id="placeSearchButton" type="submit" disabled>搜索</button>
+        <button id="placeSearchButton" type="submit" disabled>Search</button>
       </form>
       <div id="placeSearchStatus" class="searchStatus" role="status" aria-live="polite"></div>
       <div id="placeSearchResults" class="searchResults" role="group" aria-label="Search results"></div>
@@ -950,7 +950,7 @@
         <input id="osmStructureToggle" type="checkbox" autocomplete="off" disabled>
       </label>
 
-      <label class="layerRow" title="独立控制街道车辆显示；不再受“Hide OSM labels / POIs”开关影响">
+      <label class="layerRow" title="Vehicle display is controlled independently of the OSM labels / POIs toggle">
         <span class="layerName">
           <strong>Show street vehicles</strong>
           <small>Independent toggle; unaffected by OSM label visibility</small>
@@ -1059,9 +1059,9 @@
           </div>
           <div class="networkLegend floodLegend" aria-label="Annual flood probability classes by source">
             <span><i style="--swatch:#9cddea"></i>Very low &lt;0.1%</span>
-            <span><i style="--swatch:#f7d359"></i>低 0.1–&lt;1%</span>
-            <span><i style="--swatch:#f29d38"></i>中 1–&lt;3.3%</span>
-            <span><i style="--swatch:#d73731"></i>高 ≥3.3%</span>
+            <span><i style="--swatch:#f7d359"></i>Low 0.1–&lt;1%</span>
+            <span><i style="--swatch:#f29d38"></i>Medium 1–&lt;3.3%</span>
+            <span><i style="--swatch:#d73731"></i>High ≥3.3%</span>
             <span><i style="--swatch:#999c9e"></i>Unavailable</span>
           </div>
           <div class="layerMeta">
@@ -1087,7 +1087,7 @@
             <label for="networkThreshold">Minimum contributing area · dynamic threshold</label>
           </div>
           <div class="rangeRow networkThresholdRow">
-            <span>阈值</span>
+            <span>Threshold</span>
             <input id="networkThreshold" aria-label="Minimum contributing area" type="range"
               min="0" max="50" step="0.001" value="1">
             <div class="networkThresholdEdit">
@@ -1147,7 +1147,7 @@
             <button id="localFloodFinish" class="secondary" type="button" disabled title="Press Enter once to preview, then again to confirm the site">① Preview site</button>
             <button id="localFloodClear" class="secondary" type="button" disabled>Clear</button>
           </div>
-          <div id="localFloodSelectionStep" role="status" aria-live="polite" style="margin:5px 5px 8px;font-size:10px;line-height:1.5;color:#99d9fa">先点击「Draw site boundary」，第一次 Enter 预览，第二次 Enter 确认范围。</div>
+          <div id="localFloodSelectionStep" role="status" aria-live="polite" style="margin:5px 5px 8px;font-size:10px;line-height:1.5;color:#99d9fa">Click Draw site boundary, press Enter to preview and press Enter again to confirm.</div>
           <div class="simButtonRow" id="localFloodFocusEntry" style="padding-top:0">
             <button id="localFloodEnterSite" style="width:100%;min-width:0;max-width:100%;flex:1 1 100%;white-space:normal" type="button" disabled
               title="After the second Enter confirms the site and data loads, double-click inside the red boundary or click here">Enter isolated site · 3D / flood</button>
@@ -1216,36 +1216,36 @@
 
       <details class="layerSources">
         <summary>Data sources, analysis resolution and georeferencing</summary>
-        <p>Basemap: © OpenStreetMap contributors；OpenFreeMap 提供地图瓦片。
+        <p>Basemap: © OpenStreetMap contributors；OpenFreeMap provides map tiles.
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OSM source</a>
         </p>
-        <p>3D 建筑轮廓与位置来自同一套 OSM / OpenFreeMap 矢量瓦片。高度按已有高度或层数字段生成，缺失时采用数据源的估计值，不是全城实测模型。
+        <p>3D building footprints and locations use the same OSM / OpenFreeMap vector tiles. Heights are taken from available height or floor-count attributes; missing heights use estimates from the source. This is not a citywide measured 3D model.
           <a href="https://openmaptiles.org/docs/schema/#building" target="_blank" rel="noopener noreferrer">Building data fields</a>
         </p>
-        <p>地点搜索：OSM Nominatim，按输入名称、地址或邮编返回真实经纬度；仅在点击搜索或按回车时查询。
+        <p>Place search: OSM Nominatim returns georeferenced results by name, address or postcode. Requests run only on search submission or Enter.
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
         </p>
-        <p>地形：Environment Agency LiDAR Composite DTM 1 m，Open Government Licence。本站保存 2026-10-11 从官方服务获取并按汇水图相同 EPSG:3857 外边界配准的地形总览；v3.21.16 起由浏览器在本地 Worker 中按 Web Mercator XYZ 分级生成地图瓦片，不再在浏览、缩放或 3D 倾斜时请求 EA WMS/WMTS。该本地显示层保持完整连续，但其可见细节由缓存总览分辨率决定，不等同于逐像元加载 1 m 数值 DEM。
-          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">Official data catalogue</a> · <a href="assets/terrain/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">地形显示元数据</a>
+        <p>Terrain: Environment Agency LiDAR Composite DTM 1 m (Open Government Licence). The site caches a terrain overview retrieved on 2026-10-11 and aligned to the same EPSG:3857 extent as the catchment raster. Since v3.21.16, browser Workers generate Web Mercator XYZ tiles locally rather than requesting EA WMS/WMTS while navigating, zooming or tilting. Visible detail depends on the cached overview resolution and is not equivalent to loading individual 1 m DEM pixels.
+          <a href="https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-dtm-2022-1m" target="_blank" rel="noopener noreferrer">Official data catalogue</a> · <a href="assets/terrain/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Terrain display metadata</a>
         </p>
-        <p>等高线：基于本站已有的 OS Terrain 50 · 2026-07 版 50 m 数值高程网格，在浏览器 Worker 中使用 marching-squares 按 10 m 间隔实时提取；每 50 m 为主等高线。它是官方高程网格的派生等值线显示，不是直接加载 Ordnance Survey 发布的 contour 矢量文件，但采用 OS Terrain 50 contour 产品的标准 10 m 垂直间隔。
+        <p>Contours: Derived in a browser Worker with marching squares from the locally stored OS Terrain 50 (July 2026) DEM. The standard contour interval is 10 m, with index contours at 50 m. These are derived isolines rather than the original published Ordnance Survey contour vectors, but use its standard 10 m vertical interval.
           <a href="https://www.ordnancesurvey.co.uk/products/os-terrain-50" target="_blank" rel="noopener noreferrer">OS Terrain 50</a> ·
           <a href="assets/drainage_area/metadata.json?v=3.21.57" target="_blank" rel="noopener noreferrer">Local DEM metadata</a>
         </p>
-        <p>排水网络：后台保留一份完整 Thames 上游 50 m 累积汇水栅格（每格 0.0025 km²），仅作为动态阈值计算源；界面不再单独显示「汇水贡献面积」图层。「Terrain-derived drainage network」直接按用户设置的Minimum contributing area实时筛选这同一份数据，不生成独立网络数据。
+        <p>Drainage: One complete upper Thames 50 m contributing-area raster (0.0025 km² per cell) is kept as the dynamic threshold source. Contributing area is no longer a separate display layer. The terrain-derived drainage network filters this same raster with the selected minimum area; no second network dataset is generated.
           <a href="https://deltares.github.io/pyflwdir/latest/_generated/pyflwdir.from_dem.html" target="_blank" rel="noopener noreferrer">D8 / depression-filling method</a> ·
           <a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Shared hydrology metadata</a>
         </p>
-        <p>源坐标 EPSG:27700；源栅格 2801 × 2801，边界 E460012–600062 / N110348–250398（140.05 × 140.05 km）。网络已重投影到汇水图相同的 EPSG:3857 网格，直接随 OSM 缩放与平移，无手动偏移。坐标配准不改变源分析的 50 m 分辨率。汇水显示使用完整的 2868 × 2875 重投影源网格，不再放大 320 × 321 的缩略图；仅对显示值作局部三次插值，保留 NoData 与 70 km 裁切。<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">汇水显示元数据</a></p>
-        <p>后台汇水数据校核：完整 Thames 上游分析域先进行 50 m DEM 水文校正、D8 流向与 flow accumulation，再裁出 London 70 km 研究范围。NRFA 39001 Thames at Kingston 官方集水面积为 9,948 km²；本次模型在站点附近得到 9,957.1 km²，相对误差约 0.09%，校核通过。<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
-        <p>排水网络表达地形推导的潜在路径，不代表地下排水管网、水位或洪水淹没范围。</p>
-        <p>Local flood simulation：数值地形采用同一 OS Terrain 50 数据重新投影到 EPSG:3857 后的 50 m DEM；圈选范围内的建筑轮廓来自当前 OSM / OpenFreeMap building 矢量瓦片，建筑占地阻止地表径流穿墙；建筑底面连续积水仅用于展示与张量场规划导向，不计入实际水量。浏览器采用质量守恒的快速地形路由近似雨洪传播，并以建筑底座自身或相邻积水 ≥5 cm 判定建筑受淹高亮。该模拟用于城市设计方案比较，不应替代基于 1 m LiDAR、排水管网和二维浅水方程的工程洪水模型。<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">地形数据元数据</a></p>
-        <p>洪水：© Environment Agency copyright and/or database right 2025，Open Government Licence v3.0。
+        <p>Source CRS: EPSG:27700, raster 2801 × 2801, extent E460012–600062 / N110348–250398 (140.05 × 140.05 km). The network is reprojected onto the same EPSG:3857 raster as the catchment layer, following OSM pan and zoom without manual offsets. Georeferencing does not improve the original 50 m analysis resolution. Display uses the full reprojected 2868 × 2875 raster rather than enlarging a 320 × 321 thumbnail; cubic rendering preserves NoData and 70 km clipping.<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Catchment display metadata</a></p>
+        <p>Catchment validation: The full upper Thames domain underwent 50 m DEM hydrological conditioning, D8 flow direction and flow accumulation before clipping to the London 70 km study area. NRFA 39001 (Thames at Kingston) reports 9,948 km², compared with 9,957.1 km² from this model near the station, a relative difference of approximately 0.09%.<a href="https://nrfa.ceh.ac.uk/data/station/info/39001" target="_blank" rel="noopener noreferrer">NRFA 39001</a></p>
+        <p>The drainage network represents potential terrain-derived flow pathways, not sewers, measured water levels or the extent of flooding.</p>
+        <p>Local flood simulation: Terrain uses the same OS Terrain 50 raster reprojected to EPSG:3857 at 50 m resolution. Buildings come from current OSM / OpenFreeMap vector tiles and block runoff through footprints. Decorative water on building bases informs visualization and planning direction only, not the simulated water budget. The browser approximates rainfall-runoff propagation with mass-conserving terrain routing and highlights buildings when footprints or adjacent depths reach 5 cm. This conceptual urban-design comparison must not replace engineering flood modelling with 1 m LiDAR, sewer networks and 2D shallow-water equations.<a href="assets/drainage_area/metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Terrain data metadata</a></p>
+        <p>Flood data: © Environment Agency copyright and/or database right 2025, Open Government Licence v3.0.
           <a href="https://www.data.gov.uk/dataset/943d2bbb-aa08-45d1-96cb-42556cd01d94/risk-of-flooding-from-rivers-and-sea2" target="_blank" rel="noopener noreferrer">Rivers / sea RoFRS</a> ·
           <a href="https://www.data.gov.uk/dataset/0d6fa1f4-0c82-4c91-8667-a549e8e3ca2d/risk-of-flooding-from-surface-water3" target="_blank" rel="noopener noreferrer">Surface water RoFSW</a> ·
           <a href="assets/london_flood_risk_metadata.json?v=3.21.15" target="_blank" rel="noopener noreferrer">Flood layer metadata</a>
         </p>
-        <p>区域总览于 2026-10-11 从官方 WMS 获取：EPSG:27700 按 12.5 m 采样并归纳到 25 m 显示格，配准到汇水／网络的相同 EPSG:3857 外边界。街道尺度直接按 OSM 的 EPSG:3857 瓦片坐标请求官方现状、&gt;0 m 风险图，逐像元选取两套数据的较高可用等级，不再进行 25 m 汇总；显示像元随缩放缩小（London常用街道尺度约 1–3 m）。两种显示沿用相同图例和 70 km 裁切；显示像元不代表新增模型精度，空白不代表无风险。精细服务暂Unavailable时保留总览并明确提示。</p>
+        <p>The regional overview was retrieved from the official WMS on 2026-10-11 at 12.5 m sampling in EPSG:27700, summarized into 25 m display cells and aligned to the EPSG:3857 catchment extent. At street scale, official present-day flood-risk tiles are requested at OSM EPSG:3857 coordinates and the higher available class is shown per pixel, without 25 m aggregation. Display cells may be around 1–3 m at typical London street zooms; they do not add modelling accuracy. Both scales share the same legend and 70 km clipping. Blank areas do not imply zero risk. If detailed service is unavailable, the overview remains visible with a notice.</p>
       </details>
 
       <div class="row">
@@ -2129,7 +2129,7 @@
       const count=data.geojson?.features?.length||0;
       const interval=Number(data.interval)||contourIntervalM;
       $('contourStatus').textContent=
-        '已显示 · '+interval+' m Contour interval · '+count+' elevation levels';
+        'Visible · '+interval+' m Contour interval · '+count+' elevation levels';
       $('contourStatus').className='layerStatus';
     };
 
@@ -2721,7 +2721,7 @@
 
     networkTileSeen=false;
     networkDisplayError=null;
-    setNetworkStatus('Loading current view · ≥ '+formatNetworkThreshold(networkThreshold)+' km² 排水网络…');
+    setNetworkStatus('Loading current view · ≥ '+formatNetworkThreshold(networkThreshold)+' km² drainage network…');
 
     const nw=networkCoordinates()[0],se=networkCoordinates()[2];
     const tiles=[networkTileTemplate()];
@@ -2736,7 +2736,7 @@
         minzoom:AREA_MIN_ZOOM,
         maxzoom:AREA_MAX_ZOOM,
         bounds:[nw[0],se[1],se[0],nw[1]],
-        attribution:'Terrain-derived drainage network · 完整 Thames 上游 50 m 累积汇水栅格'
+        attribution:'Terrain-derived drainage network · Full upper Thames 50 m contributing-area raster'
       });
     }
 
@@ -2788,7 +2788,7 @@
     const ready=networkTileSeen&&osmMap.getSource(NETWORK_SOURCE)&&osmMap.isSourceLoaded(NETWORK_SOURCE);
     setNetworkStatus(ready
       ?'Visible · dynamic threshold ≥ '+formatNetworkThreshold(networkThreshold)+' km² · 50 m source threshold + smoothed display'
-      :'Loading current view · ≥ '+formatNetworkThreshold(networkThreshold)+' km² 排水网络…');
+      :'Loading current view · ≥ '+formatNetworkThreshold(networkThreshold)+' km² drainage network…');
   }
 
   function fitGoogleTo70(){
@@ -8029,7 +8029,7 @@
     searchRequestId++;
     searchController?.abort();searchController=null;
     $('placeSearchButton').disabled=!osmStyleReady;
-    $('placeSearchButton').textContent='搜索';
+    $('placeSearchButton').textContent='Search';
   }
 
   function goToPlace(place,button){
@@ -8089,7 +8089,7 @@
     }finally{
       clearTimeout(timeout);
       if(requestId===searchRequestId){
-        searchController=null;$('placeSearchButton').disabled=false;$('placeSearchButton').textContent='搜索';
+        searchController=null;$('placeSearchButton').disabled=false;$('placeSearchButton').textContent='Search';
       }
     }
   }
@@ -8192,11 +8192,11 @@
     });
     osmMap.on('error',e=>{
       if(e.sourceId===NETWORK_SOURCE&&networkEnabled){
-        networkDisplayError=e.error?.message||'加载失败';
+        networkDisplayError=e.error?.message||'Load failed';
         syncNetworkStatus();
       }
       if(e.sourceId===TERRAIN_TILE_SOURCE&&terrainEnabled){
-        terrainLocalError=e.error?.message||'本地地形瓦片加载失败';
+        terrainLocalError=e.error?.message||'Local terrain tile loading failed';
         syncTerrainView();
       }
     });
@@ -8534,7 +8534,7 @@
     }
 
     $('contourStatus').textContent=
-      'Generating '+contourIntervalM+' m 等高线…';
+      'Generating '+contourIntervalM+' m contours…';
     $('contourStatus').className='layerStatus';
     refreshContourLayer(0);
   });
