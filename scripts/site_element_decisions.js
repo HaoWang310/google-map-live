@@ -38,5 +38,5 @@ export function normalizeSiteDecisions(value){
   return result;
 }
 export function siteDecisionLabel(status){
-  return status==='keep'?'保留':status==='remove'?'移除 / 改造':'待定';
+  return status==='keep'?'Retain':status==='remove'?'Remove / repurpose':'Undecided';
 }
