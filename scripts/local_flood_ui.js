@@ -2968,7 +2968,7 @@ export function createLocalFloodUI({
     const request=++siteRainRequest;
     const b=bboxLngLat(polygon[0]);
     const lat=(b.south+b.north)/2,lon=(b.west+b.east)/2;
-    setSiteHud('siteHudRainStation','Searching EA rain gauges near the site's coordinates…');
+    setSiteHud('siteHudRainStation','Searching EA rain gauges near the site coordinates…');
     setSiteHud('siteHudRainTime','Most recent available 4 h observations · official EA Rainfall API (Beta)');
     setSiteHud('siteHudRainTotal','— mm / 4h');
     siteRainData=null;
@@ -3082,12 +3082,12 @@ export function createLocalFloodUI({
       '<label class="site-hydro-row">External flood stage <input id="siteHudFutureStage" type="number" step="0.1" placeholder="Absolute elevation (m)" style="width:105px"> m</label>',
       '<button type="button" class="site-hydro-btn" id="siteHudTrialStage">Use lowest DEM point + 1.0 m (design experiment only)</button>',
       '<div class="site-hydro-mini" style="display:none;margin:8px 0;border:1px solid #426279;border-radius:7px;padding:8px">',
-      '<strong>Official EA external flood data</strong> · <a href="https://www.data.gov.uk/dataset/67a734bb-2b7b-491a-aafd-3f7e52c8d7f3/rivers-and-sea-defended-and-undefended-flood-risk-depths-climate-change" target="_blank" rel="noopener noreferrer">气候变化深度数据集</a>',
+      '<strong>Official EA external flood data</strong> · <a href="https://www.data.gov.uk/dataset/67a734bb-2b7b-491a-aafd-3f7e52c8d7f3/rivers-and-sea-defended-and-undefended-flood-risk-depths-climate-change" target="_blank" rel="noopener noreferrer">Climate-change depth dataset</a>',
       '<div id="siteHudEaStageStatus" style="margin:5px 0">No official nearby river level station has been queried.</div>',
       '<div id="siteHudEaFloodZoneStatus" style="margin:5px 0">EA Flood Zones 2 / 3 coverage has not been queried.</div>',
       '<button type="button" class="site-hydro-btn" id="siteHudQueryEaZones">Query EA official flood zones</button>',
       '<button type="button" class="site-hydro-btn" id="siteHudQueryEaStage">Query nearby EA observed water levels</button>',
-      '<div style="margin-top:5px">Caution: station levels may be mASD (relative to station datum) and cannot be applied directly to the DEM. Even mAOD requires hydraulic connectivity and vertical-datum checks before being used as a site's external boundary. Official flood-depth classes are not live boundary stages.</div>',
+      '<div style="margin-top:5px">Caution: station levels may be mASD (relative to station datum) and cannot be applied directly to the DEM. Even mAOD requires hydraulic connectivity and vertical-datum checks before being used as the external site boundary. Official flood-depth classes are not live boundary stages.</div>',
       '</div>',
       '<div id="siteHudStageHint" class="site-hydro-mini" style="margin:3px 0 8px;color:#edc98a">External flood mode requires an absolute boundary water level (m, same datum as DEM). Without it, the mode can remain selected but cannot generate defensible depths.</div>',
       '<label class="site-hydro-row">Rainfall scenario <select id="siteHudFutureClimate" style="width:140px"><option value="average">Average rainfall</option><option value="moderate" selected>Moderate rainfall</option><option value="extreme">Extreme storm</option></select></label>',
@@ -3191,7 +3191,7 @@ export function createLocalFloodUI({
       '<div class="site-hydro-mini" id="siteHudTensorGrowthStatus" style="margin:7px 0;color:#9de9eb">Preparing tensor field · initial computation will preview source directions</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorReplay">▶ Replay tensor from 2026</button>',
       '<div class="site-hydro-mini" style="font-size:11px">Trunk lines appear first. Blue-purple particles grow along computed tensor curves, leaving gradient trails; ungrown paths remain hidden. These are planning orientations, not measured water velocities.</div>',
-      '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">When enabled, load the current year's terrain and ponding orientation field</div>',
+      '<div class="site-hydro-mini" id="siteHudVectorStatus" style="white-space:pre-line">When enabled, load terrain for the selected year and ponding orientation field</div>',
       '<button type="button" class="site-vector-mode" id="siteHudTensorExport">Export real-site diagnostics</button>',
       '<div class="site-hydro-mini" id="siteHudTensorExportStatus">Save site boundary, view, original raster and computed 2026/2100 scenarios for repeatable validation.</div>',
       '<div class="site-hydro-mini site-vector-provenance">OS Terrain 50 · slope aspect · drainage accumulation · smoothed design depth · continuous display over building bases. Surface-runoff calculations retain building barriers; planning tensor directions can span building footprints without implying real water passing through walls.</div>',
@@ -3246,8 +3246,8 @@ export function createLocalFloodUI({
       '<div class="site-hydro-section-title" style="margin-top:9px">MULTI-DURATION · Four-duration critical storm</div>',
       '<div id="siteHudCriticalStorm" class="site-hydro-mini">Four storms pending; critical duration will be chosen by peak flooded area</div>',
       '<div id="siteHudStormComparison" class="site-hydro-mini">30 / 60 / 120 / 360 min：Waiting for area/depth comparison</div>',
-      '<div class="site-hydro-mini">Independent EA comparison: simulated depth ≥0.02 m versus seven official 0.1% AEP depth classes. IoU and similar measures are not model accuracy unless the design storm probability matches EA's event.</div>',
-      '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">© Environment Agency · 深度来源 ↗</a></div></div>',
+      '<div class="site-hydro-mini">Independent EA comparison: simulated depth ≥0.02 m versus seven official 0.1% AEP depth classes. IoU and similar measures are not model accuracy unless the design storm probability matches the EA event.</div>',
+      '<div class="site-hydro-mini"><a href="https://www.data.gov.uk/dataset/ff48e392-ab66-49fa-b6dc-3dc72485a6db/flood-map-for-planning-surface-water-spatial-planning-depths-climate-change" target="_blank" rel="noopener noreferrer">© Environment Agency · Depth source ↗</a></div></div>',
       '<div class="site-hydro-section"><div class="site-hydro-section-title">MAP DATA STATUS</div>',
       '<div id="siteHudEAStatus" class="site-hydro-mini">EA risk: waiting for tiles</div>',
       '<div id="siteHudDrainStatus" class="site-hydro-mini">Terrain network: waiting for tiles</div></div>',
@@ -3535,7 +3535,7 @@ export function createLocalFloodUI({
       const external=false;
       siteHud('siteHudFutureStage').disabled=!external;
       const stageHint=siteHud('siteHudStageHint');
-      if(stageHint){stageHint.style.display=external?'block':'none';stageHint.textContent=Number.isFinite(externalStageM)?'Boundary absolute water level entered: '+externalStageM.toFixed(2)+' m（请确认与 DEM 高程基准一致; 该值为用户设定，不是 EA 实测水位）。':'此模式需要边界绝对水位：在此输入与 DEM 同基准的水位（m）; 没有真实水位时不能计算外部洪水。';}
+      if(stageHint){stageHint.style.display=external?'block':'none';stageHint.textContent=Number.isFinite(externalStageM)?'Boundary absolute water level entered: '+externalStageM.toFixed(2)+' m (verify DEM datum; user-specified, not an observed EA level).':'This mode requires an absolute boundary stage on the same datum as the DEM (m). External flooding cannot be calculated without a valid water level.';}
       for(const id of ['siteHudExternalInlet','siteHudRise','siteHudFall'])
         siteHud(id).disabled=!external;
       if(siteHud('siteHudUseRiskGuide'))
