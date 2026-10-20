@@ -52,7 +52,7 @@ export function createRoadTopology(optimised,domain,parameters={},progress=()=>{
       geometry:geom});
   }
  }
- if(segments.length>30000)throw Error('道路细分量超过30,000段，请降低密度或缩小场地');
+ if(segments.length>30000)throw Error('Road subdivision exceeds 30,000 segments; lower density or select a smaller site');
  const bucketSize=domain.cell*3,boxes=new Map();
  const overlaps=(s,t)=>!((Math.max(s.a[0],s.b[0])<Math.min(t.a[0],t.b[0])-1e-4)||
   (Math.max(t.a[0],t.b[0])<Math.min(s.a[0],s.b[0])-1e-4)||
@@ -80,7 +80,7 @@ export function createRoadTopology(optimised,domain,parameters={},progress=()=>{
    entries.push(i);boxes.set(k,entries);
   }
  }
- progress(.94,'已检测道路交叉并建立路口连接');
+ progress(.94,'Road intersections detected and junction connections established');
  const nodes=[],nodeMap=new Map(),edges=[],edgeKeys=new Set();
  const id=p=>{
   const key=nodeKey(p);if(nodeMap.has(key))return nodeMap.get(key);
@@ -164,7 +164,7 @@ export function createRoadTopology(optimised,domain,parameters={},progress=()=>{
  const medianBlockAreaM2=blockAreas.length?
   round(blockAreas[Math.floor(blockAreas.length/2)]):0;
  const preliminaryBlockAreaM2=round(blockAreas.reduce((a,b)=>a+b,0));
- progress(.975,'已检查路网连通分量、潜在闭环和候选街区面积');
+ progress(.975,'Checked connected components, potential cycles and candidate block areas');
  const topology={type:'planar-street-graph',crs:'EPSG:4326',
   nodes:nodes.map(({metric,...n})=>n),edges,
   properties:{crossings,junctions:nodes.filter(n=>n.degree>=3).length,
