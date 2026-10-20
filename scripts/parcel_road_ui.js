@@ -131,7 +131,7 @@ export function createParcelRoadUI({
       el(id).disabled=false;
     el('pg-road-progressbar').style.width='100%';
     inform((result.diagnostics.visualMode==='presentation'?'Final organic Wool network generated (conceptual) · ':'Final analyzed Wool road network generated · ')+result.diagnostics.roadCount+' roads, '+
-      result.diagnostics.lengthKm+' km，'+result.diagnostics.junctions+
+      result.diagnostics.lengthKm+' km, '+result.diagnostics.junctions+
       ' junctions · '+(data.result.mode==='optimise'?'Wool optimization':'Initial road skeleton'));
     updateMap();
     onDone(result);
