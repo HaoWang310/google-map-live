@@ -123,10 +123,10 @@ function packageNetwork(domain,plan,network,wool,mode){
  };
 }
 async function run(id,mode,params){
- if(!source||!ring)throw Error('STEP 05 尚未收到同一地块的2100年真实张量与洪涝结果');
+ if(!source||!ring)throw Error('STEP 05 has not received computed 2100 tensor and flood results for the same site');
  const started=performance.now();
  parameters={...params};
- send(id,.07,'校验真实场地、洪涝深度与张量方向…');
+ send(id,.07,'Validating real site, flood depths and tensor directions…');
  const domain=makeRoadDomain(source,parameters);
  // STEP04 and STEP05 use the exact SAME doubled-angle smoothing routine.
  // The exported validated 2100 tensor is immutable. STEP05 stores a separate
@@ -143,17 +143,17 @@ async function run(id,mode,params){
    diagnostics:guide.diagnostics,field:guide};
  domain.smoothAxisX=guide.smoothPrimaryX;
  domain.smoothAxisY=Float32Array.from(guide.smoothPrimaryY,y=>-y);
- if(domain.sourceYear!==2100)throw Error('STEP05 输入不是2100年张量');
+ if(domain.sourceYear!==2100)throw Error('STEP 05 input is not a 2100 tensor result');
 
- send(id,.15,'已完成 DEM 坡度、深水禁建区与浅水绕行成本计算');
+ send(id,.15,'DEM slope, deep-water exclusions and shallow-water detour costs calculated');
  let skeleton,repaired;
  if(parameters.visualMode==='presentation'){
-   send(id,.32,'展示模式：Wool 弹性织构和片区分叉同步生长（仅输出最终形态）…');
+   send(id,.32,'Presentation: Wool elastic network and district branches growing together (final geometry only)…');
    skeleton=buildPresentationRoadNetwork(domain,parameters);
    // If water/obstacle clipping leaves no valid macro-road, prefer the real
    // tensor-based skeleton rather than silently publishing an empty picture.
    if(!skeleton.roads.some(road=>road.kind==='main')){
-     send(id,.38,'展示主路受到真实水文障碍阻断，改用真实张量骨架重建…');
+     send(id,.38,'Presentation main roads blocked by hydrological obstacles; rebuilding from computed tensor skeleton…');
      const fallback=initialRoadSkeleton(domain,parameters,
        (progress,message)=>send(id,progress,message));
      skeleton={...fallback,displayRoads:[],bundles:[],
@@ -172,15 +172,15 @@ async function run(id,mode,params){
    repaired=repairRoadConnectivity(wool,domain,parameters,
      (progress,message)=>send(id,progress,message));
  }
- send(id,.88,'正在计算分级道路交叉、路网闭环与概念街区…');
+ send(id,.88,'Computing classified road intersections, network cycles and conceptual blocks…');
  const network=createRoadTopology(repaired,domain,parameters,(progress,message)=>send(id,progress,message));
- if(!network.roadCenterlines.features.length)throw Error('当前张量与洪涝约束无法生成有效道路，请检查积水阈值与有效区域，未输出虚假路网');
+ if(!network.roadCenterlines.features.length)throw Error('Cannot generate valid roads under current tensor/flood constraints. Check water depth threshold and valid site area; no fabricated network was exported.');
  const output=packageNetwork(domain,skeleton,network,repaired,mode);
  output.diagnostics.elapsedMs=Math.round(performance.now()-started);
  latest=output;
  send(id,1,parameters.visualMode==='presentation'?
-   '展示模式完成：仅展示 Wool 融合后的有机道路，不显示原始张量与中间线束':
-   '分析模式完成：张量积分 → Wool 生长 → A* 安全修复 → 路网拓扑');
+   'Presentation complete: final organic Wool roads displayed without raw tensors or intermediate fibers':
+   'Analysis complete: tensor integration → Wool growth → A* safe repair → road topology');
  postMessage({type:'done',id,result:output});
 }
 onmessage=async event=>{
