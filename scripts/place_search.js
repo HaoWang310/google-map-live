@@ -17,7 +17,7 @@ export function readPlace(row){
       bounds=[[west,south],[east,north]];
     }
   }
-  return {lat,lng,bounds,name:String(row.display_name||row.name||'搜索地点')};
+  return {lat,lng,bounds,name:String(row.display_name||row.name||'Search place')};
 }
 
 function wait(ms,signal){
@@ -34,7 +34,7 @@ export function createPlaceSearch(){
   let lastStarted=0;
   return async(query,{signal,viewbox}={})=>{
     const q=query.trim().replace(/\s+/g,' ');
-    if(!q)throw new Error('请输入地点名称、地址或邮编');
+    if(!q)throw new Error('Enter a place name, address or postcode');
     if(!signal)signal=new AbortController().signal;
     if(signal.aborted)throw new DOMException('Aborted','AbortError');
     const key=q.toLocaleLowerCase();
@@ -52,9 +52,9 @@ export function createPlaceSearch(){
     const response=await fetch(SEARCH_ENDPOINT+'?'+params,{
       signal,referrerPolicy:'strict-origin-when-cross-origin'
     });
-    if(!response.ok)throw new Error('搜索服务暂不可用（'+response.status+'），请稍后重试');
+    if(!response.ok)throw new Error('Search service temporarily unavailable（'+response.status+'）, please retry later');
     const rows=await response.json();
-    if(!Array.isArray(rows))throw new Error('搜索服务返回格式不正确');
+    if(!Array.isArray(rows))throw new Error('Search service returned an invalid response format');
     const places=rows.map(readPlace).filter(Boolean).slice(0,5);
     if(signal.aborted)throw new DOMException('Aborted','AbortError');
     cache.set(key,places);while(cache.size>30)cache.delete(cache.keys().next().value);
