@@ -38,7 +38,8 @@ assert.ok(kinds.secondary>=10,'Need a connected intermediate collector system');
 assert.ok(kinds.local>=70,'Need dense local enclosed streets, not stray lines');
 assert.ok(result.stats.localFiberCandidates>=70,
   'Local fiber sampling must be sufficiently dense for reference morphology');
-assert.ok(provenance.has('district')&&provenance.has('collector'));
+assert.ok(provenance.has('analysis')&&provenance.has('collector'),
+  'Final network must contain source-tensor organic local roads and district collector roads');
 assert.ok(result.bundles.length>100);
 // Design goal: arterial routes span a meaningful part of the land area.
 const mainRoads=result.roads.filter(x=>x.kind==='main');
