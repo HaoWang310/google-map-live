@@ -8199,11 +8199,13 @@
       tiles:[ESRI_CANVAS+name+'/MapServer/tile/{z}/{y}/{x}'],
       attribution:'Esri, HERE, Garmin, \u00a9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     });
-    // ?basemap=vector opts into the OpenFreeMap Liberty vector style. In
-    // isolated tests it loads in ~1.2 s with no main-thread stall, including
-    // 3D city mode, but one blank/frozen load was seen in the wild, so raster
-    // stays the default until vector is confirmed on more machines.
-    const USE_VECTOR_BASEMAP=new URLSearchParams(location.search).get('basemap')==='vector';
+    // The OpenFreeMap Liberty vector style is the default basemap: true
+    // per-layer restyling, precise label hiding, road geometry and sharp
+    // labels under tilt. Confirmed on the owner's machine and in isolated tests
+    // (~1.2 s load, no main-thread stall, including 3D city mode).
+    // ?basemap=raster forces the keyless Esri raster basemap instead, which is
+    // also the automatic fallback if Liberty does not load within 12 s.
+    const USE_VECTOR_BASEMAP=new URLSearchParams(location.search).get('basemap')!=='raster';
     const ESRI_RASTER_STYLE={
       version:8,
       sources:{
@@ -8246,21 +8248,9 @@
           osmMap.setLayoutProperty(id,'visibility',vis);
       }
     };
-    // Raster OSM is an emergency basemap only. Normal 3D geometry and analysis
-    // remain attached to the OpenFreeMap vector source without changing them.
-    const OSM_FALLBACK_STYLE={
-      version:8,
-      name:'OpenStreetMap raster fallback',
-      sources:{
-        'osm-raster-fallback':{
-          type:'raster',
-          tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize:256,
-          attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>'
-        }
-      },
-      layers:[{id:'osm-raster-fallback-layer',type:'raster',source:'osm-raster-fallback'}]
-    };
+    // Emergency basemap when Liberty fails to start: the same keyless Esri
+    // raster style, so the Map style and label controls keep working.
+    const OSM_FALLBACK_STYLE=ESRI_RASTER_STYLE;
     let rasterFallbackActive=false;
     let startupWatchdog=null;
     let buildingLoadErrorShown=false;
@@ -8270,7 +8260,7 @@
       if(!osmMap||osmStyleReady||rasterFallbackActive)return;
       rasterFallbackActive=true;
       console.warn('OpenFreeMap startup failed; switching to OSM raster.',reason);
-      say('OpenFreeMap did not respond. Switching to OpenStreetMap raster; 3D buildings may remain unavailable.',true);
+      say('OpenFreeMap did not respond. Switching to the Esri raster basemap; 3D buildings may remain unavailable.',true);
       try {
         osmMap.setStyle(OSM_FALLBACK_STYLE);
       } catch(error) {
@@ -8432,7 +8422,7 @@
       if(currentProvider==='osm'){
         updateTerrainLayers();
         say(rasterFallbackActive
-          ?'OpenStreetMap raster fallback active. OpenFreeMap 3D buildings may be unavailable.'
+          ?'Esri raster fallback active. OpenFreeMap 3D buildings may be unavailable.'
           :'Map connected. Switch to 3D or search for a place; enable analysis layers as needed.',
           rasterFallbackActive);
         osmMap.once('idle',()=>scheduleStreetVehicleRefresh(0));
