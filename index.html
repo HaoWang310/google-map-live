@@ -9,7 +9,7 @@
   <title>London map</title>
   <script type="module" src="./scripts/ui_english.js?v=3.29.4-english"></script>
 
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.css'">
 
   <style>
     html,body,#googleMap,#osmMap{height:100%;margin:0}
@@ -1299,10 +1299,26 @@
   import {createPlaceSearch} from './scripts/place_search.js?v=3.29.4-english';
   import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.29.4-english';
   import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.29.4-english';
-  import {createLocalFloodUI} from './scripts/local_flood_ui.js?v=3.29.4-english';
   import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.29.4-english';
-  import {createParcelGenerator} from './scripts/parcel_generator.js?v=3.29.4-english';
-  import * as maplibregl from 'https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs';
+  // Map rendering must not depend on a single CDN. Heavy analysis modules are
+  // loaded only AFTER the basemap has started.
+  let maplibregl;
+  try {
+    maplibregl=await import('https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.mjs');
+  } catch(primaryError) {
+    console.warn('Primary MapLibre CDN unavailable; trying jsDelivr.',primaryError);
+    try {
+      maplibregl=await import('https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.mjs');
+    } catch(secondaryError) {
+      const status=document.getElementById('status');
+      if(status){
+        status.textContent='Map renderer failed to load from both CDNs. Check network access to unpkg.com and cdn.jsdelivr.net, then reload.';
+        status.className='status error';
+      }
+      console.error('Both MapLibre CDN imports failed',primaryError,secondaryError);
+      throw secondaryError;
+    }
+  }
 
   const APP_VERSION='3.29.4-english';
   // Keep the header's version derived from exactly the same runtime build id.
@@ -8139,9 +8155,41 @@
     });
     maplibregl.addProtocol('ea-terrain-local',terrainLoader);
 
+    const OSM_PRIMARY_STYLE='https://tiles.openfreemap.org/styles/liberty';
+    // Raster OSM is an emergency basemap only. Normal 3D geometry and analysis
+    // remain attached to the OpenFreeMap vector source without changing them.
+    const OSM_FALLBACK_STYLE={
+      version:8,
+      name:'OpenStreetMap raster fallback',
+      sources:{
+        'osm-raster-fallback':{
+          type:'raster',
+          tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize:256,
+          attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>'
+        }
+      },
+      layers:[{id:'osm-raster-fallback-layer',type:'raster',source:'osm-raster-fallback'}]
+    };
+    let rasterFallbackActive=false;
+    let startupWatchdog=null;
+    let buildingLoadErrorShown=false;
+    const activateRasterFallback=(reason)=>{
+      if(!osmMap||osmStyleReady||rasterFallbackActive)return;
+      rasterFallbackActive=true;
+      console.warn('OpenFreeMap startup failed; switching to OSM raster.',reason);
+      say('OpenFreeMap did not respond. Switching to OpenStreetMap raster; 3D buildings may remain unavailable.',true);
+      try {
+        osmMap.setStyle(OSM_FALLBACK_STYLE);
+      } catch(error) {
+        console.error('Unable to activate OSM raster fallback',error);
+        say('OSM basemap failed to start: '+(error.message||error),true);
+      }
+    };
+
     osmMap=new maplibregl.Map({
       container:'osmMap',
-      style:'https://tiles.openfreemap.org/styles/liberty',
+      style:OSM_PRIMARY_STYLE,
       center:[CENTER.lng,CENTER.lat],
       zoom:ZOOM,
       pitch:0,
@@ -8160,6 +8208,20 @@
 
       canvasContextAttributes:{antialias:true},
       attributionControl:true
+    });
+
+    // A failed style fetch can otherwise leave this page on a blank map forever.
+    startupWatchdog=setTimeout(()=>activateRasterFallback('12-second initial style timeout'),12000);
+    osmMap.on('error',event=>{
+      if(!osmStyleReady){
+        const message=String(event.error?.message||'Map style or tile request failed');
+        if(rasterFallbackActive){
+          say('OpenStreetMap fallback could not load: '+message,true);
+        }else{
+          console.warn('OpenFreeMap startup error; fallback pending:',message);
+          say('OpenFreeMap loading issue; trying the fallback if needed: '+message,true);
+        }
+      }
     });
 
     osmMap.addControl(new maplibregl.NavigationControl({showCompass:true,visualizePitch:true}),'top-right');
@@ -8201,6 +8263,7 @@
       }
     });
     osmMap.on('load',()=>{
+      if(startupWatchdog){clearTimeout(startupWatchdog);startupWatchdog=null;}
       osmStyleReady=true;
       // Capture the pristine OpenFreeMap layer IDs before project overlays.
       basemapThemeController=createBasemapThemeController(osmMap);
@@ -8209,39 +8272,54 @@
       ensureCityBuildings();
       tuneCityBuildingFarField();
       syncCityView();
-      if(!localFloodUI){
-        localFloodUI=createLocalFloodUI({
-          map:osmMap,maplibregl,assetUrl,
-          demBounds:DRAINAGE_3857,
-          demWidth:DRAINAGE_3857.baseWidth50m,
-          demHeight:DRAINAGE_3857.baseHeight50m,
-          ensureCityBuildings,setCityView,getFirstSymbolLayerId,
-          cityBuildingsLayerId:CITY_BUILDINGS_LAYER,
-          setCityBuildingFloodSelection,
-          setCityIsolateMode,
-          getFocusAnalysisSettings:()=>({
-            ea:$('localFloodFocusEA').checked,
-            drainage:$('localFloodFocusDrainage').checked,
-            guide:$('localFloodDrainageGuide').checked,
-            threshold:networkThreshold
-          }),
-          getFocusReferenceTile:(type,request,controller)=>
-            type==='ea'?detailLoader(request,controller):hydrologyLoader(request,controller),
-          getBasemapTheme:()=>basemapTheme,
-          setBasemapTheme,
-          onOpenParcelGenerator:({polygon,roadNetwork=null})=>{
-            if(!parcelGenerator)parcelGenerator=createParcelGenerator({
-              maplibregl,assetUrl,demBounds:DRAINAGE_3857,
-              demWidth:DRAINAGE_3857.baseWidth50m,
-              demHeight:DRAINAGE_3857.baseHeight50m
-            });
-            // A valid STEP05 graph opens STEP06 handoff; a direct visit from
-            // the city map remains a harmless Stage01 site-data preview.
-            parcelGenerator.open({polygon,roadNetwork});
-          }
+      // A failure in the large flood/parcel modules must never block the map.
+      // The independent module graph is downloaded after the basemap is ready.
+      $('localFloodDraw').disabled=true;
+      import('./scripts/local_flood_ui.js?v=3.29.4-english')
+        .then(({createLocalFloodUI})=>{
+          if(localFloodUI)return;
+          localFloodUI=createLocalFloodUI({
+            map:osmMap,maplibregl,assetUrl,
+            demBounds:DRAINAGE_3857,
+            demWidth:DRAINAGE_3857.baseWidth50m,
+            demHeight:DRAINAGE_3857.baseHeight50m,
+            ensureCityBuildings,setCityView,getFirstSymbolLayerId,
+            cityBuildingsLayerId:CITY_BUILDINGS_LAYER,
+            setCityBuildingFloodSelection,
+            setCityIsolateMode,
+            getFocusAnalysisSettings:()=>({
+              ea:$('localFloodFocusEA').checked,
+              drainage:$('localFloodFocusDrainage').checked,
+              guide:$('localFloodDrainageGuide').checked,
+              threshold:networkThreshold
+            }),
+            getFocusReferenceTile:(type,request,controller)=>
+              type==='ea'?detailLoader(request,controller):hydrologyLoader(request,controller),
+            getBasemapTheme:()=>basemapTheme,
+            setBasemapTheme,
+            onOpenParcelGenerator:async ({polygon,roadNetwork=null})=>{
+              try {
+                if(!parcelGenerator){
+                  const module=await import('./scripts/parcel_generator.js?v=3.29.4-english');
+                  parcelGenerator=module.createParcelGenerator({
+                    maplibregl,assetUrl,demBounds:DRAINAGE_3857,
+                    demWidth:DRAINAGE_3857.baseWidth50m,
+                    demHeight:DRAINAGE_3857.baseHeight50m
+                  });
+                }
+                parcelGenerator.open({polygon,roadNetwork});
+              } catch(error) {
+                console.error('Parcel generator failed to load',error);
+                say('Map is running, but parcel generator failed to load: '+(error.message||error),true);
+              }
+            }
+          });
+          $('localFloodDraw').disabled=false;
+        })
+        .catch(error=>{
+          console.error('Optional local flood tools failed to load',error);
+          say('OSM map is available, but local flood tools could not load: '+(error.message||error),true);
         });
-      }
-      $('localFloodDraw').disabled=false;
       $('localFloodClear').disabled=false;
       $('osmStructureToggle').checked=osmStructuresHidden;
       $('osmStructureToggle').disabled=false;
@@ -8257,7 +8335,10 @@
       updateFloodLayer();
       if(currentProvider==='osm'){
         updateTerrainLayers();
-        say('Map connected. Switch to 3D or search for a place; enable analysis layers as needed.');
+        say(rasterFallbackActive
+          ?'OpenStreetMap raster fallback active. OpenFreeMap 3D buildings may be unavailable.'
+          :'Map connected. Switch to 3D or search for a place; enable analysis layers as needed.',
+          rasterFallbackActive);
         osmMap.once('idle',()=>scheduleStreetVehicleRefresh(0));
       }
     });
@@ -8334,6 +8415,13 @@
     });
     osmMap.on('error',e=>{
       if(e.sourceId===FLOOD_DETAIL_SOURCE){handleFloodDetailError(e.error);return;}
+      if(e.sourceId===CITY_BUILDINGS_SOURCE&&!buildingLoadErrorShown){
+        buildingLoadErrorShown=true;
+        console.warn('OSM 3D building tiles could not load',e.error||e);
+        if(osmMap.getPitch()>.5){
+          say('3D building tiles are unavailable from OpenFreeMap. The basemap can still be used.',true);
+        }
+      }
       console.error(e.error||e);
     });
   }
