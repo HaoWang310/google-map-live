@@ -162,6 +162,15 @@ function applyAttributes(element) {
   }
 }
 
+// The tab title lives in <head>, outside the body walk and the observer.
+let sourceTitle = null;
+function applyTitle(documentObject = globalThis.document) {
+  if (!documentObject || typeof documentObject.title !== 'string') return;
+  if (sourceTitle === null) sourceTitle = documentObject.title;
+  const next = translateUI(sourceTitle);
+  if (documentObject.title !== next) documentObject.title = next;
+}
+
 function applySubtree(root, documentObject = globalThis.document) {
   if (!root || !documentObject) return;
   if (root.nodeType === 3) { applyTextNode(root); return; }
@@ -188,6 +197,7 @@ export function setLanguage(next, documentObject = globalThis.document) {
   }
   try { globalThis.localStorage?.setItem(STORAGE_KEY, mode); } catch (error) { /* private mode */ }
   if (documentObject?.body) applySubtree(documentObject.body, documentObject);
+  applyTitle(documentObject);
   syncSwitch(documentObject);
   documentObject?.dispatchEvent?.(new CustomEvent('uilanguagechange', { detail: { language: mode } }));
   return mode;
@@ -238,6 +248,7 @@ export function startLanguageUI(documentObject = globalThis.document, windowObje
   documentObject.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
   documentObject.documentElement.dataset.uiLanguage = language;
   applySubtree(documentObject.body, documentObject);
+  applyTitle(documentObject);
   bindSwitch(documentObject);
 
   const observer = new windowObject.MutationObserver(records => {

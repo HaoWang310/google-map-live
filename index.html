@@ -1,11 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+  <!-- The page ships its own Chinese/English UI (scripts/ui_language.js).
+       Browser auto-translation rewrites text nodes into <font> elements, which
+       breaks that layer and produces mixed-language text, so opt out of it. -->
+  <meta name="google" content="notranslate">
   <title>London map</title>
   <script type="module" src="./scripts/ui_language.js?v=3.29.4-english"></script>
 
