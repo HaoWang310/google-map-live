@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>London map · safe 2D mode</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'">
+<style>
+html,body,#map{width:100%;height:100%;padding:0;margin:0;background:#f6f6f6}
+body{font-family:-apple-system,BlinkMacSystemFont,Inter,Arial,sans-serif}
+#bar{position:absolute;z-index:900;top:15px;left:15px;max-width:290px;background:#111214;color:#fff;
+border:1px solid #333;padding:16px;border-radius:14px;box-shadow:0 8px 32px #0003}
+#bar strong{display:block;font-size:18px;margin-bottom:5px}
+#bar small{display:block;font-size:12px;line-height:1.55;color:#bfc0c4}
+a{display:inline-block;margin-top:12px;color:#fff;border:1px solid #777;border-radius:7px;text-decoration:none;padding:7px 10px;font-size:12px}
+#status{margin-top:10px;color:#a8e2b7;font-size:11px}
+#fallback{display:none;position:absolute;inset:0;border:0;width:100%;height:100%}
+</style></head><body><div id="map"></div>
+<iframe id="fallback" title="OpenStreetMap London" loading="eager"></iframe>
+<div id="bar"><strong>London map</strong><small>Lightweight 2D mode · No WebGL or 3D rendering required. OpenStreetMap-based tiles.</small>
+<a href="./">Return to full map / 3D</a><div id="status">Loading map…</div></div>
+<script>
+(function(){
+ const status=document.getElementById('status');
+ function iframeFallback(){
+   if(window.__safeMapStarted)return;
+   document.getElementById('fallback').style.display='block';
+   document.getElementById('fallback').src='https://www.openstreetmap.org/export/embed.html?bbox=-0.50%2C51.30%2C0.30%2C51.70&layer=mapnik';
+   status.textContent='Showing OpenStreetMap embedded fallback.';
+ }
+ function init(){
+   if(!window.L)return iframeFallback();
+   try{
+     const map=L.map('map',{zoomControl:false,preferCanvas:false}).setView([51.5074,-0.1278],10);
+     L.control.zoom({position:'topright'}).addTo(map);
+     L.control.scale({imperial:false,position:'bottomleft'}).addTo(map);
+     const layer=L.tileLayer('https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',{
+       minZoom:2,maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO',crossOrigin:true
+     }).addTo(map);
+     let tileErrors=0;
+     layer.on('tileerror',()=>{
+       if(++tileErrors>=5){
+         map.removeLayer(layer);
+         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+           maxZoom:19,attribution:'&copy; OpenStreetMap contributors'
+         }).addTo(map);
+         status.textContent='Using direct OpenStreetMap tile backup.';
+       }
+     });
+     map.on('mousemove',e=>{status.textContent=e.latlng.lat.toFixed(5)+' / '+e.latlng.lng.toFixed(5)+' / Zoom '+map.getZoom()});
+     window.__safeMapStarted=true;
+     status.textContent='2D map ready. Scroll to zoom; drag to pan.';
+   }catch(error){console.error(error);iframeFallback()}
+ }
+ const script=document.createElement('script');
+ script.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+ script.onload=init;
+ script.onerror=()=>{
+   const backup=document.createElement('script');
+   backup.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+   backup.onload=init;backup.onerror=iframeFallback;
+   document.head.appendChild(backup);
+ };
+ document.head.appendChild(script);
+ setTimeout(()=>{if(!window.__safeMapStarted)iframeFallback()},10000);
+})();
+</script></body></html>
