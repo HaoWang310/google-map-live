@@ -53,7 +53,14 @@ export function growOrganicLocalRoads(domain,field,collectors,parameters={}){
   if(safe(p))seeds.push(p);
  }
  const score=p=>{const i=idx(p);
-  return i<0?0:(Math.max(.02,domain.certainty[i]||0)*(1-.65*Math.min(1,domain.depth[i]/.15)));
+  if(i<0)return 0;
+  // Hydrological certainty/depth are optional in presentation-only sites.
+  // Missing rasters must not crash STEP05 before the road solver can run.
+  const certainty=domain.certainty?.[i];
+  const depth=domain.depth?.[i];
+  const weight=Math.max(.02,Number.isFinite(certainty)?certainty:1);
+  const wetness=Number.isFinite(depth)?Math.max(0,depth):0;
+  return weight*(1-.65*Math.min(1,wetness/.15));
  };
  // Use a tile-first spatial ordering; never exhaust the budget in one corner.
  seeds.sort((a,b)=>score(b)-score(a)||a[1]-b[1]||a[0]-b[0]);
