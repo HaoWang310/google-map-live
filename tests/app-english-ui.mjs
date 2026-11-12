@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const paths=[
  'index.html',
- 'scripts/ui_english.js',
  'scripts/flood_detail.js',
  'scripts/place_search.js',
  'scripts/drainage_display.js',
@@ -51,6 +50,6 @@ for(const path of paths){
 const html=readFileSync('index.html','utf8');
 assert.match(html,/<html\s+lang="en"/i,'HTML document language must be English');
 assert.match(html,/APP_VERSION='3\.29\.4-english'/,'page must use English module build');
-assert.match(html,/ui_english\.js\?v=3\.29\.4-english/,
- 'English fallback translator must use current version');
+assert.match(html,/ui_language\.js\?v=3\.29\.4-english/,
+ 'bidirectional language layer must use current version');
 console.log('PASS English London Map: '+paths.length+' active HTML/JS files; no visible Chinese source strings');

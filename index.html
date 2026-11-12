@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>London map</title>
-  <script type="module" src="./scripts/ui_english.js?v=3.29.4-english"></script>
+  <script type="module" src="./scripts/ui_language.js?v=3.29.4-english"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.css'">
 
@@ -575,6 +575,19 @@
       background:#222225;border:1px solid #36363b;
       font-size:10px;color:#d1d1d6;font-weight:500;
     }
+    #panel .headActions{
+      display:flex;align-items:center;gap:8px;flex:0 0 auto;
+    }
+    #panel #uiLanguageSwitch{
+      display:inline-flex;padding:2px;gap:2px;border-radius:11px;
+      background:#222225;border:1px solid #36363b;
+    }
+    #panel #uiLanguageSwitch button{
+      min-width:34px;min-height:26px;padding:0 7px;border:0;border-radius:9px;
+      background:transparent;color:#9d9da3;font-size:11px;font-weight:600;
+      line-height:1;cursor:pointer;
+    }
+    #panel #uiLanguageSwitch button.active{background:#3a3a40;color:#f5f5f7}
     #panel #collapse{
       flex:0 0 40px;min-width:40px;min-height:40px;
       background:#2a2a2e;border:1px solid #48484d;
@@ -915,7 +928,13 @@
         <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.29.4-english</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
-      <button id="collapse" aria-label="Collapse control panel" title="Collapse / expand control panel">−</button>
+      <div class="headActions">
+        <div id="uiLanguageSwitch" role="group" aria-label="Interface language" data-no-translate>
+          <button type="button" data-language="zh" aria-pressed="true">ZH</button>
+          <button type="button" data-language="en" aria-pressed="false">EN</button>
+        </div>
+        <button id="collapse" aria-label="Collapse control panel" title="Collapse / expand control panel">−</button>
+      </div>
     </div>
 
     <div class="searchTools">
