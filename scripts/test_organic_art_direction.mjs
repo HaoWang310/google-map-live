@@ -14,6 +14,9 @@ assert.ok(delta(b,chord)>.012,'Woven fibers must bend rather than remain a regul
 const w=54,h=48,n=w*h,valid=new Uint8Array(n).fill(1);
 function domainFor(mask){
  return {w,h,cell:18,scale:.64,left:0,top:h*18,inside:mask,safe:mask,
+   // Synthetic but explicit hydrological eigenaxes for Wool growth.
+   ax:new Float32Array(n).fill(.8),ay:new Float32Array(n).fill(-.6),
+   certainty:new Float32Array(n).fill(.86),anisotropy:new Float32Array(n).fill(.72),
    groundCell:11.52,dryCells:mask.reduce((s,v)=>s+(v>0),0),
    cellAt:p=>{
     const x=Math.floor(p[0]/18),y=Math.floor((h*18-p[1])/18);
