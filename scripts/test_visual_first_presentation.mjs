@@ -27,6 +27,10 @@ for(const n of packet.coordinates)assert.ok(Number.isFinite(n),'no invalid visua
 const mapDomain={
  w,h,cell:30,scale:.65,left:0,top:1500,inside:valid,
  safe:valid,depth:new Float32Array(n),dryCells:n,wetCells:0,
+ // Feed the same evidence-driven axes to the Wool module as the tensor fixture.
+ // Without these, a real hydrological tensor is absent and local growth must not be invented.
+ ax:f.primaryX,ay:Float32Array.from(f.primaryY,v=>-v),
+ certainty:f.confidence,anisotropy:f.anisotropy,
  groundCell:19.5,
  cellAt:p=>{const x=Math.floor(p[0]/30),y=Math.floor((1500-p[1])/30);
  return x>=0&&x<w&&y>=0&&y<h?y*w+x:-1;},
