@@ -16,8 +16,8 @@
    switching languages always restores the source string first and never
    translates an already-translated string. */
 
-import {CHINESE_UI} from './ui_chinese_dictionary.js?v=3.29.4-english';
-import {ENGLISH_UI} from './ui_english_dictionary.js?v=3.29.4-english';
+import {CHINESE_UI} from './ui_chinese_dictionary.js?v=3.30.0-english';
+import {ENGLISH_UI} from './ui_english_dictionary.js?v=3.30.0-english';
 
 const STORAGE_KEY = 'londonMap.uiLanguage';
 const DEFAULT_LANGUAGE = 'zh';
@@ -39,30 +39,95 @@ function normalise(value) {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+// Runtime templates with numbers in the middle, which no fixed phrase can
+// match. Each pattern must describe the whole segment.
+const NUM = '(-?[\\d.,]+)';
+const ZH_PATTERNS = [
+  [new RegExp('^Lat ' + NUM + ' / Lng ' + NUM + ' / Zoom ' + NUM + '$'), '纬度 $1 / 经度 $2 / 缩放 $3'],
+  [new RegExp('^Lat ' + NUM + '$'), '纬度 $1'],
+  [new RegExp('^Lon ' + NUM + '$'), '经度 $1'],
+  [new RegExp('^' + NUM + ' m raster$'), '$1 m 栅格'],
+  [new RegExp('^' + NUM + ' buildings?$'), '$1 栋建筑'],
+  [new RegExp('^buildings inside site ' + NUM + ' buildings?$'), '场地内建筑 $1 栋'],
+  [new RegExp('^Area ' + NUM + ' km²$'), '面积 $1 km²'],
+  [new RegExp('^EA surface water ' + NUM + ' cells available$'), 'EA 地表水 $1 个可用单元'],
+  [new RegExp('^Building roof drainage routed outdoors ' + NUM + '/' + NUM + ' cells$'), '屋面排水排向室外 $1/$2 个单元'],
+  [new RegExp('^' + NUM + ' facilities placed$'), '已放置 $1 个设施'],
+];
+
+function lookupWhole(text) {
+  if (Object.hasOwn(CHINESE_UI, text)) return CHINESE_UI[text];
+  for (const [pattern, replacement] of ZH_PATTERNS) {
+    if (pattern.test(text)) return text.replace(pattern, replacement);
+  }
+  // Prefixes stored with their separator ("… ·", "…:") also match the part
+  // left after a status line is split on " · ".
+  for (const suffix of [' ·', ':']) {
+    const key = text + suffix;
+    if (Object.hasOwn(CHINESE_UI, key)) return CHINESE_UI[key].replace(/\s*[·:：]\s*$/, '');
+  }
+  // A fixed phrase followed by trailing punctuation.
+  const bare = text.replace(/[\s:：.。!！?？,，;；-]+$/, '');
+  if (bare && bare !== text && Object.hasOwn(CHINESE_UI, bare)) {
+    return CHINESE_UI[bare] + text.slice(bare.length);
+  }
+  return null;
+}
+
+const WORD = /[A-Za-z0-9]/;
+
+// Replace every known phrase inside a longer string, longest first, without
+// touching a phrase twice or matching inside a larger word. Whatever is left
+// is dynamic content (numbers, names, error details) and is preserved.
+function replaceEmbedded(text) {
+  let out = text;
+  const slots = [];
+  for (const key of ZH_EMBEDDABLE) {
+    if (out.length < key.length) continue;
+    let at = out.indexOf(key);
+    while (at !== -1) {
+      const before = out[at - 1], after = out[at + key.length];
+      const bounded = !(before && WORD.test(before) && WORD.test(key[0])) &&
+                      !(after && WORD.test(after) && WORD.test(key[key.length - 1]));
+      if (bounded) {
+        const token = '\u0000' + slots.length + '\u0000';
+        slots.push(CHINESE_UI[key]);
+        out = out.slice(0, at) + token + out.slice(at + key.length);
+        at = out.indexOf(key, at + token.length);
+      } else {
+        at = out.indexOf(key, at + 1);
+      }
+    }
+  }
+  if (!slots.length) return text;
+  return out.replace(/\u0000(\d+)\u0000/g, (_, i) => slots[Number(i)]);
+}
+
 function toChinese(value) {
   if (typeof value !== 'string') return value;
   const trimmed = normalise(value);
   if (!trimmed) return value;
 
-  // 1. Whole string.
-  if (Object.hasOwn(CHINESE_UI, trimmed)) return CHINESE_UI[trimmed];
+  // 1. Whole string, with or without trailing punctuation.
+  const whole = lookupWhole(trimmed);
+  if (whole !== null) return tidy(whole);
 
-  // 2. Whole string minus trailing punctuation. Many runtime messages are
-  //    built as a fixed prefix plus a dynamic detail.
-  const bare = trimmed.replace(/[\s:：.。!！?？,，;；-]+$/, '');
-  if (bare && Object.hasOwn(CHINESE_UI, bare)) {
-    return CHINESE_UI[bare] + trimmed.slice(bare.length);
+  // 2. Status lines are often several facts joined with " · ". Translate each
+  //    part on its own so every known part is converted, not just the first.
+  if (trimmed.includes(' · ')) {
+    const parts = trimmed.split(' · ');
+    const translated = parts.map(part => lookupWhole(part) ?? replaceEmbedded(part));
+    if (translated.some((part, i) => part !== parts[i])) return tidy(translated.join(' · '));
   }
 
-  // 3. Longest known phrase appearing inside the string. The remainder is
-  //    dynamic content (numbers, names, error details) and is preserved.
-  for (const key of ZH_EMBEDDABLE) {
-    const at = trimmed.indexOf(key);
-    if (at === -1) continue;
-    return trimmed.slice(0, at) + CHINESE_UI[key] + trimmed.slice(at + key.length);
-  }
+  // 3. Known phrases embedded in a longer sentence.
+  const embedded = replaceEmbedded(trimmed);
+  return embedded === trimmed ? value : tidy(embedded);
+}
 
-  return value;
+// Full-width Chinese punctuation carries its own spacing.
+function tidy(text) {
+  return text.replace(/([：，。；（])\s+/g, '$1').replace(/\s+([）])/g, '$1');
 }
 
 /* ---------- Chinese -> English (previous ui_english.js behaviour) ---------- */

@@ -49,7 +49,7 @@ for(const path of paths){
 }
 const html=readFileSync('index.html','utf8');
 assert.match(html,/<html\s+lang="en"/i,'HTML document language must be English');
-assert.match(html,/APP_VERSION='3\.29\.4-english'/,'page must use English module build');
-assert.match(html,/ui_language\.js\?v=3\.29\.4-english/,
+assert.match(html,/APP_VERSION='3\.30\.0-english'/,'page must use English module build');
+assert.match(html,/ui_language\.js\?v=3\.30\.0-english/,
  'bidirectional language layer must use current version');
 console.log('PASS English London Map: '+paths.length+' active HTML/JS files; no visible Chinese source strings');

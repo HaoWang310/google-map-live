@@ -96,7 +96,7 @@ export function createParcelRoadUI({
  <p class="pg-note">STEP 05 exports computed road centerlines, hierarchy, surface strips, site boundary, reserved flood areas and junction topology. STEP 06 parcel subdivision and functional zoning are not yet implemented.</p></div>`;
  function ensureWorker(){
   if(worker)return;
-  worker=new Worker(new URL('./parcel_road_worker.js?v=3.29.4-english',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./parcel_road_worker.js?v=3.30.0-english',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{
    if(data?.id!==serial)return;
    if(data.type==='progress'){

@@ -11,7 +11,7 @@
        breaks that layer and produces mixed-language text, so opt out of it. -->
   <meta name="google" content="notranslate">
   <title>London map</title>
-  <script type="module" src="./scripts/ui_language.js?v=3.29.4-english"></script>
+  <script type="module" src="./scripts/ui_language.js?v=3.30.0-english"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.css'">
 
@@ -929,7 +929,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.29.4-english</div>
+        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.30.0-english</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <div class="headActions">
@@ -1323,11 +1323,11 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.29.4-english';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.29.4-english';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.29.4-english';
-  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.29.4-english';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.29.4-english';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.30.0-english';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.30.0-english';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.30.0-english';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.30.0-english';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.30.0-english';
   // Map rendering must not depend on a single CDN. Heavy analysis modules are
   // loaded only AFTER the basemap has started.
   let maplibregl;
@@ -1348,7 +1348,7 @@
     }
   }
 
-  const APP_VERSION='3.29.4-english';
+  const APP_VERSION='3.30.0-english';
   // Keep the header's version derived from exactly the same runtime build id.
   document.getElementById('appVersionLabel').textContent='OpenStreetMap / OpenFreeMap · v'+APP_VERSION;
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
@@ -8365,7 +8365,7 @@
       // A failure in the large flood/parcel modules must never block the map.
       // The independent module graph is downloaded after the basemap is ready.
       $('localFloodDraw').disabled=true;
-      import('./scripts/local_flood_ui.js?v=3.29.4-english')
+      import('./scripts/local_flood_ui.js?v=3.30.0-english')
         .then(({createLocalFloodUI})=>{
           if(localFloodUI)return;
           localFloodUI=createLocalFloodUI({
@@ -8390,7 +8390,7 @@
             onOpenParcelGenerator:async ({polygon,roadNetwork=null})=>{
               try {
                 if(!parcelGenerator){
-                  const module=await import('./scripts/parcel_generator.js?v=3.29.4-english');
+                  const module=await import('./scripts/parcel_generator.js?v=3.30.0-english');
                   parcelGenerator=module.createParcelGenerator({
                     maplibregl,assetUrl,demBounds:DRAINAGE_3857,
                     demWidth:DRAINAGE_3857.baseWidth50m,

@@ -1,6 +1,6 @@
 
 /* Parcel Generator: STEP 01 audit preserved, independent STEP 05 road module. */
-import {createParcelRoadUI} from './parcel_road_ui.js?v=3.29.4-english';
+import {createParcelRoadUI} from './parcel_road_ui.js?v=3.30.0-english';
 const CRS27700='+proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000 +y_0=-100000 +ellps=airy +towgs84=446.448,-125.157,542.06,0.1502,0.2470,0.8421,-20.4894 +units=m +no_defs';
 const get=(parent,id)=>parent?.querySelector(id);
 const closeRing=points=>{
@@ -252,7 +252,7 @@ export function createParcelGenerator({maplibregl,assetUrl,demBounds,demWidth,de
    if(bng.areaM2<50||!Number.isFinite(bng.areaM2))throw Error('Site is invalid or too small');
    update();
    status('Site area calculated; loading real DEM and catchment data…');
-   worker=new Worker(new URL('./parcel_generator_worker.js?v=3.29.4-english',import.meta.url));
+   worker=new Worker(new URL('./parcel_generator_worker.js?v=3.30.0-english',import.meta.url));
    worker.onmessage=e=>{
     if(!root||current!==id||e.data.id!==id)return;
     if(e.data.type==='progress')status(e.data.message);
