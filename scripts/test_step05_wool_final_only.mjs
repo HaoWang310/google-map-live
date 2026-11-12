@@ -8,6 +8,9 @@ const w=61,h=51,inside=new Uint8Array(w*h).fill(1);
 function domain(mask){
  return {w,h,cell:16,scale:.68,left:0,top:h*16,
   inside:mask,safe:mask,dryCells:mask.reduce((a,b)=>a+(b>0),0),groundCell:10.88,
+  // The presentation Wool solver requires directional STEP04 tensor evidence.
+  ax:new Float32Array(w*h).fill(.8),ay:new Float32Array(w*h).fill(-.6),
+  certainty:new Float32Array(w*h).fill(.85),anisotropy:new Float32Array(w*h).fill(.65),
   cellAt:p=>{const x=Math.floor(p[0]/16),y=Math.floor((h*16-p[1])/16);
    return x>=0&&x<w&&y>=0&&y<h?y*w+x:-1},
   toPoint:i=>[((i%w)+.5)*16,(h-Math.floor(i/w)-.5)*16]
