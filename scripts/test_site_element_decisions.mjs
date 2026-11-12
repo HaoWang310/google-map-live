@@ -20,7 +20,7 @@ assert.deepEqual(normalizeSiteDecisions({[siteElementId('road','x')]:'keep',
   unknown:'keep'}),{
   [siteElementId('road','x')]:'keep',[siteElementId('park','a')]:'remove'
 });
-assert.equal(siteDecisionLabel('pending'),'待定');
+assert.equal(siteDecisionLabel('pending'),'Undecided');
 assert.throws(()=>siteElementId('invalid','foo'));
 const read=path=>fs.readFileSync(new URL('../'+path,import.meta.url),'utf8');
 const ui=read('scripts/local_flood_ui.js');
