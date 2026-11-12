@@ -48,8 +48,8 @@ const ui=fs.readFileSync(new URL('./parcel_road_ui.js',import.meta.url),'utf8');
 const worker=fs.readFileSync(new URL('./parcel_road_worker.js',import.meta.url),'utf8');
 const hydro=fs.readFileSync(new URL('./local_flood_ui.js',import.meta.url),'utf8');
 const vector=fs.readFileSync(new URL('./hydro_tensor_field.js',import.meta.url),'utf8');
-assert.ok(ui.includes('STEP 05 · Wool 融合路网 · 仅最终结果'));
-assert.ok(ui.includes('重新生成 Wool 最终路网'));
+assert.ok(ui.includes('STEP 05 · Integrated Wool road network · final result only'));
+assert.ok(ui.includes('Regenerate final Wool network'));
 assert.ok(ui.includes("['main','secondary','local'].includes(k)?'checked':''"),
  'Reference flood corridor and road footprint overlays must default OFF');
 assert.ok(ui.includes('active&&result&&check?.checked'));
