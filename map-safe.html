@@ -32,18 +32,17 @@ a{display:inline-block;margin-top:12px;color:#fff;border:1px solid #777;border-r
      const map=L.map('map',{zoomControl:false,preferCanvas:false}).setView([51.5074,-0.1278],10);
      L.control.zoom({position:'topright'}).addTo(map);
      L.control.scale({imperial:false,position:'bottomleft'}).addTo(map);
-     const layer=L.tileLayer('https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',{
-       minZoom:2,maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO',crossOrigin:true
+     // CARTO's hosted basemaps now require an API key and answer keyless
+     // requests with a watermark image rather than an HTTP error, so tileerror
+     // never fires and the backup below could not engage. Use keyless OSM.
+     const layer=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+       minZoom:2,maxZoom:19,attribution:'&copy; OpenStreetMap contributors',crossOrigin:true
      }).addTo(map);
      let tileErrors=0;
      layer.on('tileerror',()=>{
-       if(++tileErrors>=5){
-         map.removeLayer(layer);
-         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
-           maxZoom:19,attribution:'&copy; OpenStreetMap contributors'
-         }).addTo(map);
-         status.textContent='Using direct OpenStreetMap tile backup.';
-       }
+       // The primary source is already the direct OSM tile server, so repeated
+       // failures mean tiles are unreachable; fall through to the OSM embed.
+       if(++tileErrors>=5)iframeFallback();
      });
      map.on('mousemove',e=>{status.textContent=e.latlng.lat.toFixed(5)+' / '+e.latlng.lng.toFixed(5)+' / Zoom '+map.getZoom()});
      window.__safeMapStarted=true;

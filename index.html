@@ -1611,7 +1611,6 @@
   let osmStyleReady=false;
   let basemapTheme='planning'; // 03 is the default on every first load.
   let basemapThemeController=null;
-  let syncRasterBasemap=()=>{};
   let googleMarker=null;
   let osmMarker=null;
   let googleLoading=false;
@@ -1702,7 +1701,6 @@
     if(osmMap&&osmStyleReady){
       // Paint-only; never setStyle() or lose EA/DEM/tensor/site layers.
       basemapThemeController?.apply(next);
-      syncRasterBasemap();
       const building=next==='dark'?'#2b2f33':'#ffffff';
       if(osmMap.getLayer(CITY_BUILDINGS_LAYER))
         osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',building);
@@ -3063,7 +3061,6 @@
     }
     // sourcedata fires repeatedly; don't re-style buildings on every tile.
     if(changed)syncCityView();
-    syncRasterBasemap();
   }
 
   function streetVehicleDistanceM(a,b){
@@ -8163,50 +8160,11 @@
     });
     maplibregl.addProtocol('ea-terrain-local',terrainLoader);
 
-    // Lightweight OSM-derived raster basemap with a small optional OpenFreeMap
-    // road vector overlay. This avoids external Liberty style/glyph/sprite load
-    // and the heavy tile/symbol processing at startup, but retains 3D city tools.
-    const osmRaster=(name)=>({
-      type:'raster',tileSize:256,maxzoom:20,
-      tiles:['https://basemaps.cartocdn.com/'+name+'/{z}/{x}/{y}.png'],
-      attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'
-    });
-    const OSM_PRIMARY_STYLE={
-      version:8,
-      sources:{
-        'osm-light-base':osmRaster('light_nolabels'),
-        'osm-light-labels':osmRaster('light_only_labels'),
-        'osm-dark-base':osmRaster('dark_nolabels'),
-        'osm-dark-labels':osmRaster('dark_only_labels'),
-        'osm-transport-vector':{
-          type:'vector',minzoom:14,maxzoom:14,
-          tiles:['https://tiles.openfreemap.org/planet/latest/{z}/{x}/{y}.pbf'],
-          attribution:'© OpenFreeMap © OpenStreetMap contributors'
-        }
-      },
-      layers:[
-        {id:'osm-light-base-layer',type:'raster',source:'osm-light-base',layout:{visibility:'visible'}},
-        {id:'osm-dark-base-layer',type:'raster',source:'osm-dark-base',layout:{visibility:'none'}},
-        {id:'osm-transportation-vector-layer',type:'line',source:'osm-transport-vector',
-          'source-layer':'transportation',minzoom:14,
-          paint:{'line-color':'#777777','line-opacity':0.01,'line-width':1}},
-        {id:'osm-light-labels-layer',type:'raster',source:'osm-light-labels',layout:{visibility:'visible'}},
-        {id:'osm-dark-labels-layer',type:'raster',source:'osm-dark-labels',layout:{visibility:'none'}}
-      ]
-    };
-    syncRasterBasemap=()=>{
-      if(!osmMap||!osmStyleReady)return;
-      const dark=basemapTheme==='dark',labels=!osmStructuresHidden;
-      for(const [id,show] of [
-        ['osm-light-base-layer',!dark],['osm-dark-base-layer',dark],
-        ['osm-light-labels-layer',!dark&&labels],['osm-dark-labels-layer',dark&&labels]
-      ]){
-        if(!osmMap.getLayer(id))continue;
-        const vis=show?'visible':'none';
-        if(osmMap.getLayoutProperty(id,'visibility')!==vis)
-          osmMap.setLayoutProperty(id,'visibility',vis);
-      }
-    };
+    // Primary basemap: OpenFreeMap Liberty vector tiles. Vector keeps true
+    // per-layer restyling (Architectural planning / Dark tech), precise label
+    // and POI hiding, road geometry for street vehicles, and sharp text at any
+    // zoom or pitch. Raster basemaps cannot provide these.
+    const OSM_PRIMARY_STYLE='https://tiles.openfreemap.org/styles/liberty';
     // Raster OSM is an emergency basemap only. Normal 3D geometry and analysis
     // remain attached to the OpenFreeMap vector source without changing them.
     const OSM_FALLBACK_STYLE={
@@ -8325,7 +8283,6 @@
       basemapThemeController=createBasemapThemeController(osmMap);
       basemapThemeController.capture();
       basemapThemeController.apply(basemapTheme);
-      syncRasterBasemap();
       ensureCityBuildings();
       tuneCityBuildingFarField();
       syncCityView();
