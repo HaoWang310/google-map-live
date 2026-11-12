@@ -43,9 +43,9 @@ assert.ok(ui.includes('if(drawing||isolatedSelection||!selectionConfirmed||!prep
  'Native double-click must require final confirmation');
 assert.ok(ui.includes('!selectionConfirmed||selectionDirty||!prepared||drawing'),
  'Parcel Generator entry must require final confirmation');
-assert.ok(ui.includes("if(!selectionConfirmed)return '请按第二次 Enter"),
+assert.ok(ui.includes("if(!selectionConfirmed)return 'Press Enter a second time"),
  'Premature entry must explain the missing step');
 assert.ok(html.includes('id="localFloodSelectionStep"'),'The UI must show current step');
-assert.ok(html.includes('第一次 Enter 预览范围；第二次 Enter 确认最终选区'),
+assert.ok(html.includes('Press Enter once to preview, then again to confirm the site'),
  'The confirm button must explain two-Enter workflow');
 console.log('PASS: preview first, confirm second, edit invalidation and entry gating');
