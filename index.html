@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>London map</title>
-  <script type="module" src="./scripts/ui_english.js?v=3.29.4-english"></script>
+  <script type="module" src="./scripts/ui_english.js?v=3.29.5-english"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.13.0/dist/maplibre-gl.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/maplibre-gl@6.13.0/dist/maplibre-gl.css'">
 
@@ -21,6 +21,10 @@
     #googleMap,#osmMap{position:absolute;inset:0}
     #googleMap{display:none}
     #osmMap{display:block}
+    .osmRecovery{display:none;position:absolute;z-index:21;top:14px;right:52px;
+      padding:12px;background:#202329;color:white;border-radius:9px;font:12px system-ui}
+    .osmRecovery.visible{display:block}
+    .osmRecovery a{display:block;margin-top:6px;color:#b8dcff}
     #terrainScreenOverlay{
       position:absolute;inset:0;z-index:6;display:none!important;
       pointer-events:none;overflow:hidden
@@ -895,6 +899,7 @@
 <body>
   <div id="googleMap"></div>
   <div id="osmMap"></div>
+  <div id="osmRecovery" class="osmRecovery" role="alert">Map loading slowly. <a href="./map-safe.html">Open 2D map without WebGL</a></div>
   <div id="terrainScreenOverlay" aria-hidden="true">
     <img id="terrainScreenImage" alt="">
   </div>
@@ -907,7 +912,7 @@
     <div class="head">
       <div>
         <div class="title">London map</div>
-        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.29.4-english</div>
+        <div class="sub" id="appVersionLabel">OpenStreetMap / OpenFreeMap · v3.29.5-english</div>
         <div class="providerBadge" id="providerBadge">OpenStreetMap · no API key</div>
       </div>
       <button id="collapse" aria-label="Collapse control panel" title="Collapse / expand control panel">−</button>
@@ -1295,11 +1300,11 @@
   <div id="coords" class="coords">Lat — / Lng — / Zoom —</div>
 
 <script type="module">
-  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.29.4-english';
-  import {createPlaceSearch} from './scripts/place_search.js?v=3.29.4-english';
-  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.29.4-english';
-  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.29.4-english';
-  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.29.4-english';
+  import {createFloodDetailLoader,DETAIL_MIN_ZOOM,DETAIL_MAX_ZOOM,DETAIL_TILE_SIZE} from './scripts/flood_detail.js?v=3.29.5-english';
+  import {createPlaceSearch} from './scripts/place_search.js?v=3.29.5-english';
+  import {createDrainageDisplayLoader,AREA_MIN_ZOOM,AREA_MAX_ZOOM,AREA_TILE_SIZE} from './scripts/drainage_display.js?v=3.29.5-english';
+  import {createTerrainLocalLoader,TERRAIN_MIN_ZOOM,TERRAIN_MAX_ZOOM,TERRAIN_TILE_SIZE} from './scripts/terrain_local.js?v=3.29.5-english';
+  import {createBasemapThemeController,normaliseBasemapTheme} from './scripts/osm_basemap_themes.js?v=3.29.5-english';
   // Map rendering must not depend on a single CDN. Heavy analysis modules are
   // loaded only AFTER the basemap has started.
   let maplibregl;
@@ -1320,7 +1325,7 @@
     }
   }
 
-  const APP_VERSION='3.29.4-english';
+  const APP_VERSION='3.29.5-english';
   // Keep the header's version derived from exactly the same runtime build id.
   document.getElementById('appVersionLabel').textContent='OpenStreetMap / OpenFreeMap · v'+APP_VERSION;
   const CITY_BUILDINGS_SOURCE='osm-city-buildings-source';
@@ -1606,6 +1611,7 @@
   let osmStyleReady=false;
   let basemapTheme='planning'; // 03 is the default on every first load.
   let basemapThemeController=null;
+  let syncRasterBasemap=()=>{};
   let googleMarker=null;
   let osmMarker=null;
   let googleLoading=false;
@@ -1696,6 +1702,7 @@
     if(osmMap&&osmStyleReady){
       // Paint-only; never setStyle() or lose EA/DEM/tensor/site layers.
       basemapThemeController?.apply(next);
+      syncRasterBasemap();
       const building=next==='dark'?'#2b2f33':'#ffffff';
       if(osmMap.getLayer(CITY_BUILDINGS_LAYER))
         osmMap.setPaintProperty(CITY_BUILDINGS_LAYER,'fill-extrusion-color',building);
@@ -3056,6 +3063,7 @@
     }
     // sourcedata fires repeatedly; don't re-style buildings on every tile.
     if(changed)syncCityView();
+    syncRasterBasemap();
   }
 
   function streetVehicleDistanceM(a,b){
@@ -7922,7 +7930,7 @@
      */
     if(typeof osmMap.setSourceTileLodParams==='function'){
       try{
-        osmMap.setSourceTileLodParams(1,48,CITY_BUILDINGS_SOURCE);
+        osmMap.setSourceTileLodParams(3,4,CITY_BUILDINGS_SOURCE);
         lastCityBuildingLodSource=source;
       }catch(error){
         console.warn('Unable to tune building tile LOD',error);
@@ -8155,7 +8163,50 @@
     });
     maplibregl.addProtocol('ea-terrain-local',terrainLoader);
 
-    const OSM_PRIMARY_STYLE='https://tiles.openfreemap.org/styles/liberty';
+    // Lightweight OSM-derived raster basemap with a small optional OpenFreeMap
+    // road vector overlay. This avoids external Liberty style/glyph/sprite load
+    // and the heavy tile/symbol processing at startup, but retains 3D city tools.
+    const osmRaster=(name)=>({
+      type:'raster',tileSize:256,maxzoom:20,
+      tiles:['https://basemaps.cartocdn.com/'+name+'/{z}/{x}/{y}.png'],
+      attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>'
+    });
+    const OSM_PRIMARY_STYLE={
+      version:8,
+      sources:{
+        'osm-light-base':osmRaster('light_nolabels'),
+        'osm-light-labels':osmRaster('light_only_labels'),
+        'osm-dark-base':osmRaster('dark_nolabels'),
+        'osm-dark-labels':osmRaster('dark_only_labels'),
+        'osm-transport-vector':{
+          type:'vector',minzoom:14,maxzoom:14,
+          tiles:['https://tiles.openfreemap.org/planet/latest/{z}/{x}/{y}.pbf'],
+          attribution:'© OpenFreeMap © OpenStreetMap contributors'
+        }
+      },
+      layers:[
+        {id:'osm-light-base-layer',type:'raster',source:'osm-light-base',layout:{visibility:'visible'}},
+        {id:'osm-dark-base-layer',type:'raster',source:'osm-dark-base',layout:{visibility:'none'}},
+        {id:'osm-transportation-vector-layer',type:'line',source:'osm-transport-vector',
+          'source-layer':'transportation',minzoom:14,
+          paint:{'line-color':'#777777','line-opacity':0.01,'line-width':1}},
+        {id:'osm-light-labels-layer',type:'raster',source:'osm-light-labels',layout:{visibility:'visible'}},
+        {id:'osm-dark-labels-layer',type:'raster',source:'osm-dark-labels',layout:{visibility:'none'}}
+      ]
+    };
+    syncRasterBasemap=()=>{
+      if(!osmMap||!osmStyleReady)return;
+      const dark=basemapTheme==='dark',labels=!osmStructuresHidden;
+      for(const [id,show] of [
+        ['osm-light-base-layer',!dark],['osm-dark-base-layer',dark],
+        ['osm-light-labels-layer',!dark&&labels],['osm-dark-labels-layer',dark&&labels]
+      ]){
+        if(!osmMap.getLayer(id))continue;
+        const vis=show?'visible':'none';
+        if(osmMap.getLayoutProperty(id,'visibility')!==vis)
+          osmMap.setLayoutProperty(id,'visibility',vis);
+      }
+    };
     // Raster OSM is an emergency basemap only. Normal 3D geometry and analysis
     // remain attached to the OpenFreeMap vector source without changing them.
     const OSM_FALLBACK_STYLE={
@@ -8174,6 +8225,8 @@
     let rasterFallbackActive=false;
     let startupWatchdog=null;
     let buildingLoadErrorShown=false;
+    const showRecovery=()=>document.getElementById('osmRecovery')?.classList.add('visible');
+    const recoveryTimer=setTimeout(()=>{if(!osmStyleReady)showRecovery();},7000);
     const activateRasterFallback=(reason)=>{
       if(!osmMap||osmStyleReady||rasterFallbackActive)return;
       rasterFallbackActive=true;
@@ -8199,13 +8252,7 @@
       pitchWithRotate:true,
       touchPitch:true,
 
-      // High-pitch 3D city stability:
-      // retain substantially more vector tiles and do not cancel pending tiles while
-      // zooming/rotating, so distant buildings stay available instead of blinking out.
-      maxTileCacheSize:1400,
-      maxTileCacheZoomLevels:12,
-      cancelPendingTileRequestsWhileZooming:false,
-
+      // Default bounded MapLibre tile cache prevents excessive browser/GPU memory use.
       canvasContextAttributes:{antialias:true},
       attributionControl:true
     });
@@ -8224,6 +8271,13 @@
       }
     });
 
+    // MapLibre 6.13 can restore a blank map if WebGL is lost before style load.
+    osmMap.getCanvas().addEventListener('webglcontextrestored',()=>{
+      if(!osmStyleReady){
+        try{osmMap.setStyle(OSM_FALLBACK_STYLE);}
+        catch(error){console.error('WebGL recovery failed',error);}
+      }
+    });
     osmMap.addControl(new maplibregl.NavigationControl({showCompass:true,visualizePitch:true}),'top-right');
     osmMap.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-left');
 
@@ -8264,18 +8318,21 @@
     });
     osmMap.on('load',()=>{
       if(startupWatchdog){clearTimeout(startupWatchdog);startupWatchdog=null;}
+      clearTimeout(recoveryTimer);
       osmStyleReady=true;
+      document.getElementById('osmRecovery')?.classList.remove('visible');
       // Capture the pristine OpenFreeMap layer IDs before project overlays.
       basemapThemeController=createBasemapThemeController(osmMap);
       basemapThemeController.capture();
       basemapThemeController.apply(basemapTheme);
+      syncRasterBasemap();
       ensureCityBuildings();
       tuneCityBuildingFarField();
       syncCityView();
       // A failure in the large flood/parcel modules must never block the map.
       // The independent module graph is downloaded after the basemap is ready.
       $('localFloodDraw').disabled=true;
-      import('./scripts/local_flood_ui.js?v=3.29.4-english')
+      import('./scripts/local_flood_ui.js?v=3.29.5-english')
         .then(({createLocalFloodUI})=>{
           if(localFloodUI)return;
           localFloodUI=createLocalFloodUI({
@@ -8300,7 +8357,7 @@
             onOpenParcelGenerator:async ({polygon,roadNetwork=null})=>{
               try {
                 if(!parcelGenerator){
-                  const module=await import('./scripts/parcel_generator.js?v=3.29.4-english');
+                  const module=await import('./scripts/parcel_generator.js?v=3.29.5-english');
                   parcelGenerator=module.createParcelGenerator({
                     maplibregl,assetUrl,demBounds:DRAINAGE_3857,
                     demWidth:DRAINAGE_3857.baseWidth50m,
