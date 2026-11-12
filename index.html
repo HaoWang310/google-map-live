@@ -8199,7 +8199,12 @@
       tiles:[ESRI_CANVAS+name+'/MapServer/tile/{z}/{y}/{x}'],
       attribution:'Esri, HERE, Garmin, \u00a9 <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     });
-    const OSM_PRIMARY_STYLE={
+    // ?basemap=vector opts into the OpenFreeMap Liberty vector style. In
+    // isolated tests it loads in ~1.2 s with no main-thread stall, including
+    // 3D city mode, but one blank/frozen load was seen in the wild, so raster
+    // stays the default until vector is confirmed on more machines.
+    const USE_VECTOR_BASEMAP=new URLSearchParams(location.search).get('basemap')==='vector';
+    const ESRI_RASTER_STYLE={
       version:8,
       sources:{
         'osm-light-base':esriRaster('World_Light_Gray_Base'),
@@ -8225,6 +8230,9 @@
         {id:'osm-dark-labels-layer',type:'raster',source:'osm-dark-labels',layout:{visibility:'none'}}
       ]
     };
+    const OSM_PRIMARY_STYLE=USE_VECTOR_BASEMAP
+      ?'https://tiles.openfreemap.org/styles/liberty'
+      :ESRI_RASTER_STYLE;
     syncRasterBasemap=()=>{
       if(!osmMap||!osmStyleReady)return;
       const dark=basemapTheme==='dark',labels=!osmStructuresHidden;
