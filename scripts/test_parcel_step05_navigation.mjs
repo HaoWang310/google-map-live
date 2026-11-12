@@ -45,7 +45,7 @@ assert.ok(pg.includes('roadUI.loadResult(roadNetwork)'),
   'Final map must preview incoming computed road network');
 assert.ok(!pg.includes('selectStep(5);'),
   'Final Parcel Generator must not open the legacy standalone STEP05 by default');
-assert.ok(pg.includes('title="STEP 05 已移动到 Hydro Lab'),
+assert.ok(pg.includes('title="STEP 05 moved to Hydro Lab'),
   'Final Parcel Generator must not duplicate STEP05 controls');
 for(const input of ['dragPan:true','scrollZoom:true','doubleClickZoom:true',
  'dragRotate:true','viewer.resize()','id="pg-fit-site"',
